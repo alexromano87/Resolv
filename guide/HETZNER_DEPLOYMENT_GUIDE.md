@@ -225,7 +225,7 @@ ssh -V
 
 13. **Name:** Nome server
     ```
-    resolv-app-01
+    resolv-01
     ```
 
 14. **Riepilogo Costi:**
@@ -277,7 +277,7 @@ ssh -V
 
 4. **Sei dentro!** Dovresti vedere:
    ```
-   root@resolv-app-01:~#
+   root@resolv-01:~#
    ```
 
 ### **Step 3.2: Update Sistema**
@@ -389,11 +389,11 @@ Time zone: Europe/Rome (CET, +0100)
 
 ```bash
 # Imposta hostname
-hostnamectl set-hostname resolv-app-01
+hostnamectl set-hostname resolv-01
 
 # Verifica
 hostname
-# Output: resolv-app-01
+# Output: resolv-01
 
 # Logout e riconnetti per vedere nuovo hostname nel prompt
 exit
@@ -479,20 +479,19 @@ sudo systemctl status docker
 
 ## 5️⃣ Setup DNS & Dominio
 
-### **Step 5.1: Registra Dominio**
+### **Step 5.1: Dominio (Hostinger)**
 
-**Opzione A: Acquista nuovo dominio**
+Il dominio `resolv.legal` è registrato su **Hostinger**.
 
-Raccomandati (economici):
-- [Namecheap.com](https://namecheap.com) - .it da €10/anno
-- [Porkbun.com](https://porkbun.com) - .com da €8/anno
-- [Cloudflare Registrar](https://cloudflare.com) - At-cost pricing
+Hai due strade:
 
-**Opzione B: Usa dominio esistente**
+**Opzione A: DNS gestito da Cloudflare (raccomandato)**  
+- Imposti i **nameserver di Cloudflare** su Hostinger  
+- Gestisci i record DNS dentro Cloudflare
 
-Procedi con il dominio che hai.
-
-**Per questo esempio, useremo:** `resolv-app.it`
+**Opzione B: DNS gestito da Hostinger**  
+- Mantieni i nameserver Hostinger  
+- Crei i record DNS direttamente nel pannello Hostinger
 
 ### **Step 5.2: Punta DNS a Hetzner**
 
@@ -501,15 +500,15 @@ Procedi con il dominio che hai.
 1. Vai su [Cloudflare.com](https://cloudflare.com)
 2. Login/Registrati
 3. Click **"Add a Site"**
-4. Inserisci dominio: `resolv-app.it`
+4. Inserisci dominio: `resolv.legal`
 5. Scegli piano: **Free** (sufficiente per MVP)
 6. Cloudflare ti darà **nameservers** (es: `adam.ns.cloudflare.com`)
-7. **Nel tuo registrar** (Namecheap/etc), cambia nameservers con quelli Cloudflare
+7. **Nel pannello Hostinger**, cambia nameservers con quelli Cloudflare
 8. Attendi propagazione (2-24 ore, solitamente 10 minuti)
 
-**Se NON usi Cloudflare:**
+**Se NON usi Cloudflare (DNS su Hostinger):**
 
-Nel tuo provider DNS, crea record:
+Nel pannello DNS di Hostinger, crea record:
 
 ```
 Type: A
@@ -527,14 +526,14 @@ TTL: 3600
 
 ```bash
 # Dal tuo computer locale (non dal server!)
-nslookup resolv-app.it
+nslookup resolv.legal
 
 # Output atteso:
-# Name:    resolv-app.it
+# Name:    resolv.legal
 # Address: 95.217.123.45
 
 # Oppure
-dig resolv-app.it +short
+dig resolv.legal +short
 # Output: 95.217.123.45
 ```
 
@@ -568,7 +567,7 @@ Se non vedi ancora l'IP:
 
 2. Crea regola per caching assets:
    ```
-   URL: resolv-app.it/assets/*
+   URL: resolv.legal/assets/*
 
    Settings:
    - Cache Level: Cache Everything
@@ -669,12 +668,12 @@ JWT_REFRESH_EXPIRES_IN=7d
 # =============================================================================
 # CORS
 # =============================================================================
-CORS_ORIGINS=https://resolv-app.it,https://www.resolv-app.it
+CORS_ORIGINS=https://resolv.legal,https://www.resolv.legal
 
 # =============================================================================
 # FRONTEND
 # =============================================================================
-VITE_API_URL=https://resolv-app.it/api
+VITE_API_URL=https://resolv.legal/api
 
 # =============================================================================
 # BACKUP
@@ -721,7 +720,7 @@ SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=
 SMTP_PASSWORD=
-SMTP_FROM=noreply@resolv-app.it
+SMTP_FROM=noreply@resolv.legal
 ```
 
 **Genera password sicure:**
@@ -817,7 +816,7 @@ docker compose -f docker-compose.prod.yml logs -f nginx
 - ✅ `Backend listening on port 3000` = OK
 - ✅ `MySQL connected` = OK
 - ❌ `ECONNREFUSED` = Problema connessione DB
-- ❌ `Cannot find module` = Dipendenze mancanti
+- ❌ `Cannot find module' = Dipendenze mancanti
 
 **✅ Checkpoint:** Applicazione running, containers healthy
 
@@ -843,15 +842,15 @@ docker compose -f docker-compose.prod.yml run --rm certbot certonly \
   --email tua-email@example.com \
   --agree-tos \
   --no-eff-email \
-  -d resolv-app.it \
-  -d www.resolv-app.it
+  -d resolv.legal \
+  -d www.resolv.legal
 ```
 
 **Output atteso:**
 ```
 Successfully received certificate.
-Certificate is saved at: /etc/letsencrypt/live/resolv-app.it/fullchain.pem
-Key is saved at:         /etc/letsencrypt/live/resolv-app.it/privkey.pem
+Certificate is saved at: /etc/letsencrypt/live/resolv.legal/fullchain.pem
+Key is saved at:         /etc/letsencrypt/live/resolv.legal/privkey.pem
 ```
 
 ### **Step 8.2: Configura Nginx per HTTPS**
@@ -868,7 +867,7 @@ Assicurati che contenga:
 server {
     listen 80;
     listen [::]:80;
-    server_name resolv-app.it www.resolv-app.it;
+    server_name resolv.legal www.resolv.legal;
 
     # ACME challenge for Let's Encrypt
     location /.well-known/acme-challenge/ {
@@ -885,11 +884,11 @@ server {
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name resolv-app.it www.resolv-app.it;
+    server_name resolv.legal www.resolv.legal;
 
     # SSL Configuration
-    ssl_certificate /etc/letsencrypt/live/resolv-app.it/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/resolv-app.it/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/resolv.legal/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/resolv.legal/privkey.pem;
 
     # SSL Settings
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -935,7 +934,7 @@ docker compose -f docker-compose.prod.yml logs nginx
 
 ```bash
 # Test da server
-curl -I https://resolv-app.it
+curl -I https://resolv.legal
 
 # Output atteso:
 # HTTP/2 200
@@ -944,14 +943,14 @@ curl -I https://resolv-app.it
 ```
 
 **Test da browser:**
-1. Apri `https://resolv-app.it`
+1. Apri `https://resolv.legal`
 2. Verifica lucchetto verde 🔒
 3. Click lucchetto > Certificato valido ✅
 
 ### **Step 8.5: Test SSL Rating**
 
 1. Vai su [SSL Labs](https://www.ssllabs.com/ssltest/)
-2. Inserisci: `resolv-app.it`
+2. Inserisci: `resolv.legal`
 3. Click **"Submit"**
 4. Attendi 2-3 minuti
 5. **Target rating:** A o A+ ✅
@@ -996,7 +995,7 @@ docker compose -f docker-compose.prod.yml exec backend npm run seed:admin
 
 # Output atteso:
 # ✅ Admin user created successfully
-# Email: admin@resolv.it
+# Email: admin@resolv.legal
 # Password: Admin123!
 #
 # ⚠️ IMPORTANTE: Cambia password al primo login!
@@ -1030,7 +1029,7 @@ SELECT id, email, nome, cognome, ruolo FROM users WHERE ruolo = 'admin';
 
 # Output:
 # | id | email           | nome  | cognome | ruolo |
-# |  1 | admin@resolv.it | Admin | User    | admin |
+# |  1 | admin@resolv.legal | Admin | User    | admin |
 
 # Exit MySQL
 exit
@@ -1234,7 +1233,7 @@ docker compose -f docker-compose.prod.yml up -d uptime-kuma
    ```
    Monitor Type: HTTP(s)
    Friendly Name: Resolv Frontend
-   URL: https://resolv-app.it
+   URL: https://resolv.legal
    Heartbeat Interval: 60 seconds
    ```
 
@@ -1242,7 +1241,7 @@ docker compose -f docker-compose.prod.yml up -d uptime-kuma
    ```
    Monitor Type: HTTP(s)
    Friendly Name: Resolv API
-   URL: https://resolv-app.it/api/health/live
+   URL: https://resolv.legal/api/health/live
    Heartbeat Interval: 60 seconds
    ```
 
@@ -1311,7 +1310,7 @@ sudo logrotate -d /etc/logrotate.d/resolv
 
 7. **Test Sentry:**
 
-   Apri `https://resolv-app.it/test/sentry/error` (se hai endpoint di test)
+   Apri `https://resolv.legal/test/sentry/error` (se hai endpoint di test)
 
    Oppure triggera errore manualmente e verifica su Sentry dashboard.
 
@@ -1325,17 +1324,17 @@ sudo logrotate -d /etc/logrotate.d/resolv
 
 ```bash
 # Test 1: Frontend accessible
-curl -I https://resolv-app.it
+curl -I https://resolv.legal
 # Expected: HTTP/2 200
 
 # Test 2: API health check
-curl https://resolv-app.it/api/health/live
+curl https://resolv.legal/api/health/live
 # Expected: {"status":"ok"}
 
 # Test 3: Login endpoint
-curl -X POST https://resolv-app.it/api/auth/login \
+curl -X POST https://resolv.legal/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@resolv.it","password":"Admin123!"}'
+  -d '{"email":"admin@resolv.legal","password":"Admin123!"}'
 # Expected: {"access_token":"..."}
 
 # Test 4: Database connectivity
@@ -1347,7 +1346,7 @@ docker compose -f docker-compose.prod.yml exec mysql mysqladmin ping
 
 **Da browser:**
 
-1. Apri `https://resolv-app.it`
+1. Apri `https://resolv.legal`
 2. Verifica:
    - ✅ Pagina carica senza errori
    - ✅ HTTPS lucchetto verde
@@ -1355,7 +1354,7 @@ docker compose -f docker-compose.prod.yml exec mysql mysqladmin ping
 
 3. Login:
    ```
-   Email: admin@resolv.it
+   Email: admin@resolv.legal
    Password: Admin123!
    ```
 
@@ -1372,7 +1371,7 @@ docker compose -f docker-compose.prod.yml exec mysql mysqladmin ping
 sudo apt install -y apache2-utils
 
 # Test 1: Homepage (100 richieste, 10 concorrenti)
-ab -n 100 -c 10 https://resolv-app.it/
+ab -n 100 -c 10 https://resolv.legal/
 
 # Risultati attesi:
 # Requests per second: > 100
@@ -1380,7 +1379,7 @@ ab -n 100 -c 10 https://resolv-app.it/
 # Failed requests: 0
 
 # Test 2: API endpoint
-ab -n 100 -c 10 https://resolv-app.it/api/health/live
+ab -n 100 -c 10 https://resolv.legal/api/health/live
 
 # Risultati attesi:
 # Requests per second: > 200
@@ -1391,15 +1390,15 @@ ab -n 100 -c 10 https://resolv-app.it/api/health/live
 
 ```bash
 # Test SSL
-curl -I https://resolv-app.it | grep -i strict-transport-security
+curl -I https://resolv.legal | grep -i strict-transport-security
 # Expected: strict-transport-security: max-age=31536000
 
 # Test headers
-curl -I https://resolv-app.it | grep -i x-frame-options
+curl -I https://resolv.legal | grep -i x-frame-options
 # Expected: x-frame-options: SAMEORIGIN
 
 # Test HTTP redirect
-curl -I http://resolv-app.it
+curl -I http://resolv.legal
 # Expected: HTTP/1.1 301 Moved Permanently
 # Expected: Location: https://...
 ```
@@ -1475,7 +1474,7 @@ Se tutti i check passano:
 
 ```bash
 # Annuncia go-live
-echo "🚀 Resolv is LIVE on https://resolv-app.it"
+echo "🚀 Resolv is LIVE on https://resolv.legal"
 
 # Monitora logs in tempo reale
 docker compose -f docker-compose.prod.yml logs -f
@@ -1543,7 +1542,7 @@ docker compose -f docker-compose.prod.yml restart nginx
 
 ```bash
 # Verifica certificati
-sudo ls -la /opt/resolv/certbot/conf/live/resolv-app.it/
+sudo ls -la /opt/resolv/certbot/conf/live/resolv.legal/
 
 # Rigenera se scaduti
 docker compose -f docker-compose.prod.yml run --rm certbot renew
@@ -1665,7 +1664,7 @@ ps aux | grep node
 ### **Security**
 
 1. ✅ **Mai usare password deboli**
-2. ✅ **Aggiorna sistema regolarmente:** `sudo apt update && sudo apt upgrade`
+2. ✅ **Aggiorna sistema regolarmente:** `sudo apt update && sudo apt upgrade'
 3. ✅ **Monitora logs per attività sospette**
 4. ✅ **Usa SSH keys, non password SSH**
 5. ✅ **Configura fail2ban** per brute-force protection
@@ -1734,7 +1733,7 @@ ps aux | grep node
 ```
 On-Call DevOps: [TUO NUMERO]
 Escalation: [MANAGER NUMERO]
-Email: ops@resolv-app.it
+Email: ops@resolv.legal
 ```
 
 ### **Useful Resources**
