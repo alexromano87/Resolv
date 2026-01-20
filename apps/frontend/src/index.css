@@ -1,0 +1,251 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300..900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+
+:root {
+  /* Backgrounds - Palette Professionale Blu Navy */
+  --app-bg: #f8fafc;              /* Slate 50 - Grigio chiarissimo neutro */
+  --app-bg-cool: #f1f5f9;         /* Slate 100 - Grigio freddo */
+  --app-surface: #ffffff;         /* Bianco puro */
+  --app-surface-elev: #ffffff;    /* Bianco puro per elevazione */
+
+  /* Testi */
+  --app-ink: #0f172a;             /* Slate 900 - Testo principale */
+  --app-muted: #64748b;           /* Slate 500 - Testo secondario */
+
+  /* Accenti Primari - Blu Navy Professionale */
+  --app-accent: #1e40af;          /* Blue 700 - Primario */
+  --app-accent-strong: #1e3a8a;   /* Blue 800 - Primario scuro */
+  --app-accent-light: #3b82f6;    /* Blue 500 - Primario chiaro */
+  --app-accent-warm: #0891b2;     /* Cyan 600 - Accento caldo */
+
+  /* Colori Semantici - Recupero Crediti */
+  --app-success: #059669;         /* Emerald 600 - Importi recuperati */
+  --app-warning: #d97706;         /* Amber 600 - Alert e scadenze */
+  --app-danger: #dc2626;          /* Red 600 - Debiti e errori */
+  --app-info: #0891b2;            /* Cyan 600 - Informazioni */
+
+  /* Effetti */
+  --app-ring: rgba(30, 64, 175, 0.3);
+  --app-shadow: 0 20px 60px rgba(15, 23, 42, 0.12);
+  --app-shadow-lg: 0 30px 80px rgba(15, 23, 42, 0.15);
+}
+
+body {
+  background: radial-gradient(circle at top right, rgba(30, 64, 175, 0.04), transparent 50%),
+    radial-gradient(circle at bottom left, rgba(8, 145, 178, 0.03), transparent 50%),
+    linear-gradient(180deg, var(--app-bg), var(--app-bg-cool));
+  color: var(--app-ink);
+  font-family: 'Roboto Flex', ui-sans-serif, system-ui, sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+.display-font {
+  font-family: 'Roboto Flex', ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.02em;
+  font-variation-settings: 'wght' 650, 'opsz' 32;
+}
+
+@keyframes toast-pop {
+  0% {
+    transform: translateY(-8px) scale(0.98);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes wow-rise {
+  0% {
+    transform: translateY(16px) scale(0.98);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes wow-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes modal-fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+input,
+select,
+button,
+textarea {
+  @apply outline-none;
+}
+
+input:disabled,
+select:disabled,
+button:disabled,
+textarea:disabled {
+  cursor: default !important;
+}
+
+
+@layer base {
+  ::selection {
+    background: rgba(30, 64, 175, 0.2);
+  }
+
+  input,
+  select,
+  textarea {
+    @apply border border-blue-200/60 bg-white text-slate-900 shadow-sm focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 dark:border-blue-500/30 dark:bg-slate-900/60 dark:text-slate-100;
+    border-radius: 0.75rem;
+  }
+
+  button {
+    @apply font-semibold tracking-[0.01em];
+  }
+
+  table {
+    @apply w-full border-separate border-spacing-0;
+  }
+
+  thead th {
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600;
+  }
+
+  tbody tr {
+    @apply bg-white backdrop-blur-sm transition-colors;
+  }
+
+  tbody tr:hover {
+    @apply bg-blue-50/30;
+  }
+
+  tbody td {
+    @apply border-b border-slate-200/60;
+  }
+}
+
+@layer components {
+  .wow-card {
+    @apply rounded-2xl border border-blue-200/40 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur-sm transition duration-300 hover:shadow-[0_30px_80px_rgba(15,23,42,0.15)] hover:border-blue-300/50 dark:border-slate-700 dark:bg-slate-900/80 dark:shadow-none;
+  }
+
+  .wow-panel {
+    @apply rounded-xl border border-slate-200/60 bg-white shadow-[0_12px_40px_rgba(15,23,42,0.08)] backdrop-blur-sm transition duration-300 hover:shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:border-slate-700 dark:bg-slate-900/80 dark:shadow-none;
+  }
+
+  .wow-chip {
+    @apply inline-flex items-center gap-2 rounded-full border border-blue-600/30 bg-blue-950/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-100;
+  }
+
+  .wow-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(30,64,175,0.3)] transition hover:bg-blue-800 hover:shadow-[0_12px_32px_rgba(30,64,175,0.4)] active:bg-blue-900;
+  }
+
+  .wow-button-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:border-slate-400;
+  }
+
+  .wow-stagger > * {
+    animation: wow-rise 600ms ease both;
+  }
+
+  .wow-stagger > *:nth-child(1) { animation-delay: 40ms; }
+  .wow-stagger > *:nth-child(2) { animation-delay: 90ms; }
+  .wow-stagger > *:nth-child(3) { animation-delay: 140ms; }
+  .wow-stagger > *:nth-child(4) { animation-delay: 190ms; }
+  .wow-stagger > *:nth-child(5) { animation-delay: 240ms; }
+  .wow-stagger > *:nth-child(6) { animation-delay: 290ms; }
+  .wow-stagger > *:nth-child(7) { animation-delay: 340ms; }
+  .wow-stagger > *:nth-child(8) { animation-delay: 390ms; }
+
+  .wow-stagger-rows tbody tr {
+    animation: wow-fade 420ms ease both;
+  }
+
+  .wow-stagger-rows tbody tr:nth-child(1) { animation-delay: 40ms; }
+  .wow-stagger-rows tbody tr:nth-child(2) { animation-delay: 90ms; }
+  .wow-stagger-rows tbody tr:nth-child(3) { animation-delay: 140ms; }
+  .wow-stagger-rows tbody tr:nth-child(4) { animation-delay: 190ms; }
+  .wow-stagger-rows tbody tr:nth-child(5) { animation-delay: 240ms; }
+  .wow-stagger-rows tbody tr:nth-child(6) { animation-delay: 290ms; }
+}
+
+html[data-density='compatta'] body {
+  font-size: 0.95rem;
+}
+
+html[data-density='compatta'] input,
+html[data-density='compatta'] select,
+html[data-density='compatta'] textarea {
+  padding-top: 0.35rem !important;
+  padding-bottom: 0.35rem !important;
+}
+
+html[data-density='compatta'] button {
+  padding-top: 0.35rem !important;
+  padding-bottom: 0.35rem !important;
+}
+
+.body-portal-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 999;
+}
+
+.body-portal-root > * {
+  pointer-events: auto;
+}
+
+/* Transizione morbida tra temi */
+html.theme-transition *,
+html.theme-transition *::before,
+html.theme-transition *::after {
+  transition-property: background-color, border-color, color, fill, stroke,
+    box-shadow;
+  transition-duration: 250ms;
+  transition-timing-function: ease-in-out;
+}
+
+/* Animazioni modali */
+.modal-overlay {
+  animation: modal-fade-in 200ms ease-out;
+}
+
+.modal-content {
+  animation: modal-slide-up 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}

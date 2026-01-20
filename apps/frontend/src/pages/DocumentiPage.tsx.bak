@@ -1,0 +1,1075 @@
+// apps/frontend/src/pages/DocumentiPage.tsx
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Upload,
+  File,
+  Folder,
+  FolderOpen,
+  Download,
+  Trash2,
+  Edit2,
+  X,
+  FileText,
+  Image,
+  FileSpreadsheet,
+  Search,
+  ChevronRight,
+  Filter,
+  Move,
+  Eye,
+  ArrowRight,
+} from 'lucide-react';
+import { documentiApi } from '../api/documenti';
+import { cartelleApi } from '../api/cartelle';
+import type { Documento, UploadDocumentoDto } from '../api/documenti';
+import type { Cartella, CreateCartellaDto, UpdateCartellaDto } from '../api/cartelle';
+import { fetchPratiche, type Pratica } from '../api/pratiche';
+
+export function DocumentiPage() {
+  const [documenti, setDocumenti] = useState<Documento[]>([]);
+  const [cartelle, setCartelle] = useState<Cartella[]>([]);
+  const [pratiche, setPratiche] = useState<Pratica[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentCartellaId, setCurrentCartellaId] = useState<string | null>(null);
+  const [selectedPraticaId, setSelectedPraticaId] = useState<string | null>(null);
+  const [breadcrumb, setBreadcrumb] = useState<Cartella[]>([]);
+
+  // Move document state
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [documentToMove, setDocumentToMove] = useState<Documento | null>(null);
+  const [targetCartellaId, setTargetCartellaId] = useState<string>('');
+
+  // View document state
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [viewingDocument, setViewingDocument] = useState<Documento | null>(null);
+
+  // Upload modal state
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadNome, setUploadNome] = useState('');
+  const [uploadDescrizione, setUploadDescrizione] = useState('');
+  const [uploadPraticaId, setUploadPraticaId] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Folder modal state
+  const [showFolderModal, setShowFolderModal] = useState(false);
+  const [folderNome, setFolderNome] = useState('');
+  const [folderDescrizione, setFolderDescrizione] = useState('');
+  const [folderColore, setFolderColore] = useState('#3b82f6');
+  const [folderPraticaId, setFolderPraticaId] = useState<string>('');
+  const [editingFolder, setEditingFolder] = useState<Cartella | null>(null);
+
+  // Folder view modal state
+  const [showFolderViewModal, setShowFolderViewModal] = useState(false);
+  const [viewingFolder, setViewingFolder] = useState<Cartella | null>(null);
+  const [folderDocuments, setFolderDocuments] = useState<Documento[]>([]);
+
+  useEffect(() => {
+    loadPratiche();
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [currentCartellaId, selectedPraticaId]);
+
+  const loadPratiche = async () => {
+    try {
+      const data = await fetchPratiche();
+      setPratiche(data);
+    } catch (error) {
+      console.error('Errore caricamento pratiche:', error);
+    }
+  };
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      if (currentCartellaId) {
+        const [docs, folders] = await Promise.all([
+          documentiApi.getAllByCartella(currentCartellaId),
+          cartelleApi.getAll(),
+        ]);
+        setDocumenti(docs);
+        setCartelle(folders.filter((c) => c.cartellaParent?.id === currentCartellaId));
+
+        // Build breadcrumb
+        const ancestors = await cartelleApi.getAncestors(currentCartellaId);
+        setBreadcrumb(ancestors.reverse());
+      } else {
+        const [docs, folders] = await Promise.all([
+          documentiApi.getAll(),
+          cartelleApi.getAll(),
+        ]);
+
+        // Filter by pratica if selected
+        const filteredDocs = selectedPraticaId
+          ? docs.filter((d) => !d.cartellaId && d.praticaId === selectedPraticaId)
+          : docs.filter((d) => !d.cartellaId);
+
+        const filteredFolders = selectedPraticaId
+          ? folders.filter((c) => !c.cartellaParent && c.praticaId === selectedPraticaId)
+          : folders.filter((c) => !c.cartellaParent);
+
+        setDocumenti(filteredDocs);
+        setCartelle(filteredFolders);
+        setBreadcrumb([]);
+      }
+    } catch (error) {
+      console.error('Errore nel caricamento documenti/cartelle:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Move document handlers
+  const handleOpenMoveModal = (documento: Documento) => {
+    setDocumentToMove(documento);
+    setTargetCartellaId(documento.cartellaId || '');
+    setShowMoveModal(true);
+  };
+
+  const handleMoveDocument = async () => {
+    if (!documentToMove) return;
+
+    try {
+      await documentiApi.update(documentToMove.id, {
+        cartellaId: targetCartellaId || undefined,
+      });
+      setShowMoveModal(false);
+      setDocumentToMove(null);
+      setTargetCartellaId('');
+      loadData();
+      // Reload folder view if open
+      if (showFolderViewModal && viewingFolder) {
+        const docs = await documentiApi.getAllByCartella(viewingFolder.id);
+        setFolderDocuments(docs);
+      }
+    } catch (error) {
+      console.error('Errore spostamento documento:', error);
+      alert('Errore durante lo spostamento del documento');
+    }
+  };
+
+  // View document handler
+  const handleViewDocument = (documento: Documento) => {
+    setViewingDocument(documento);
+    setShowViewModal(true);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setUploadFile(file);
+      setUploadNome(file.name);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!uploadFile) return;
+
+    try {
+      const uploadDto: UploadDocumentoDto = {
+        file: uploadFile,
+        nome: uploadNome,
+        descrizione: uploadDescrizione,
+        caricatoDa: 'Studio',
+        cartellaId: currentCartellaId || undefined,
+        praticaId: uploadPraticaId || selectedPraticaId || undefined,
+      };
+
+      await documentiApi.upload(uploadDto);
+      setShowUploadModal(false);
+      resetUploadForm();
+      loadData();
+    } catch (error) {
+      console.error('Errore upload:', error);
+      alert('Errore durante l\'upload del file');
+    }
+  };
+
+  const resetUploadForm = () => {
+    setUploadFile(null);
+    setUploadNome('');
+    setUploadDescrizione('');
+    setUploadPraticaId('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleCreateFolder = async () => {
+    if (!folderNome) return;
+
+    try {
+      const createDto: CreateCartellaDto = {
+        nome: folderNome,
+        descrizione: folderDescrizione,
+        colore: folderColore,
+        cartellaParentId: currentCartellaId || undefined,
+        praticaId: folderPraticaId || selectedPraticaId || undefined,
+      };
+
+      if (editingFolder) {
+        const updateDto: UpdateCartellaDto = {
+          nome: folderNome,
+          descrizione: folderDescrizione,
+          colore: folderColore,
+        };
+        await cartelleApi.update(editingFolder.id, updateDto);
+      } else {
+        await cartelleApi.create(createDto);
+      }
+
+      setShowFolderModal(false);
+      resetFolderForm();
+      loadData();
+    } catch (error) {
+      console.error('Errore creazione/modifica cartella:', error);
+      alert('Errore durante l\'operazione sulla cartella');
+    }
+  };
+
+  const resetFolderForm = () => {
+    setFolderNome('');
+    setFolderDescrizione('');
+    setFolderColore('#3b82f6');
+    setFolderPraticaId('');
+    setEditingFolder(null);
+  };
+
+  const handleDownload = async (doc: Documento) => {
+    try {
+      await documentiApi.download(doc.id);
+    } catch (error) {
+      console.error('Errore download:', error);
+      alert('Errore durante il download del file');
+    }
+  };
+
+  const handleDeleteDocument = async (id: string) => {
+    if (!confirm('Sei sicuro di voler eliminare questo documento?')) return;
+
+    try {
+      await documentiApi.delete(id);
+      loadData();
+    } catch (error) {
+      console.error('Errore eliminazione documento:', error);
+      alert('Errore durante l\'eliminazione del documento');
+    }
+  };
+
+  const handleDeleteFolder = async (id: string) => {
+    if (!confirm('Sei sicuro di voler eliminare questa cartella? Tutti i documenti al suo interno saranno eliminati.')) return;
+
+    try {
+      await cartelleApi.delete(id);
+      loadData();
+    } catch (error) {
+      console.error('Errore eliminazione cartella:', error);
+      alert('Errore durante l\'eliminazione della cartella');
+    }
+  };
+
+  const openFolder = async (folder: Cartella) => {
+    try {
+      const docs = await documentiApi.getAllByCartella(folder.id);
+      setViewingFolder(folder);
+      setFolderDocuments(docs);
+      setShowFolderViewModal(true);
+    } catch (error) {
+      console.error('Errore caricamento documenti cartella:', error);
+    }
+  };
+
+  const navigateIntoFolder = (folder: Cartella) => {
+    setCurrentCartellaId(folder.id);
+  };
+
+  const navigateToBreadcrumb = (folder: Cartella | null) => {
+    setCurrentCartellaId(folder?.id || null);
+  };
+
+  const getFileIcon = (tipo: string) => {
+    switch (tipo) {
+      case 'pdf':
+        return <FileText className="h-8 w-8 text-red-500" />;
+      case 'word':
+        return <FileText className="h-8 w-8 text-blue-500" />;
+      case 'excel':
+        return <FileSpreadsheet className="h-8 w-8 text-green-600" />;
+      case 'immagine':
+        return <Image className="h-8 w-8 text-purple-500" />;
+      default:
+        return <File className="h-8 w-8 text-slate-500" />;
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+  };
+
+  const filteredDocumenti = documenti.filter((doc) =>
+    doc.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    doc.nomeOriginale.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const filteredCartelle = cartelle.filter((cartella) =>
+    cartella.nome.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-900">
+      {/* Header */}
+      <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-4">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+            Archivio Documenti
+          </h1>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowFolderModal(true)}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition"
+            >
+              <Folder className="h-4 w-4" />
+              Nuova Cartella
+            </button>
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/30"
+            >
+              <Upload className="h-4 w-4" />
+              Carica Documento
+            </button>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="mb-4 flex gap-3">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Cerca documenti o cartelle..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="relative">
+            <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+            <select
+              value={selectedPraticaId || ''}
+              onChange={(e) => setSelectedPraticaId(e.target.value || null)}
+              className="pl-10 pr-8 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none cursor-pointer"
+            >
+              <option value="">Tutte le pratiche</option>
+              {pratiche.map((pratica) => (
+                <option key={pratica.id} value={pratica.id}>
+                  {pratica.cliente?.ragioneSociale} - {pratica.debitore?.ragioneSociale || pratica.debitore?.cognome}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+          <button
+            onClick={() => navigateToBreadcrumb(null)}
+            className="hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+          >
+            Home
+          </button>
+          {breadcrumb.map((folder, index) => (
+            <React.Fragment key={folder.id}>
+              <ChevronRight className="h-4 w-4" />
+              <button
+                onClick={() => navigateToBreadcrumb(folder)}
+                className={`hover:text-indigo-600 dark:hover:text-indigo-400 transition ${
+                  index === breadcrumb.length - 1 ? 'font-semibold text-slate-900 dark:text-slate-100' : ''
+                }`}
+              >
+                {folder.nome}
+              </button>
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-6">
+
+        {/* Folders */}
+        {filteredCartelle.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase mb-3">
+              Cartelle
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filteredCartelle.map((cartella) => (
+                <div
+                  key={cartella.id}
+                  className="group relative bg-white dark:bg-slate-800 rounded-lg border-2 border-slate-200 dark:border-slate-700 p-4 hover:shadow-lg transition"
+                >
+                  <div className="flex items-start gap-3">
+                    <FolderOpen
+                      className="h-10 w-10 flex-shrink-0"
+                      style={{ color: cartella.colore || '#3b82f6' }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                        {cartella.nome}
+                      </h3>
+                      {cartella.pratica && (
+                        <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">
+                          Associato a: {cartella.pratica.cliente?.ragioneSociale}
+                        </p>
+                      )}
+                      {cartella.descrizione && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+                          {cartella.descrizione}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 mt-3">
+                        <p className="text-xs text-slate-400 dark:text-slate-500">
+                          {cartella.documenti?.length || 0} documenti
+                        </p>
+                      </div>
+
+                      {/* Folder Actions */}
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          onClick={() => openFolder(cartella)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          Apri
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingFolder(cartella);
+                            setFolderNome(cartella.nome);
+                            setFolderDescrizione(cartella.descrizione || '');
+                            setFolderColore(cartella.colore || '#3b82f6');
+                            setShowFolderModal(true);
+                          }}
+                          className="px-2 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteFolder(cartella.id);
+                          }}
+                          className="px-2 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Documents */}
+        {filteredDocumenti.length > 0 && (
+          <div>
+            <h2 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase mb-3">
+              Documenti
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filteredDocumenti.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="group relative bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 hover:shadow-lg transition"
+                >
+                  <div className="flex items-start gap-3">
+                    {getFileIcon(doc.tipo)}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                        {doc.nome}
+                      </h3>
+                      {doc.pratica && (
+                        <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1 truncate">
+                          Associato a: {doc.pratica.cliente?.ragioneSociale}
+                        </p>
+                      )}
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+                        {doc.nomeOriginale}
+                      </p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <p className="text-xs text-slate-400 dark:text-slate-500">
+                          {formatFileSize(doc.dimensione)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => handleViewDocument(doc)}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition"
+                      title="Apri documento"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Apri
+                    </button>
+                    <button
+                      onClick={() => handleOpenMoveModal(doc)}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition"
+                      title="Sposta documento"
+                    >
+                      <Move className="h-3.5 w-3.5" />
+                      Sposta
+                    </button>
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => handleDownload(doc)}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition"
+                      title="Scarica"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteDocument(doc.id)}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition"
+                      title="Elimina"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {filteredCartelle.length === 0 && filteredDocumenti.length === 0 && (
+          <div className="text-center py-12">
+            <Folder className="h-16 w-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+            <p className="text-slate-500 dark:text-slate-400">
+              {searchTerm ? 'Nessun risultato trovato' : 'Nessun documento o cartella'}
+            </p>
+            {selectedPraticaId && (
+              <button
+                onClick={() => setSelectedPraticaId(null)}
+                className="mt-3 text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                Rimuovi filtro pratica
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Upload Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-lg w-full p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                Carica Documento
+              </h2>
+              <button
+                onClick={() => {
+                  setShowUploadModal(false);
+                  resetUploadForm();
+                }}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
+              >
+                <X className="h-5 w-5 text-slate-500 dark:text-slate-400" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  File *
+                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  onChange={handleFileSelect}
+                  className="w-full text-sm text-slate-500 dark:text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-indigo-900/50 dark:file:text-indigo-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Nome *
+                </label>
+                <input
+                  type="text"
+                  value={uploadNome}
+                  onChange={(e) => setUploadNome(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Descrizione
+                </label>
+                <textarea
+                  value={uploadDescrizione}
+                  onChange={(e) => setUploadDescrizione(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Pratica associata
+                </label>
+                <select
+                  value={uploadPraticaId || selectedPraticaId || ''}
+                  onChange={(e) => setUploadPraticaId(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Nessuna pratica</option>
+                  {pratiche.map((pratica) => (
+                    <option key={pratica.id} value={pratica.id}>
+                      {pratica.cliente?.ragioneSociale} - {pratica.debitore?.ragioneSociale || pratica.debitore?.cognome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowUploadModal(false);
+                  resetUploadForm();
+                }}
+                className="px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleUpload}
+                disabled={!uploadFile || !uploadNome}
+                className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                Carica
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Folder Modal */}
+      {showFolderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-lg w-full p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                {editingFolder ? 'Modifica Cartella' : 'Nuova Cartella'}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowFolderModal(false);
+                  resetFolderForm();
+                }}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
+              >
+                <X className="h-5 w-5 text-slate-500 dark:text-slate-400" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Nome *
+                </label>
+                <input
+                  type="text"
+                  value={folderNome}
+                  onChange={(e) => setFolderNome(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Descrizione
+                </label>
+                <textarea
+                  value={folderDescrizione}
+                  onChange={(e) => setFolderDescrizione(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Colore
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    value={folderColore}
+                    onChange={(e) => setFolderColore(e.target.value)}
+                    className="h-10 w-20 rounded-lg cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={folderColore}
+                    onChange={(e) => setFolderColore(e.target.value)}
+                    className="flex-1 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {!editingFolder && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Pratica associata
+                  </label>
+                  <select
+                    value={folderPraticaId || selectedPraticaId || ''}
+                    onChange={(e) => setFolderPraticaId(e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">Nessuna pratica</option>
+                    {pratiche.map((pratica) => (
+                      <option key={pratica.id} value={pratica.id}>
+                        {pratica.cliente?.ragioneSociale} - {pratica.debitore?.ragioneSociale || pratica.debitore?.cognome}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowFolderModal(false);
+                  resetFolderForm();
+                }}
+                className="px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleCreateFolder}
+                disabled={!folderNome}
+                className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {editingFolder ? 'Salva' : 'Crea'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Folder View Modal */}
+      {showFolderViewModal && viewingFolder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-3">
+                <FolderOpen
+                  className="h-8 w-8"
+                  style={{ color: viewingFolder.colore || '#3b82f6' }}
+                />
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                    {viewingFolder.nome}
+                  </h2>
+                  {viewingFolder.pratica && (
+                    <p className="text-sm text-indigo-600 dark:text-indigo-400">
+                      Associato a: {viewingFolder.pratica.cliente?.ragioneSociale}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowFolderViewModal(false)}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
+              >
+                <X className="h-5 w-5 text-slate-500 dark:text-slate-400" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto p-6">
+              {viewingFolder.descrizione && (
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                  {viewingFolder.descrizione}
+                </p>
+              )}
+
+              {folderDocuments.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {folderDocuments.map((doc) => (
+                    <div
+                      key={doc.id}
+                      className="bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-4 hover:shadow-md transition"
+                    >
+                      <div className="flex items-start gap-3">
+                        {getFileIcon(doc.tipo)}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-slate-900 dark:text-slate-100 truncate text-sm">
+                            {doc.nome}
+                          </h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+                            {doc.nomeOriginale}
+                          </p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
+                            {formatFileSize(doc.dimensione)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={() => {
+                            setShowFolderViewModal(false);
+                            handleViewDocument(doc);
+                          }}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition"
+                        >
+                          <Eye className="h-3 w-3" />
+                          Apri
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowFolderViewModal(false);
+                            handleOpenMoveModal(doc);
+                          }}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition"
+                        >
+                          <Move className="h-3 w-3" />
+                          Sposta
+                        </button>
+                      </div>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          onClick={() => handleDownload(doc)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition"
+                        >
+                          <Download className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm('Eliminare questo documento?')) {
+                              handleDeleteDocument(doc.id);
+                              setFolderDocuments(folderDocuments.filter(d => d.id !== doc.id));
+                            }
+                          }}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded hover:bg-red-100 dark:hover:bg-red-900/40 transition"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <File className="h-12 w-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    Nessun documento in questa cartella
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move Document Modal */}
+      {showMoveModal && documentToMove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                Sposta Documento
+              </h2>
+              <button
+                onClick={() => {
+                  setShowMoveModal(false);
+                  setDocumentToMove(null);
+                  setTargetCartellaId('');
+                }}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
+              >
+                <X className="h-5 w-5 text-slate-500 dark:text-slate-400" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+                Documento: <span className="font-semibold text-slate-900 dark:text-slate-100">{documentToMove.nome}</span>
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Posizione attuale: {documentToMove.cartella?.nome || 'Radice'}
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Cartella di destinazione
+                </label>
+                <select
+                  value={targetCartellaId}
+                  onChange={(e) => setTargetCartellaId(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Radice (nessuna cartella)</option>
+                  {cartelle
+                    .filter((c) => c.id !== documentToMove.cartellaId)
+                    .map((cartella) => (
+                      <option key={cartella.id} value={cartella.id}>
+                        {cartella.nome}
+                        {cartella.pratica && ` (${cartella.pratica.cliente?.ragioneSociale})`}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowMoveModal(false);
+                  setDocumentToMove(null);
+                  setTargetCartellaId('');
+                }}
+                className="px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleMoveDocument}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition"
+              >
+                <ArrowRight className="h-4 w-4" />
+                Sposta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Document Modal */}
+      {showViewModal && viewingDocument && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-3">
+                {getFileIcon(viewingDocument.tipo)}
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                    {viewingDocument.nome}
+                  </h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {viewingDocument.nomeOriginale} • {formatFileSize(viewingDocument.dimensione)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  setViewingDocument(null);
+                }}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
+              >
+                <X className="h-5 w-5 text-slate-500 dark:text-slate-400" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto p-6">
+              {viewingDocument.descrizione && (
+                <div className="mb-4 p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Descrizione</p>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">{viewingDocument.descrizione}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Tipo</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase">{viewingDocument.tipo}</p>
+                </div>
+                <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Dimensione</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{formatFileSize(viewingDocument.dimensione)}</p>
+                </div>
+                <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Caricato da</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{viewingDocument.caricatoDa || 'N/D'}</p>
+                </div>
+                <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Data caricamento</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {new Date(viewingDocument.dataCreazione).toLocaleDateString('it-IT', {
+                      day: '2-digit',
+                      month: 'long',
+                      year: 'numeric',
+                    })}
+                  </p>
+                </div>
+              </div>
+
+              {viewingDocument.pratica && (
+                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800 mb-4">
+                  <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400 mb-1">Pratica associata</p>
+                  <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-100">
+                    {viewingDocument.pratica.cliente?.ragioneSociale}
+                  </p>
+                </div>
+              )}
+
+              {viewingDocument.cartella && (
+                <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 mb-4">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Cartella</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{viewingDocument.cartella.nome}</p>
+                </div>
+              )}
+
+              {/* File preview placeholder */}
+              <div className="mt-6 p-8 bg-slate-100 dark:bg-slate-900 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-700 text-center">
+                <FileText className="h-16 w-16 text-slate-400 dark:text-slate-600 mx-auto mb-4" />
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">Anteprima non disponibile</p>
+                <p className="text-xs text-slate-500 dark:text-slate-500">
+                  Scarica il file per visualizzarlo
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 p-6 border-t border-slate-200 dark:border-slate-700">
+              <button
+                onClick={() => handleDownload(viewingDocument)}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition"
+              >
+                <Download className="h-4 w-4" />
+                Scarica
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

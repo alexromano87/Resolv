@@ -1,0 +1,151 @@
+version: '3.8'
+
+services:
+  # ===================================
+  # Database MySQL
+  # ===================================
+  mysql:
+    image: mysql:8.0
+    container_name: resolv-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - resolv-network
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===================================
+  # Redis Cache (opzionale)
+  # ===================================
+  redis:
+    image: redis:7-alpine
+    container_name: resolv-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - resolv-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ===================================
+  # Backend NestJS
+  # ===================================
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: resolv-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    environment:
+      # Application
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3000
+
+      # Database (usa nome servizio 'mysql' come host)
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_DATABASE: ${DB_DATABASE}
+
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRES_IN:-7d}
+
+      # Uploads
+      UPLOAD_DIR: /app/uploads
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE:-10485760}
+      SKIP_MIGRATIONS: "false"
+
+      # Redis (opzionale)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # CORS Origins
+      CORS_ORIGINS: ${CORS_ORIGINS}
+
+      # Rate Limiting
+      RATE_LIMIT_TTL: ${RATE_LIMIT_TTL:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-300}
+
+      # Backup Configuration
+      BACKUP_SCHEDULE_INTERVAL: ${BACKUP_SCHEDULE_INTERVAL:-86400000}
+      BACKUP_MAX_COUNT: ${BACKUP_MAX_COUNT:-30}
+    volumes:
+      - ./apps/backend/uploads:/app/uploads
+      - ./backups:/usr/src/app/backups
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - resolv-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health/live', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ===================================
+  # Frontend React + Nginx
+  # ===================================
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+      args:
+        # Build-time variables
+        VITE_API_URL: ${VITE_API_URL:-}
+        VITE_APP_NAME: RESOLV
+        VITE_APP_VERSION: 1.0.0
+    container_name: resolv-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend
+    networks:
+      - resolv-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ===================================
+# Volumes per Persistenza Dati
+# ===================================
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ===================================
+# Network Isolato
+# ===================================
+networks:
+  resolv-network:
+    driver: bridge

@@ -1,0 +1,132 @@
+- [X] Inserire il tipo soggetto anche in clienti (come in debitori), verificare voci da File 1.
+- [X] Campo cerca anche in debitori. Ricerca sui Debitori.
+- [X] Dalla pagina ricerca, se cerco una pratica, una volta che la seleziono deve rimandarmi alla pagina dettaglio pratica di quella pratica selezionata.
+- [X] bisogna consentire a chi apre una pratica di assegnare un suo identificativo. Il massimo sarebbe se il sistema proponesse il progressivo tenendo conto dell’ultimo caricato. Ipotizziamo di importare 200 pratiche ma che per ragioni interne dello studio sono arrivate ad un progressivo di 250 (per esempio, perchè alcune sono state annullate o semplicemente perchè il titolare dello studio non intende caricare le pratiche definite ma solo quelle aperte). Nel momento in cui inserisco una nuova pratica il sistema mi propone, quindi, il progressivo 201. Dovrebbe in ogni caso essere consentito a chi apre una pratica di inserire liberamente il suo identificativo. Conclusivamente, il sistema propone e l’utente decide
+- [X] Nella pagina dettaglio pratica, l'opzione modifica deve poter agire solo sull'assegnazione di avvocati, collaboratori e data affidamento. La pagina importi invece, dipende solo dai dati inseriti nella pagina movimenti e non può essere modificata direttamente tranne che per il dato "capitale" che è inserito all'atto di creazione della pratica.
+- [X] Sarebbe il caso di inserire nel menù a sinistra una voce “Utilità” dove caricare manuale d’uso, tutorial, note degli aggiornamenti e quant’altro potrà rendersi appunto utile
+- [X] Se inserisco un capitale da recuperare di € 10.000 quando genero una pratica, dovrei trovarmi nella dashboard dei movimenti in DARE quell’importo nella voce “capitale”
+- [X] Se inserisco in movimenti un’anticipazione (tipo per spedire una raccomandata) me la devo poi trovare nella pagina degli importi oltre che nella dashboard dei movimenti
+- [X] Se inserisco un recupero di capitale o di un’altra voce, la percentuale di recupero nella dashboard degli importi dovrebbe adeguarsi
+- [X] In pratiche scrivere “modifica fase” al posto di “avanza fase”. La gestione delle fasi deve essere flessibile. Capita spesso, ad esempio, che un piano di rientro non venga rispettato per cui si torna ad una fase precedente.
+- [X] Quanto a alert (lo stesso vale per i ticket) non deve essere possibile inserire una data di scadenza precedente a “oggi” ovvero una data precedente a quella in cui l’alert viene generato. Sempre nell’aert, deve apparire sula lato destro in basso chi lo ha generato. Replicare quanto vedi in "File 1".
+- [X] Implementare pagina statistiche. Vedere in "file 1".
+- [X] In file 1, nelle pratiche c’era uno storico ed una sezione documenti con varie voci. La pagina documenti deve replicare fedelmente le voci presenti. Idem per lo storico
+- [X] Filtro dinamico in dashboard periodo da/a e storico.
+- [X] Ti faccio un esempio pratico. Normalmente abbiamo una sessione di aggiornamento con il cliente ogni due mesi. Si verifica lo stato delle pratiche, si approfondiscono quelle critiche e altro. Con la dashboard dinamica si possono fornire i dati numerici e statistici sull’andamento. Il sistema dovrebbe consentire di generare un file possibilmente pdf. L’excel credo serva a poco (anche se è meglio che ci sia purchè ben strutturato e presentabile).
+- [X] La logica è:
+    ⁠  ⁠  inserisco le anticipazioni nella pratica con la corretta causale (ad esempio, invio raccomandata)
+⁠        ⁠⁠il report raccoglie tutte le anticipazioni delle pratiche inserendole in ordine cronologico, con identificazione della data, della pratica e della causale. 
+        Quindi, nella dashboard iniziale dovremmo avere i dati più che altro massivi e statistici, nella sezione Report & Ricerca quelli di dettaglio.
+        l’output deve essere ben presentato, elegante e chiaro. Credo che il pdf sia da preferire. Come ti scrivevo sopra, se c’è anche excel ben venga, ma a condizione che venga generato un file ordinato.
+- [X] Nella panoramica inserirei anche gli importi ovvero la situazione economica generale della praticaI, nserirei poi come voce principale "movimenti" con un prospetto di sintesi (come hai fatto) ma con le seguenti sottovoci: capitale, interessi, anticipazioni
+- [X] altro (per esempio l'imposta di registro che normalmente versa il debitore al cliente, ma che non può essere considerato capitale)
+- [X] Quanto ai documenti, utilizzerei la stessa struttura della versione iniziale ovvero con la voce principale "documenti" che, una volta cliccata, apre le sottovoci con le cartelle già create.
+- [X] Il cliente potrà caricare file solo nella cartella Cliente, e potrà solo visualizzare (se autorizzato in fase di configurazione dell'utenza o della pratica) le altre cartelle. Non potrà mai cancellare una volta caricato qualsiasi documento nella cartella Cliente
+- [X] Un'altra cosa: la voce interessi va sotto capitale e anticipazioni sotto compensi. Inoltre il capitale che inseriamo all'apertura della pratica è quello originario insoluto. La voce "imposta di registro" non è capitale ma un importo che il debitore versa o anticipatamente (in caso di accordo transattivo) o in fase di esecuzione. Aggiungerei quindi una voce "altro" dove inserire voci eventuali. La sequenza è quindi:
+    nella voce DARE che invece chiamerei “IMPORTI DOVUTI”
+•⁠  ⁠capitale originario
+•⁠  ⁠⁠interessi maturati
+•⁠  ⁠⁠compensi maturati
+•⁠  ⁠⁠anticipazioni
+•⁠  ⁠⁠altro
+nella voce AVERE che invece chiamerei “IMPORTI RECUPERATI”
+•⁠  ⁠capitale recuperato
+•⁠  ⁠⁠interessi recuperati
+•⁠  ⁠⁠compensi recuperati
+•⁠  ⁠⁠anticipazioni recuperate
+•⁠  ⁠⁠altri recuperi
+- [X] Spesso capita che lo studio fa delle anticipazioni e le fattura al cliente ogni trimestre (nel mio caso, ma non è importante il quando)
+	Quella anticipazione, già rimborsata dal cliente allo studio, viene poi 		recuperata dal debitore all’esito di un accordo o della procedura esecutiva.
+	Il problema del legale è sapere cosa deve fatturare al cliente periodicamente. Non può certo chiedere di essere pagato due volte sulle 	anticipazioni. Ci vorrebbe quindi una funzione di supporto alla fatturazione ovvero una funzione che indichi al legale cosa deve fatturare a titolo di compensi e anticipazioni
+    Ci devo pensare. Pensaci anche tu (se ti è chiaro il problema)
+    Magari, quando si carica un movimento in compensi e anticipazioni, si potrebbero inserire due check: già fatturato al cliente e da fatturare al cliente. Nella sezione dei report si potrebbe selezionare la voce da fatturare, il periodo di riferimento così da avere gli importi ed i riferimenti delle pratiche associate
+    Il problema sarebbe poi quello di aggiornare le singole pratiche passando dallo stato “da fatturare” a quello “già fatturato”
+    Se questa operazione riuscisse a farsi nel report stesso sarebbe fantastico.
+•⁠  ⁠vado nella sezione report
+•⁠  ⁠⁠seleziono da fatturare
+•⁠  ⁠⁠seleziono il periodo
+•⁠  ⁠⁠genero il report e lo trasmetto al cliente
+•⁠  ⁠⁠il cliente mi dà ok ed emetto fattura
+•⁠  ⁠⁠il cliente paga la fattura
+•⁠  ⁠⁠ritorno nel report e cambio massivamente lo stato delle pratiche contenute nel report stesso (da fatturare a già fatturate)
+•⁠  ⁠⁠il sistema aggiorna automaticamente le singole pratiche
+Immagino un report dove è possibile selezionare le pratiche (singolarmente o massivamente) e cambiare lo stato
+Può capitare che il cliente, su una specifica pratica, faccia delle osservazioni ovvero ritenga non liquidabile il compenso
+Quindi non potrei in questo caso cambiare massivamente lo stato delle pratiche di tutto il report che ho generato. Devo poter selezionare se necessario
+Ovviamente, tutto questo deve poi tradursi in risultati rilevabili nella dashbord principale o nella sezione report
+L’obiettivo è di avere tutte le possibili funzioni e informazioni disponibili per accelerare il lavoro e migliorarne la qualità, sia lato studio che lato cliente
+Una roba del genere non esiste
+- [X] se provo a creare un cliente inserendo il referente ricevo interanl server error
+- [X] errore su eliminazione documento ma viene comunque eliminato
+- [X] all'interno della pratica, inserire oltre al campo note pratica (già presente) un campo "note fase", all'interno del quale l'avvocato può scrivere per tenere traccia di ciò che fa. I due campi note devono avere un classico bottone modifica, che ne abilità la possibilità di scrivervi dentro. Il bottone modifica situato nell'hero permette di modificare SOLO le assegnazioni di avvocato, collaboratore, data di assegnazione e null'altro. Il campo note fase, viene resettato al cambio di fase e ovviamente mantenuto salvato in un campo associato all'id della fase a cui fa riferimento. 
+- [X] nella pagina ricerca, se cerco una pratica compare il badge "stato pratica" anziché il dettaglio dello stato della pratica
+- [X] perfetto, noi abbiamo timeline, cambia il nome in "Storico". Dobbiamo implementare il nome di chi ha eseguito il cambio fase e poi vorrei un bottone che mi dica, vedi dettaglio. Un volta cliccato la tab si espande verso il basso mostrandomi il dettaglio di tutto ciò che è avvenuto nel corso di questa fase. Se è stato modificato un avvocato, un collaboratore, le note della fase, se sono stati aggiunti documenti e quali.
+- [X] anche in dettaglio pratica, nella sezione alert, nella tab degli alert che compongono la lista, voglio vedere gli stessi dettagli che vedo nella lista presente nella pagina degli alert. Non posso creare un nuovo alert dalla sezione dedicata in dettaglio pratiche
+- [X] Nella pagina anteprima inserire anche i ticket con relativo tab di configurazione. Rendere ogni voce all'interno del'anteprima editabile per poter scegliere se includerla o meno, ad esempio, un movimento in particolare voglio che non si veda, mi è sufficiente deselezionarlo e nel pdf non comparirà
+- [X] Sui piani di rientro sarebbe ottima cosa poter avere il piano di ammortamento. Ipotizziamo 10.000 capitale, 10 rate, prospetto di 10 rate con importo automatico di 1.000/cadauna ed un flag /casella di controllo per inserire il pagamento (pagato) che automaticamente carica nel capitale rientrato la rata pagata.
+- [X] Gestire errori di login. Se non si logga perché il DB o il backend non rispondono scriviamo che il server non è al momento di sponibile e diriprovare più tardi o inventati qualcosa tu.
+- [X] Pagina fatturazioni. Devo poter prima selezionareil cliente per poi effettuare la ricerca dei movimenti inerenti alle sue pratiche. Se un movimento è già stato fatturato, devo poterlo vedere anche nella sezione movimenti all'interno della pratica, magari un flag "già fatturato" che venga mostrato accanto al movimento. Nella pagina fatturazione, prevediamo la possibilità di scaricare un report (utilizza la base, header e footer, che già usiamo per i report che creiamp dalla pagina anteprima), con l'elenco dei movimenti da dover fatturare al cliente e l'importo totale
+- [X] Sostituire i time picker presenti nelle pagine anteprima e modale creazione nuovo piano di ammortamento con quelli custom utilizzati in tutto il resto della piattaforma
+- [X] Modificare il layout della pagina statistiche e utilizzare lo stesso usato in tutto il resto della piattaforma. Drop list da modificare e usare quella custom utilizzata nelle altre pagine
+- [X] Nell'hero della pagina anteprima, rimuovere il label "Report avanzato" e verificare perché nel Tab "Capitale Affidato" e "Capitale Totale"  ho "NaN" come valore ma non viene caricato quello corretto. Quando clicco su "esporta PDF" l'icona del bottone deve essere sostituita con una freccia che gira fino al termine dell'azione per poi tornare quella originale.Non deve ruotare quella di "Salva Report"
+- [X] MAssimo 30 backup salvati, arrivati a 30 dopo ogni nuovo backup viene eliminato il più vecchio
+- [X] Il layout delle due modali dei piani di ammortamento deve essere lo stesso utilizzato in tutte le altre pagine della piattaforma
+- [X] Nel pdf del report del piano di ammortamento, utilizzare header e footer utilizzati anche nel report di fatturazione. Il layout deve essere equivalente pur mantenendo la struttura attuale 
+- [X] Alla chiusura del piano di ammortamento, sia positiva che negativa, il totale dell'importo pagato al momento della chiusura, va a sommarsi nella voce "Capitale recuperato". Genera un movimento come "Recupero Capitale da piano di ammortamento"
+- [X] Nel report del piano ammortamento voglio anche leggere il totale del capitale recuperato e quello rimanente olte al già presente capitale totale
+- [X] Completare la pagina utilità abilitando i vari upload e download previsti
+- [X] nella pagina statistiche inserire un grafico a torta per il tab "Distribuzione pratiche per stato". Verificare perché la porzione di grafico relativo alle anticipazioni non sta caricando i dati
+- [X] per il login devo avere due opzioni, accedi come studio e accedi come cliente. Una volta cliccato mi compare il menu dove inserire le utenze
+- [X] nell'ambiente admin, evidenziare in rosso i campi obbligatori in caso di errore di creazione, come già fatto nel resto della piattaforma. Per creazione studio rendere obbligatori email,pec e PIVA da frontend.
+- [X] nella pagina anteprima inserire l'ozione "intero storico"
+- [X] nella dashboard, la tab Andamento finanziario, rimuovere la dicitura affidato vs recuperato, capitale diventa "Capitale affidato" e sotto al posto di affidato mettere "capitale recuperato". Voglio la percentuale visibile direttamente sulla barra.
+- [X] nell'anteprima, prevedere la possibilità di cliccare sulle singole voci e venire rimandato al record a cui fa riferimento. Aprire in una nuova finestra
+- [X] nella dashboard rimuovere le tab anticipazioni e compensi
+- [X] Per l'area "Compensi" le voci da vedere nel report sono: numero pratica, debitore, maturati, recuperati, liquidabili
+- [X] aggiungere "periodo" accanto alla data nel pdf
+- [X] la voce "e altri ... movimenti" non va bene, devo poterli vedere tutti.
+- [X] nella pagina di creazione debitore, per la persona giuridica, devo inserire le stesse informazioni utilizzate per cliente riferito alla Tipologia
+- [X] gestione studio, per poter modificare i dati devo cliccare un pulsante "modifica", devono esserci poi un pulsante annulla e un salva modifiche
+- [X] replicare per la scheda nuovo collaboratore, la stessa utilizzata per nuovo avvocato
+- [X] visualizzazione elenco pratiche a lista in verticale
+- [X] sistemare numero proposto pratica. Se la prima pratica dell'anno deve propormi 01-anno. In generale, il numero proposto deve essere ultimo numero pratica anno corrente + 1. Se ultimo numero 03/2026 proposto deve essere 04/2026
+- [X] creazione pratica, replicare stesso stile di drop list usato per selezionare il cliente anche per ricerca debitore
+- [X] panoramica pratica, cliente e dibitore vanno spostati subito dopo la fase, poi data affidamento e stato, evvocato e collaboratori, note pratica e note fase
+- [X] la barra a scorrimenrto delle fasi, le fasi vanno scritte più in piccolo in modo da poterle vedere tutte a schermo.
+- [X] nei movimenti, capitale originario deve popolarsi con il valore inserito all'atto di creazione della pratica. Togliere i ":"
+- [X] suddividere in sezioni, come fatto per i documenti, la visione dei movimenti, in questo caso le sezioni dovranno filtrare per "Capitale", "Compensi", "Interessi" e "Tutto".
+- [X] applicare la possibilità di calcolo automatico degli interessi, legali e di mora a partire da una data predefinita.
+- [X] inserire i dati presenti nella sezione importi direttamente nella panoramica.
+- [X] report anche csv.
+- [X] movimenti implementare formattazione 1.000,00, Se aggiungo capitale inserire "Nuovo Capitale"
+- [X] nel piano di rientro aggiungere gli interessi con l'inserimento del valore del tasso per un piano di ammortamento.
+- [X] alla creazione della pratica prevedere l'inserimento del tasso di interesse con calcolo automatico dell'importo totale, la visione degli importi deve essere indicata la data di apertura della pratica. Se c'è un ricalcolo degli interessi ricalcolare il tutto con nuova data.
+- [X] aggiungere tasso di chiusura con esito positivo nelle statistica
+- [X] inserire interessi nel piano di ammortamento:
+ * https://www.avvocatoandreani.it/servizi/interessi_legali.php
+ * https://www.avvocatoandreani.it/servizi/interessi_moratori.php
+ * https://www.avvocatoandreani.it/servizi/calcolo-interessi-acconti.php
+- [X] implementare automatizzazione recupero tassi di interesse nuovi da salvare nel db per periodo corrente. Un funzione che, dal pannello admin, cliccando su un bottone, effettua la ricerca sui tassi attuali, me li mostra a monitor con evidenza delle fonti da cui li ha recuperati ed il calcolo effettuato, mi chiede conferma e, una volta confermato, li salva a DB per poter essere utilizzati.
+- [X] nella pagina tassi di interesse rimuovere l'icona modifica per i tassi perché non necessaria. Impostare l'impaginazione a 10 record per pagina come già fatto in tutte le altre pagine. I pulsanti presenti nell'hero devono avere lo stesso layout utilizzato nelle altre pagine. La drop list uguale alle altre custom. L'asse delle X del grafico deve essere crescente e non decrescente. La modale deve avere z-index superiore a tutto il resto della pagina tranne che delle modali di conferma (come già fatto nelle altre pagine)
+- [X] se imposto tassi di interesse nella creazione di un piano di ammoprtamento, devo vedere a schermo il prospetto di rata calcolato con l'interesse nella pagina di creazione
+- [X] in pagina statistiche inserire la voce percentuale pratiche chiuse positivamente
+- [X] quando viene segnata come pagata una rata del piano di ammortamento, deve essere creato un movimento sotto recupero capitale con descrizione "Pagamaneto rata 'numeroRata' del piano di ammortamento 'numeroPiano' e la data in cui viene indicato come pagato". Bisogna distribuire in modo adeguato l'importo sotto capitale e il valore negli interessi calcolato in base agli interessi pagati in quella rata. Se storno il pagamento dal piano, viene eliminato il movimento e si aggiornano gli importi di conseguenza.
+- [X] nel dettaglio piano di ammortamento, inserire la possibilità di caricare la copia della ricevuta del pagamento, e un campo in cui inserire il codice di pagamento della ricevuta (prevedere una droplist in cui selezionare se bollettino postale, bonifico o implementa tu altri metodi). Implementa un campo data in cui inserire la data del pagamento, questa data sarà quella utilizzata per la creazione del movimento. La conferma, deve avvenire solo attraverso un bottone posto sulla riga della rata
+- [X] nello storico della pratica inserire anche la gestione per tutto quello che riguarda i piani di ammortamento
+- [X] sistemare tutti layout utilizzando le specifiche di Layout_Specs.md:
+ * modale creazione studio;
+ * modale creazione utente;
+ * card "Report Cliente" nella pagina Dashboard;
+ * pagina ReportClientePage;
+ * modale creazione e dettaglio piano di ammortamento;
+ * modale calcolatore interessi, le droplist interessi e acconto, modificare lo z-index;
+ * pagina utilità, tutte le modali modificare il fade-in di apertura.
+- [X] rivedere la dristribuzione del layout della pagina Report & Ricerca. Pensare ad un design che, nel momento in cui clicco "Cerca", fa scorrere i container verso sinistra diminuendo la dimensione degli stessi, e compare una sorta di sidebar con la lista di record trovati che può scorrere verso il basso.
+- [X] pagina pratiche. la lista delle pratiche deve comparire solo cliccando un tasto "cerca" che lavora sui filtri selezionati. Per evitare che carichi sempre tutte le pratiche ed esegua un semplice filtro lato frontend
+- [X] pagina report cliente, se clicco su un check box il dato sparisce, invece deve solo deselezionare il check in modo da poterlo riaggiungere se serve
+- [X] pagina fatturazioni. Deve esserci un errore se provo a fare una ricerca senza aver selezionato un cliente. Se il filtro è settato su "tutti", sotto la colonna "azioni" devo comunque poter leggere se è fatturato o da fatturare. Se da fatturare devo poterlo fare
+
+rimuoviamo l'hero, il sotto titolo presente nell'hero come ad esempio "Visione completa e agigornata delle attività di recupero crediti" lo riportiamo dell'header accanto al nome della pagina ad esempio "Dashboard". Se sono presenti pulsanti che prevedono la creazione di un record o dei filtri, li inserisci nel primo container disponibile
+
+- [ ] inserire l'oggetto per anticipazioni e compensi
+- [ ] report su tutti i clienti

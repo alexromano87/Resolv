@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build artifacts
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.vite/
+.turbo/
+.cache/
+.nx/
+out/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Environment (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# Runtime data
+apps/backend/uploads/
+backups/
+*.sql
+infra/db/
+
+# Website (separato da versionamento)
+website/
+
+# OS/Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Misc
+.claude/

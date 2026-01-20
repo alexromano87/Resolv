@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install backend dependencies
+        working-directory: apps/backend
+        run: npm install
+
+      - name: Run backend tests
+        working-directory: apps/backend
+        run: npm run test
+
+      - name: Install frontend dependencies
+        working-directory: apps/frontend
+        run: npm install
+
+      - name: Run frontend tests
+        working-directory: apps/frontend
+        run: npm run test
+
+      - name: Install Playwright browsers
+        working-directory: apps/frontend
+        run: npx playwright install --with-deps
+
+      - name: Run frontend E2E (Playwright)
+        working-directory: apps/frontend
+        run: npm run e2e
+
+      - name: Build backend Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./apps/backend
+          file: ./apps/backend/Dockerfile
+          push: false
+          tags: resolv/backend:latest
+
+      - name: Build frontend Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./apps/frontend
+          file: ./apps/frontend/Dockerfile
+          push: false
+          tags: resolv/frontend:latest

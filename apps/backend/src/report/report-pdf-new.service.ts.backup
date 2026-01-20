@@ -1,0 +1,619 @@
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, In } from 'typeorm';
+import { Cliente } from '../clienti/cliente.entity';
+import { Pratica } from '../pratiche/pratica.entity';
+import { MovimentoFinanziario, TipoMovimento } from '../movimenti-finanziari/movimento-finanziario.entity';
+import { Alert } from '../alerts/alert.entity';
+import { Studio } from '../studi/studio.entity';
+import puppeteer from 'puppeteer';
+
+// Logo Resolvo di default (base64)
+const LOGO_RESOLVO_DEFAULT = 'iVBORw0KGgoAAAANSUhEUgAAAW4AAACHCAYAAAA2nrNxAAAAxHpUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjabVBbDsMgDPvPKXYE8oDCcejKpN1gx5+BILVbLeGYRDEh1D7vFz06hI0sbjmVlAJgxYpUiBwm6mAONnggNVd8zVPevEmQUkSd15xm5JX3hhW5QsWz0dML+7VQzP3zj5E/pH0igTjcqLiRyiywG9TqXymY+fSFvYUr8jzUaXfXMVH4v9uG7R0R76hIU9YAVrU5gPYTSSsKAhbFUNA8dBy8doKF3O1pgb6gm1oIe2/o9gAAAYRpQ0NQSUNDIHByb2ZpbGUAAHicfZE9SMNAHMVfW6VSKiIWFFHIUJ3soiKOtQpFqBBqhVYdTC79giYNSYqLo+BacPBjserg4qyrg6sgCH6AuAtOii5S4v+SQosYD4778e7e4+4d4G9UmGp2xQFVs4x0MiFkc6tC8BVhDCKEfoxKzNTnRDEFz/F1Dx9f72I8y/vcn6NXyZsM8AnEcaYbFvEG8cympXPeJ46wkqQQnxNPGHRB4keuyy6/cS467OeZESOTnieOEAvFDpY7mJUMlXiaOKqoGuX7sy4rnLc4q5Uaa92TvzCc11aWuU5zBEksYgkiBMiooYwKLMRo1Ugxkab9hId/2PGL5JLJVQYjxwKqUCE5fvA/+N2tWZiadJPCCaD7xbY/xoDgLtCs2/b3sW03T4DAM3Cltf3VBjD7SXq9rUWPgL5t4OK6rcl7wOUOMPSkS4bkSAGa/kIBeD+jb8oBA7dAaM3trbWP0wcgQ12lboCDQ2C8SNnrHu/u6ezt3zOt/n4Ag9Vyra9a9w4AAA52aVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8P3hwYWNrZXQgYmVnaW49Iu+7vyIgaWQ9Ilc1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCI/Pgo8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJYTVAgQ29yZSA0LjQuMC1FeGl2MiI+CiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPgogIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIKICAgIHhtbG5zOnN0RXZ0PSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VFdmVudCMiCiAgICB4bWxuczpHSU1QPSJodHRwOi8vd3d3LmdpbXAub3JnL3htcC8iCiAgICB4bWxuczpkYz0iaHR0cDovL3B1cmwub3JnL2RjL2VsZW1lbnRzLzEuMS8iCiAgICB4bWxuczpwZGY9Imh0dHA6Ly9ucy5hZG9iZS5jb20vcGRmLzEuMy8iCiAgICB4bWxuczp0aWZmPSJodHRwOi8vbnMuYWRvYmUuY29tL3RpZmYvMS4wLyIKICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgeG1wTU06RG9jdW1lbnRJRD0iZ2ltcDpkb2NpZDpnaW1wOmEzY2Q1YTRhLTBmNWYtNGFmMi1iMzI1LTYwM2ZmY2VkYTM4MyIKICAgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDowNTE4MWM4OC0wMWNlLTQxMWUtYjUzMi00MmU5OTAzMDBlMTMiCiAgIHhtcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD0ieG1wLmRpZDo4Yzc5ZjFjNS04MDJlLTRjOTMtYjA2Yi00ZTRmNGVjNjU3MzgiCiAgIEdJTVA6QVBJPSIyLjAiCiAgIEdJTVA6UGxhdGZvcm09Ik1hYyBPUyIKICAgR0lNUDpUaW1lU3RhbXA9IjE3NjY0ODU1Mjc5ODU0NzQiCiAgIEdJTVA6VmVyc2lvbj0iMi4xMC4zNCIKICAgZGM6Rm9ybWF0PSJpbWFnZS9wbmciCiAgIHBkZjpBdXRob3I9IkFsZXNzYW5kcm8gUm9tYW5vIgogICB0aWZmOk9yaWVudGF0aW9uPSIxIgogICB4bXA6Q3JlYXRvclRvb2w9IkdJTVAgMi4xMCIKICAgeG1wOk1ldGFkYXRhRGF0ZT0iMjAyNToxMjoyM1QxMToyNToyMCswMTowMCIKICAgeG1wOk1vZGlmeURhdGU9IjIwMjU6MTI6MjNUMTE6MjU6MjArMDE6MDAiPgogICA8eG1wTU06SGlzdG9yeT4KICAgIDxyZGY6U2VxPgogICAgIDxyZGY6bGkKICAgICAgc3RFdnQ6YWN0aW9uPSJzYXZlZCIKICAgICAgc3RFdnQ6Y2hhbmdlZD0iLyIKICAgICAgc3RFdnQ6aW5zdGFuY2VJRD0ieG1wLmlpZDo5N2JhYjRiNS1lODg0LTRjY2YtYWY0OC0yMDNhYjg4NGFmYjEiCiAgICAgIHN0RXZ0OnNvZnR3YXJlQWdlbnQ9IkdpbXAgMi4xMCAoTWFjIE9TKSIKICAgICAgc3RFdnQ6d2hlbj0iMjAyNS0xMi0yM1QxMToyNToyNyswMTowMCIvPgogICAgPC9yZGY6U2VxPgogICA8L3htcE1NOkhpc3Rvcnk+CiAgIDxkYzp0aXRsZT4KICAgIDxyZGY6QWx0PgogICAgIDxyZGY6bGkgeG1sOmxhbmc9IngtZGVmYXVsdCI+Qmx1ZSBhbmQgQmxhY2sgTW9kZXJuIEdyYWRpZW50IFNvZnR3YXJlIERldmVsb3BtZW50IFRlY2hub2xvZ3kgTG9nbyAtIDE8L3JkZjpsaT4KICAgIDwvcmRmOkFsdD4KICAgPC9kYzp0aXRsZT4KICA8L3JkZjpEZXNjcmlwdGlvbj4KIDwvcmRmOlJERj4KPC94OnhtcG1ldGE+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAKPD94cGFja2V0IGVuZD0idyI/Pmta6ksAAAAGYktHRAD/AP8A/6C9p5MAAAAJcEhZcwAADsQAAA7EAZUrDhsAAAAHdElNRQfpDBcKGRvpU4fvAAAYMklEQVR42u2de5gcZZWH365cSAIcZFBIwlUIBAIIeAPk8shFQFBQYSGIIrAEFEUFVlx2xVVWEFl1BRFREQiuMIByEQVX0CA3AbkGuQS5E5IwQxJy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';
+
+interface ReportOptions {
+  clienteId: string;
+  dataInizio?: Date;
+  dataFine?: Date;
+  includiDettaglioPratiche?: boolean;
+  includiMovimenti?: boolean;
+  includiRiepilogo?: boolean;
+  includiAlert?: boolean;
+  note?: string;
+}
+
+@Injectable()
+export class ReportPdfServiceNew {
+  constructor(
+    @InjectRepository(Cliente)
+    private readonly clienteRepo: Repository<Cliente>,
+    @InjectRepository(Pratica)
+    private readonly praticaRepo: Repository<Pratica>,
+    @InjectRepository(MovimentoFinanziario)
+    private readonly movimentoRepo: Repository<MovimentoFinanziario>,
+    @InjectRepository(Alert)
+    private readonly alertRepo: Repository<Alert>,
+    @InjectRepository(Studio)
+    private readonly studioRepo: Repository<Studio>,
+  ) {}
+
+  async generaReportCliente(options: ReportOptions): Promise<Buffer> {
+    const PDFDocument = require('pdfkit');
+
+    // Carica dati
+    const cliente = await this.clienteRepo.findOne({
+      where: { id: options.clienteId },
+      relations: ['studio'],
+    });
+
+    if (!cliente) {
+      throw new Error('Cliente non trovato');
+    }
+
+    const studio = cliente.studio || await this.studioRepo.findOne({ where: {} });
+
+    // Carica pratiche
+    const pratiche = await this.praticaRepo.find({
+      where: { clienteId: options.clienteId },
+      relations: ['debitore', 'avvocati', 'collaboratori'],
+      order: { createdAt: 'DESC' },
+    });
+
+    // Filtra per data se specificato
+    let filteredPratiche = pratiche;
+    if (options.dataInizio || options.dataFine) {
+      filteredPratiche = pratiche.filter(p => {
+        const dataCreazione = new Date(p.createdAt);
+        if (options.dataInizio && dataCreazione < options.dataInizio) return false;
+        if (options.dataFine && dataCreazione > options.dataFine) return false;
+        return true;
+      });
+    }
+
+    // Carica movimenti
+    const praticheIds = filteredPratiche.map(p => p.id);
+    let movimenti: MovimentoFinanziario[] = [];
+    if (options.includiMovimenti && praticheIds.length > 0) {
+      movimenti = await this.movimentoRepo.find({
+        where: { praticaId: In(praticheIds) },
+        order: { data: 'DESC' },
+      });
+
+      // Filtra movimenti per data
+      if (options.dataInizio || options.dataFine) {
+        movimenti = movimenti.filter(m => {
+          if (!m.data) return false;
+          const dataMovimento = new Date(m.data);
+          if (options.dataInizio && dataMovimento < options.dataInizio) return false;
+          if (options.dataFine && dataMovimento > options.dataFine) return false;
+          return true;
+        });
+      }
+    }
+
+    // Carica alert
+    let alerts: Alert[] = [];
+    if (options.includiAlert !== false && praticheIds.length > 0) {
+      alerts = await this.alertRepo.find({
+        where: { praticaId: In(praticheIds) },
+        order: { dataScadenza: 'ASC' },
+        relations: ['pratica'],
+      });
+
+      if (options.dataInizio || options.dataFine) {
+        alerts = alerts.filter(alert => {
+          if (!alert.dataScadenza) return false;
+          const dataAlert = new Date(alert.dataScadenza);
+          if (options.dataInizio && dataAlert < options.dataInizio) return false;
+          if (options.dataFine && dataAlert > options.dataFine) return false;
+          return true;
+        });
+      }
+    }
+
+    // Genera PDF
+    return this.generaPdfProfessionale({
+      cliente,
+      studio,
+      pratiche: filteredPratiche,
+      movimenti,
+      alerts,
+      options,
+    });
+  }
+
+  private async generaPdfProfessionale(data: {
+    cliente: Cliente;
+    studio: Studio | null;
+    pratiche: Pratica[];
+    movimenti: MovimentoFinanziario[];
+    alerts: Alert[];
+    options: ReportOptions;
+  }): Promise<Buffer> {
+    const html = this.buildHtml(data);
+    return this.renderHtmlToPdf(html);
+  }
+
+  private drawStatBox(doc: any, x: number, y: number, width: number, label: string, value: string, color: string) {
+    // Card glassy
+    doc.roundedRect(x, y, width, 62, 10)
+      .fillAndStroke('#ffffff', '#e2e8f0');
+
+    doc.fontSize(9).font('Helvetica').fillColor('#475569')
+      .text(label, x + 12, y + 12, { width: width - 24, align: 'left' });
+
+    doc.fontSize(18).font('Helvetica-Bold').fillColor(color)
+      .text(value, x + 12, y + 28, { width: width - 24, align: 'left' });
+  }
+
+  private drawAlertTable(doc: any, alerts: Alert[], x: number, y: number, width: number): number {
+    const colWidths = {
+      data: 80,
+      titolo: width - 80 - 120 - 80,
+      pratica: 80,
+      stato: 80,
+    };
+
+    let currentY = y;
+
+    // Header
+    doc.roundedRect(x, currentY, width, 26, 8)
+      .fillAndStroke('#e0e7ff', '#c7d2fe');
+
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#1e3a8a');
+    doc.text('Scadenza', x + 8, currentY + 8, { width: colWidths.data });
+    doc.text('Titolo', x + 8 + colWidths.data, currentY + 8, { width: colWidths.titolo });
+    doc.text('Pratica', x + 8 + colWidths.data + colWidths.titolo, currentY + 8, { width: colWidths.pratica });
+    doc.text('Stato', x + 8 + colWidths.data + colWidths.titolo + colWidths.pratica, currentY + 8, {
+      width: colWidths.stato - 12,
+      align: 'right'
+    });
+
+    currentY += 25;
+
+    const mostra = alerts.slice(0, 12);
+    mostra.forEach((alert, index) => {
+      const bgColor = index % 2 === 0 ? '#f8fafc' : '#ffffff';
+
+      doc.rect(x, currentY, width, 22)
+        .fillAndStroke(bgColor, '#e2e8f0');
+
+      doc.fontSize(8).font('Helvetica').fillColor('#0f172a');
+
+      const dataStr = alert.dataScadenza ? new Date(alert.dataScadenza).toLocaleDateString('it-IT') : '-';
+      doc.text(dataStr, x + 8, currentY + 7, { width: colWidths.data });
+
+      doc.text(alert.titolo || '-', x + 8 + colWidths.data, currentY + 7, {
+        width: colWidths.titolo - 8,
+        ellipsis: true
+      });
+
+      const praticaLabel = alert.pratica?.id ? `#${alert.pratica.id.slice(0, 8)}` : '-';
+      doc.text(praticaLabel, x + 8 + colWidths.data + colWidths.titolo, currentY + 7, { width: colWidths.pratica });
+
+      const statoLabel = alert.stato === 'chiuso' ? 'Chiuso' : 'In gestione';
+      const statoColor = alert.stato === 'chiuso' ? '#10b981' : '#f59e0b';
+
+      doc.fillColor(statoColor).font('Helvetica-Bold');
+      doc.text(statoLabel, x + 8 + colWidths.data + colWidths.titolo + colWidths.pratica, currentY + 7, {
+        width: colWidths.stato - 12,
+        align: 'right'
+      });
+      doc.fillColor('#000000');
+
+      currentY += 22;
+    });
+
+    if (alerts.length > 12) {
+      currentY += 5;
+      doc.fontSize(8).font('Helvetica').fillColor('#64748b')
+        .text(`... e altri ${alerts.length - 12} alert`, x, currentY, { align: 'center', width });
+      currentY += 20;
+    }
+
+    return currentY + 10;
+  }
+
+  private drawMovimentiTable(doc: any, movimenti: MovimentoFinanziario[], x: number, y: number, width: number): number {
+    const colWidths = {
+      data: 70,
+      tipo: 120,
+      descrizione: width - 70 - 120 - 80,
+      importo: 80,
+    };
+
+    let currentY = y;
+
+    // Header tabella
+    doc.roundedRect(x, currentY, width, 26, 8)
+      .fillAndStroke('#e0f2fe', '#bfdbfe');
+
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#1d4ed8');
+    doc.text('Data', x + 8, currentY + 8, { width: colWidths.data });
+    doc.text('Tipo', x + 8 + colWidths.data, currentY + 8, { width: colWidths.tipo });
+    doc.text('Descrizione', x + 8 + colWidths.data + colWidths.tipo, currentY + 8, { width: colWidths.descrizione });
+    doc.text('Importo', x + 8 + colWidths.data + colWidths.tipo + colWidths.descrizione, currentY + 8, {
+      width: colWidths.importo - 12,
+      align: 'right'
+    });
+
+    currentY += 25;
+
+    // Righe (max 15 per non sovraccaricare)
+    const mostra = movimenti.slice(0, 15);
+    let totale = 0;
+
+    mostra.forEach((movimento, index) => {
+      const bgColor = index % 2 === 0 ? '#f8fafc' : '#ffffff';
+
+      doc.rect(x, currentY, width, 22)
+        .fillAndStroke(bgColor, '#e2e8f0');
+
+      doc.fontSize(8).font('Helvetica').fillColor('#0f172a');
+
+      const dataStr = movimento.data ? new Date(movimento.data).toLocaleDateString('it-IT') : '-';
+      doc.text(dataStr, x + 8, currentY + 7, { width: colWidths.data });
+
+      doc.text(this.getTipoMovimentoLabel(movimento.tipo), x + 8 + colWidths.data, currentY + 7, { width: colWidths.tipo });
+
+      doc.text(movimento.oggetto || '-', x + 8 + colWidths.data + colWidths.tipo, currentY + 7, {
+        width: colWidths.descrizione - 8,
+        ellipsis: true
+      });
+
+      const importo = Number(movimento.importo);
+      totale += importo;
+
+      doc.font('Helvetica-Bold');
+      doc.text(this.formatCurrency(importo), x + 8 + colWidths.data + colWidths.tipo + colWidths.descrizione, currentY + 7, {
+        width: colWidths.importo - 12,
+        align: 'right'
+      });
+
+      currentY += 22;
+    });
+
+    // Riga totale
+    doc.roundedRect(x, currentY, width, 26, 8)
+      .fillAndStroke('#e2e8f0', '#cbd5e1');
+
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#0f172a')
+      .text('Totale movimenti', x + 8, currentY + 8, { width: width - colWidths.importo });
+
+    doc.fillColor('#1d4ed8')
+      .text(this.formatCurrency(totale), x + width - colWidths.importo, currentY + 8, {
+        width: colWidths.importo - 12,
+        align: 'right'
+      });
+
+    currentY += 26;
+
+    if (movimenti.length > 15) {
+      currentY += 5;
+      doc.fontSize(8).font('Helvetica').fillColor('#64748b')
+        .text(`... e altri ${movimenti.length - 15} movimenti`, x, currentY, { align: 'center', width });
+      currentY += 20;
+    }
+
+    return currentY + 20;
+  }
+
+  private formatCurrency(value: number): string {
+    return new Intl.NumberFormat('it-IT', {
+      style: 'currency',
+      currency: 'EUR',
+    }).format(value);
+  }
+
+  private formatDate(value: Date): string {
+    return value ? value.toLocaleDateString('it-IT') : '-';
+  }
+
+  private buildHtml(data: {
+    cliente: Cliente;
+    studio: Studio | null;
+    pratiche: Pratica[];
+    movimenti: MovimentoFinanziario[];
+    alerts: Alert[];
+    options: ReportOptions;
+  }): string {
+    const totalePratiche = data.pratiche.length;
+    const capitaleTotale = data.pratiche.reduce((sum, p) => sum + (p.capitale || 0), 0);
+    const totaleRecuperato = data.movimenti
+      .filter(m => (m.tipo || '').toString().startsWith('recupero'))
+      .reduce((sum, m) => sum + (m.importo || 0), 0);
+
+    // Calcola data prima pratica
+    const datePratiche = data.pratiche
+      .map(p => p.createdAt ? new Date(p.createdAt).getTime() : 0)
+      .filter(d => d > 0);
+    const dataPrimaPratica = datePratiche.length > 0
+      ? new Date(Math.min(...datePratiche))
+      : new Date();
+
+    const logoData = data.studio?.logo
+      ? (data.studio.logo.includes(',') ? data.studio.logo : `data:image/png;base64,${data.studio.logo}`)
+      : `data:image/png;base64,${LOGO_RESOLVO_DEFAULT}`;
+
+    console.log('Studio has logo:', !!data.studio?.logo);
+    console.log('Using default logo:', !data.studio?.logo);
+
+    const periodoLabel = `${this.formatDate(dataPrimaPratica)} - ${this.formatDate(new Date())}`;
+
+    // Dividi movimenti in pagine di 20
+    const movimentiPages: MovimentoFinanziario[][] = [];
+    for (let i = 0; i < data.movimenti.length; i += 20) {
+      movimentiPages.push(data.movimenti.slice(i, i + 20));
+    }
+
+    // Dividi alert in pagine di 20
+    const alertPages: Alert[][] = [];
+    for (let i = 0; i < data.alerts.length; i += 20) {
+      alertPages.push(data.alerts.slice(i, i + 20));
+    }
+
+    // Dividi pratiche in pagine di 10
+    const pratichePages: Pratica[][] = [];
+    for (let i = 0; i < data.pratiche.length; i += 10) {
+      pratichePages.push(data.pratiche.slice(i, i + 10));
+    }
+
+    return `
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    @page { margin: 10mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Arial', 'Helvetica', sans-serif;
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 11pt;
+    }
+    .page-break { page-break-after: always; }
+
+    .hero {
+      padding: 20px;
+      background: linear-gradient(120deg, #0f172a 0%, #1e3a8a 45%, #2563eb 100%);
+      color: #fff;
+      margin-bottom: 30px;
+    }
+    .hero-top { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+    .brand { display:flex; align-items:center; gap:12px; }
+    .brand img { height: 48px; width: auto; background: white; padding: 8px; border-radius: 8px; }
+    .title { font-size: 22px; font-weight: 700; }
+    .subtitle { font-size: 12px; opacity: 0.9; margin-top:2px; }
+    .badge { background: rgba(255,255,255,0.2); color:#e0f2fe; padding:8px 14px; border-radius: 8px; font-size:12px; font-weight:600; }
+    .kpi-row { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-top:16px; }
+    .kpi {
+      padding:14px;
+      border-radius:8px;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+    .kpi .label { font-size:11px; color:#e2e8f0; margin-bottom:4px; }
+    .kpi .value { font-size:18px; font-weight:700; color:#ffffff; }
+
+    .section { padding: 24px 20px; }
+    .section h2 {
+      font-size:18px;
+      font-weight:700;
+      color:#1e3a8a;
+      margin-bottom:20px;
+      padding-bottom:8px;
+      border-bottom: 2px solid #3b82f6;
+    }
+
+    .card {
+      background:#f8fafc;
+      border:1px solid #e2e8f0;
+      border-radius:8px;
+      padding:16px;
+      margin-bottom:14px;
+    }
+    .info-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:16px; }
+    .label { font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
+    .value { font-size:13px; font-weight:600; color:#0f172a; margin-top:4px; }
+
+    .stats { display:grid; grid-template-columns: repeat(3, 1fr); gap:14px; margin-bottom:20px; }
+    .stat { background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:14px; }
+
+    table { width:100%; border-collapse: collapse; margin-top:12px; }
+    th, td { padding:12px; font-size:11px; text-align:left; border-bottom:1px solid #e2e8f0; }
+    th { background:#dbeafe; color:#1e40af; font-weight:700; }
+    tbody tr:hover { background:#f8fafc; }
+    .text-right { text-align:right; }
+    .badge-success { color:#065f46; background:#d1fae5; padding:4px 10px; border-radius:6px; font-weight:600; display:inline-block; }
+    .badge-warn { color:#92400e; background:#fef3c7; padding:4px 10px; border-radius:6px; font-weight:600; display:inline-block; }
+
+    .pratica {
+      background:#fff;
+      border:1px solid #e2e8f0;
+      border-radius:8px;
+      padding:16px;
+      margin-bottom:12px;
+    }
+    .pratica-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+    .pratica-head .title { font-size:14px; color:#0f172a; font-weight:700; }
+    .status { padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; }
+    .status.open { background:#d1fae5; color:#065f46; }
+    .status.close { background:#e2e8f0; color:#475569; }
+    .pratica-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-top:12px; }
+
+    .notes { background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:14px; font-size:12px; color:#78350f; }
+
+    .page-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1e3a8a;
+      margin-bottom: 24px;
+      padding-bottom: 12px;
+      border-bottom: 3px solid #3b82f6;
+    }
+  </style>
+</head>
+<body>
+  <!-- PAGINA COPERTINA -->
+  <div class="hero">
+    <div class="hero-top">
+      <div class="brand">
+        <img src="${logoData}" alt="Logo" />
+        <div>
+          <div class="title">Report Cliente</div>
+          <div class="subtitle">${data.cliente.ragioneSociale}</div>
+          <div class="subtitle">Generato il ${new Date().toLocaleDateString('it-IT')}</div>
+        </div>
+      </div>
+      <div class="badge">${periodoLabel}</div>
+    </div>
+    <div class="kpi-row">
+      <div class="kpi"><div class="label">Totale Pratiche</div><div class="value">${totalePratiche}</div></div>
+      <div class="kpi"><div class="label">Capitale affidato</div><div class="value">${this.formatCurrency(capitaleTotale)}</div></div>
+      <div class="kpi"><div class="label">Recuperato</div><div class="value">${this.formatCurrency(totaleRecuperato)}</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Informazioni Cliente</h2>
+    <div class="card">
+      <div class="info-grid">
+        <div><div class="label">Ragione sociale</div><div class="value">${data.cliente.ragioneSociale || 'N/D'}</div></div>
+        <div><div class="label">Email</div><div class="value">${data.cliente.email || '-'}</div></div>
+        <div><div class="label">P.IVA</div><div class="value">${data.cliente.partitaIva || '-'}</div></div>
+        <div><div class="label">Codice Fiscale</div><div class="value">${data.cliente.codiceFiscale || '-'}</div></div>
+      </div>
+    </div>
+
+    ${data.options.includiRiepilogo !== false ? `
+    <h2 style="margin-top:24px;">Riepilogo Statistiche</h2>
+    <div class="stats">
+      <div class="stat"><div class="label">Totale Pratiche</div><div class="value">${totalePratiche}</div></div>
+      <div class="stat"><div class="label">Capitale Affidato</div><div class="value">${this.formatCurrency(capitaleTotale)}</div></div>
+      <div class="stat"><div class="label">Totale Recuperato</div><div class="value">${this.formatCurrency(totaleRecuperato)}</div></div>
+    </div>
+    ` : ''}
+
+    ${data.options.note ? `
+    <h2 style="margin-top:24px;">Note</h2>
+    <div class="notes">${data.options.note}</div>
+    ` : ''}
+  </div>
+
+  ${data.options.includiMovimenti && movimentiPages.length > 0 ? movimentiPages.map((pageMov, pageIdx) => `
+  <div class="page-break"></div>
+  <div class="section">
+    <div class="page-title">Movimenti Finanziari ${movimentiPages.length > 1 ? `(Pag. ${pageIdx + 1}/${movimentiPages.length})` : ''}</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Tipo</th>
+          <th>Descrizione</th>
+          <th class="text-right">Importo</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${pageMov.map(m => `
+        <tr>
+          <td>${m.data ? this.formatDate(new Date(m.data)) : '-'}</td>
+          <td>${this.getTipoMovimentoLabel(m.tipo)}</td>
+          <td>${m.oggetto || '-'}</td>
+          <td class="text-right">${this.formatCurrency(Number(m.importo || 0))}</td>
+        </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  </div>
+  `).join('') : ''}
+
+  ${data.options.includiDettaglioPratiche && pratichePages.length > 0 ? pratichePages.map((pagePrat, pageIdx) => `
+  <div class="page-break"></div>
+  <div class="section">
+    <div class="page-title">Dettaglio Pratiche ${pratichePages.length > 1 ? `(Pag. ${pageIdx + 1}/${pratichePages.length})` : ''}</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Numero Pratica</th>
+          <th>Debitore</th>
+          <th class="text-right">Capitale</th>
+          <th>Apertura</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${pagePrat.map(p => {
+          const debitore = p.debitore?.ragioneSociale || (p.debitore ? `${p.debitore.nome || ''} ${p.debitore.cognome || ''}`.trim() : 'N/D');
+          return `
+          <tr>
+            <td>${p.numeroPratica || 'N/D'}</td>
+            <td>${debitore}</td>
+            <td class="text-right">${this.formatCurrency(p.capitale || 0)}</td>
+            <td>${p.createdAt ? this.formatDate(new Date(p.createdAt)) : '-'}</td>
+          </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>
+  `).join('') : ''}
+
+  ${data.options.includiAlert !== false && alertPages.length > 0 ? alertPages.map((pageAlert, pageIdx) => `
+  <div class="page-break"></div>
+  <div class="section">
+    <div class="page-title">Alert e Scadenze ${alertPages.length > 1 ? `(Pag. ${pageIdx + 1}/${alertPages.length})` : ''}</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Scadenza</th>
+          <th>Titolo</th>
+          <th>Numero Pratica</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${pageAlert.map(a => `
+        <tr>
+          <td>${a.dataScadenza ? this.formatDate(new Date(a.dataScadenza)) : '-'}</td>
+          <td>${a.titolo || '-'}</td>
+          <td>${a.pratica?.numeroPratica || '-'}</td>
+        </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  </div>
+  `).join('') : ''}
+</body>
+</html>
+    `;
+  }
+
+  private async renderHtmlToPdf(html: string): Promise<Buffer> {
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    const pdf = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' },
+    });
+    await browser.close();
+    return Buffer.from(pdf);
+  }
+
+  private getTipoMovimentoLabel(tipo: TipoMovimento): string {
+    const labels: Record<TipoMovimento, string> = {
+      capitale: 'Capitale',
+      anticipazione: 'Anticipazione',
+      compenso: 'Compenso',
+      interessi: 'Interessi',
+      recupero_capitale: 'Recupero Capitale',
+      recupero_anticipazione: 'Recupero Anticipazione',
+      recupero_compenso: 'Recupero Compenso',
+      recupero_interessi: 'Recupero Interessi',
+    };
+    return labels[tipo] || tipo;
+  }
+}
