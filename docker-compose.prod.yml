@@ -20,8 +20,6 @@ services:
       --innodb_log_file_size=256M
       --innodb_flush_log_at_trx_commit=2
       --innodb_flush_method=O_DIRECT
-      --query_cache_size=0
-      --query_cache_type=0
       --slow_query_log=1
       --slow_query_log_file=/var/log/mysql/slow.log
       --long_query_time=2
@@ -35,14 +33,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 2G
-        reservations:
-          cpus: '1.0'
-          memory: 1G
 
   # Redis Cache with production optimizations
   redis:
@@ -67,14 +57,6 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 768M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
 
   # Backend API with production optimizations
   backend:
@@ -141,19 +123,22 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    deploy:
-      replicas: 2  # Run 2 instances for high availability
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
+
+
+  frontend:
+    image: node:20-alpine
+    container_name: resolv-frontend-build
+    working_dir: /usr/src/app
+    restart: "no"
+    environment:
+      NODE_ENV: production
+    volumes:
+      - ./apps/frontend:/usr/src/app
+      - frontend_node_modules:/usr/src/app/node_modules
+    command: >
+      sh -c "npm ci && npm run build && tail -f /dev/null"
+    networks:
+      - resolv-network
 
   # Nginx Reverse Proxy
   nginx:
@@ -178,14 +163,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 256M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
 
   # Certbot for SSL certificates (Let's Encrypt)
   certbot:
@@ -210,6 +187,8 @@ volumes:
   backup_data:
     driver: local
   nginx_logs:
+    driver: local
+  frontend_node_modules:
     driver: local
 
 networks:
