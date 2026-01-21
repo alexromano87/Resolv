@@ -1,5 +1,5 @@
 // apps/frontend/src/api/piani-ammortamento.ts
-import { api } from './config';
+import { api, API_BASE_URL } from './config';
 
 export type StatoPiano = 'attivo' | 'chiuso_positivo' | 'chiuso_negativo' | 'sospeso';
 
@@ -142,7 +142,7 @@ export const pianiAmmortamentoApi = {
 
     const token = localStorage.getItem('auth_token');
     const response = await fetch(
-      `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/piani-ammortamento/rata/${rataId}/registra-pagamento`,
+      `${API_BASE_URL}/piani-ammortamento/rata/${rataId}/registra-pagamento`,
       {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -165,7 +165,7 @@ export const pianiAmmortamentoApi = {
   async downloadRicevutaRata(rataId: string): Promise<Blob> {
     const token = localStorage.getItem('auth_token');
     const response = await fetch(
-      `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/piani-ammortamento/rata/${rataId}/ricevuta`,
+      `${API_BASE_URL}/piani-ammortamento/rata/${rataId}/ricevuta`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -195,7 +195,7 @@ export const pianiAmmortamentoApi = {
   async downloadReport(pianoId: string): Promise<Blob> {
     const token = localStorage.getItem('auth_token');
     const response = await fetch(
-      `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/piani-ammortamento/${pianoId}/report`,
+      `${API_BASE_URL}/piani-ammortamento/${pianoId}/report`,
       {
         method: 'GET',
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,

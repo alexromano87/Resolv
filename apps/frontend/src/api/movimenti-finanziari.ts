@@ -1,5 +1,5 @@
 // apps/frontend/src/api/movimenti-finanziari.ts
-import { api } from './config';
+import { api, API_BASE_URL } from './config';
 
 export type TipoMovimento =
   | 'capitale'
@@ -140,7 +140,7 @@ export const movimentiFinanziariApi = {
 
     const token = localStorage.getItem('auth_token');
     const response = await fetch(
-      `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/report/fatturazione/pdf?${params.toString()}`,
+      `${API_BASE_URL}/report/fatturazione/pdf?${params.toString()}`,
       {
         method: 'GET',
         headers: {
