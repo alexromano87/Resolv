@@ -11,7 +11,22 @@ const getEnv = (key: string) => env[key] || env[`VITE_${key}`];
 function getApiBaseUrl(): string {
   // 1. Se definito in .env, usa quello (priorità massima)
   const explicit = getEnv('VITE_API_URL') || getEnv('API_URL');
-  if (explicit) return explicit;
+  if (explicit) {
+    // If someone left :3000 in production, normalize to /api on the same host.
+    if (typeof window !== 'undefined' && explicit.startsWith('http')) {
+      try {
+        const explicitUrl = new URL(explicit);
+        const hostname = window.location.hostname;
+        const protocol = window.location.protocol;
+        if (explicitUrl.hostname === hostname && explicitUrl.port === '3000') {
+          return `${protocol}//${hostname}/api`;
+        }
+      } catch {
+        // ignore invalid URL
+      }
+    }
+    return explicit;
+  }
 
   // In contesti senza window (test E2E o SSR) torna un fallback sicuro
   if (typeof window === 'undefined') {
