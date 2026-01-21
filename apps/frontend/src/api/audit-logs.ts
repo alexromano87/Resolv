@@ -1,4 +1,4 @@
-import { api } from './config';
+import { api, API_BASE_URL } from './config';
 
 export type AuditAction =
   | 'LOGIN'
@@ -114,7 +114,7 @@ export const auditLogsApi = {
     };
 
     const response = await fetch(
-      `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/admin/audit-logs/export?${params.toString()}`,
+      `${API_BASE_URL}/admin/audit-logs/export?${params.toString()}`,
       { headers }
     );
 

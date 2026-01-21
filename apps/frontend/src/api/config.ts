@@ -27,10 +27,9 @@ function getApiBaseUrl(): string {
     return 'http://localhost:3000';
   }
 
-  // Production - auto-detect backend on same server
-  // Assumes backend runs on same hostname, port 3000
-  // For custom domains, use VITE_API_URL in .env
-  return `${protocol}//${hostname}:3000`;
+  // Production - API is served behind the same host under /api
+  // For custom domains or overrides, use VITE_API_URL in .env
+  return `${protocol}//${hostname}/api`;
 }
 
 export const API_BASE_URL = getApiBaseUrl();
