@@ -12,6 +12,9 @@ function getApiBaseUrl(): string {
   // 1. Se definito in .env, usa quello (priorità massima)
   const explicit = getEnv('VITE_API_URL') || getEnv('API_URL');
   if (explicit) {
+    if (typeof window !== 'undefined' && explicit.startsWith('/')) {
+      return `${window.location.origin}${explicit}`;
+    }
     // If someone left :3000 in production, normalize to /api on the same host.
     if (typeof window !== 'undefined' && explicit.startsWith('http')) {
       try {
