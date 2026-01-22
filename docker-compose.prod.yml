@@ -12,6 +12,7 @@ services:
       MYSQL_DATABASE: ${DB_DATABASE}
       MYSQL_USER: ${DB_USERNAME}
       MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DEFAULT_AUTHENTICATION_PLUGIN: mysql_native_password
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci

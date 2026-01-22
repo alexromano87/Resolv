@@ -85,7 +85,7 @@ export class StudiService {
         where: { nome: updateStudioDto.nome },
       });
 
-      if (existingStudio) {
+      if (existingStudio && existingStudio.id !== studio.id) {
         throw new ConflictException('Esiste già uno studio con questo nome');
       }
     }

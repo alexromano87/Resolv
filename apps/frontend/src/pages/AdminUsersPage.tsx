@@ -142,6 +142,7 @@ export function AdminUsersPage() {
           cognome: formData.cognome,
           ruolo: formData.ruolo,
           clienteId: formData.clienteId,
+          studioId: formData.studioId,
         };
 
         // Solo se è stata inserita una nuova password
