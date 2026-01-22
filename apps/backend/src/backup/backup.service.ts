@@ -48,7 +48,7 @@ export class BackupService {
     const dbUser = this.configService.get<string>('DB_USERNAME', 'rc_user');
     const dbPassword = this.configService.get<string>('DB_PASSWORD', 'rc_pass');
 
-    const command = `mariadb-dump -h ${dbHost} -P ${dbPort} -u ${dbUser} -p${dbPassword} --single-transaction --quick --lock-tables=false --skip-ssl ${dbName} > ${filepath}`;
+    const command = `mysqldump -h ${dbHost} -P ${dbPort} -u ${dbUser} -p${dbPassword} --single-transaction --quick --lock-tables=false --skip-ssl ${dbName} > ${filepath}`;
 
     try {
       await execAsync(command);
@@ -143,7 +143,7 @@ export class BackupService {
     const dbUser = this.configService.get<string>('DB_USERNAME', 'rc_user');
     const dbPassword = this.configService.get<string>('DB_PASSWORD', 'rc_pass');
 
-    const command = `mariadb -h ${dbHost} -P ${dbPort} -u ${dbUser} -p${dbPassword} --skip-ssl ${dbName} < ${filepath}`;
+    const command = `mysql -h ${dbHost} -P ${dbPort} -u ${dbUser} -p${dbPassword} --skip-ssl ${dbName} < ${filepath}`;
 
     try {
       await execAsync(command);
