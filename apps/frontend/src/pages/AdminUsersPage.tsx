@@ -95,7 +95,7 @@ export function AdminUsersPage() {
       cognome: user.cognome,
       ruolo: user.ruolo,
       clienteId: user.clienteId || null,
-      studioId: user.studioId || null,
+      studioId: user.studioId || user.studio?.id || null,
     });
     setShowModal(true);
   };
@@ -142,7 +142,7 @@ export function AdminUsersPage() {
           cognome: formData.cognome,
           ruolo: formData.ruolo,
           clienteId: formData.clienteId,
-          studioId: formData.studioId,
+          studioId: formData.studioId || selectedUser?.studioId || selectedUser?.studio?.id || null,
         };
 
         // Solo se è stata inserita una nuova password

@@ -110,7 +110,10 @@ export class UsersService {
       throw new NotFoundException('Utente non trovato');
     }
     if (updateUserDto.ruolo === 'titolare_studio' && !updateUserDto.studioId) {
-      throw new ConflictException('Studio obbligatorio per il titolare');
+      if (!user.studioId) {
+        throw new ConflictException('Studio obbligatorio per il titolare');
+      }
+      updateUserDto.studioId = user.studioId;
     }
 
     // Se viene aggiornata l'email, normalizzala e verifica che non sia già in uso
