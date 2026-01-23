@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Building2,
   Plus,
@@ -32,6 +32,8 @@ import { Pagination } from '../components/Pagination';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
 import { CustomSelect } from '../components/ui/CustomSelect';
+import { SearchableNazioneSelect } from '../components/ui/SearchableNazioneSelect';
+import { nazioniApi, type Nazione } from '../api/nazioni';
 
 type ClienteFormState = {
   tipoSoggetto: ClienteTipoSoggetto;
@@ -77,7 +79,18 @@ const EMPTY_FORM: ClienteFormState = {
   pec: '',
 };
 
-function clienteToFormState(c: Cliente | null): ClienteFormState {
+function normalizeNazioneValue(value: string, nazioni: Nazione[]): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const upper = trimmed.toUpperCase();
+  const byCode = nazioni.find((n) => n.codice === upper);
+  if (byCode) return byCode.codice;
+  const lower = trimmed.toLowerCase();
+  const byName = nazioni.find((n) => n.nome.toLowerCase() === lower);
+  return byName ? byName.codice : trimmed;
+}
+
+function clienteToFormState(c: Cliente | null, nazioni: Nazione[]): ClienteFormState {
   if (!c) return EMPTY_FORM;
   return {
     tipoSoggetto: c.tipoSoggetto ?? 'persona_giuridica',
@@ -91,7 +104,7 @@ function clienteToFormState(c: Cliente | null): ClienteFormState {
     cap: c.cap ?? '',
     citta: c.citta ?? '',
     provincia: c.provincia ?? '',
-    nazione: c.nazione ?? '',
+    nazione: normalizeNazioneValue(c.nazione ?? '', nazioni),
     referente: c.referente ?? '',
     referenteNome: c.referenteNome ?? '',
     referenteCognome: c.referenteCognome ?? '',
@@ -134,6 +147,8 @@ export function ClientiPage() {
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [formData, setFormData] = useState<ClienteFormState>(EMPTY_FORM);
+  const [nazioni, setNazioni] = useState<Nazione[]>([]);
+  const [nazioniLoading, setNazioniLoading] = useState(false);
   const tipologiaDisabled = isViewing || formData.tipoSoggetto === 'persona_fisica';
 
   // Sharing configuration
@@ -151,6 +166,32 @@ export function ClientiPage() {
     email: '',
     telefono: '',
   });
+
+  const loadNazioni = async () => {
+    try {
+      setNazioniLoading(true);
+      const data = await nazioniApi.getAll(true);
+      setNazioni(data);
+    } catch (err: any) {
+      console.error('Errore caricamento nazioni:', err);
+      toastError(err.message || 'Errore durante il caricamento delle nazioni');
+    } finally {
+      setNazioniLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadNazioni();
+  }, []);
+
+  useEffect(() => {
+    if (!nazioni.length) return;
+    if (!formData.nazione) return;
+    const normalized = normalizeNazioneValue(formData.nazione, nazioni);
+    if (normalized !== formData.nazione) {
+      setFormData((prev) => ({ ...prev, nazione: normalized }));
+    }
+  }, [nazioni, formData.nazione]);
 
   const loadClienti = async () => {
     try {
@@ -189,6 +230,10 @@ export function ClientiPage() {
     await loadClienti();
   };
 
+  const getDefaultNazione = () => {
+    return nazioni.find((n) => n.codice === 'IT') ? 'IT' : '';
+  };
+
   const handleResetFilters = () => {
     setFilters({
       ragioneSociale: '',
@@ -204,7 +249,7 @@ export function ClientiPage() {
   };
 
   const resetForm = () => {
-    setFormData(EMPTY_FORM);
+    setFormData({ ...EMPTY_FORM, nazione: getDefaultNazione() });
     setSubmitAttempted(false);
   };
 
@@ -236,7 +281,7 @@ export function ClientiPage() {
           cap: formData.cap.trim() || undefined,
           citta: formData.citta.trim() || undefined,
           provincia: formData.provincia.trim() || undefined,
-          nazione: formData.nazione.trim() || undefined,
+          nazione: formData.nazione.trim() ? formData.nazione.trim().toUpperCase() : undefined,
           referente: formData.referente.trim() || undefined,
           referenteNome: formData.referenteNome.trim() || undefined,
           referenteCognome: formData.referenteCognome.trim() || undefined,
@@ -288,7 +333,7 @@ export function ClientiPage() {
           cap: formData.cap.trim() || undefined,
           citta: formData.citta.trim() || undefined,
           provincia: formData.provincia.trim() || undefined,
-          nazione: formData.nazione.trim() || undefined,
+          nazione: formData.nazione.trim() ? formData.nazione.trim().toUpperCase() : undefined,
           referente: formData.referente.trim() || undefined,
           referenteNome: formData.referenteNome.trim() || undefined,
           referenteCognome: formData.referenteCognome.trim() || undefined,
@@ -307,7 +352,7 @@ export function ClientiPage() {
         );
         if (updatedCliente) {
           setSelectedCliente(updatedCliente);
-          setFormData(clienteToFormState(updatedCliente));
+          setFormData(clienteToFormState(updatedCliente, nazioni));
         }
       } catch (err: any) {
         setSubmitAttempted(true);
@@ -364,7 +409,7 @@ export function ClientiPage() {
 
   const handleRowClick = (cliente: Cliente) => {
     setSelectedCliente(cliente);
-    setFormData(clienteToFormState(cliente));
+    setFormData(clienteToFormState(cliente, nazioni));
     setIsViewing(true);
     setIsEditing(false);
   };
@@ -377,7 +422,7 @@ export function ClientiPage() {
 
   const handleCancelEditing = () => {
     if (selectedCliente) {
-      setFormData(clienteToFormState(selectedCliente));
+      setFormData(clienteToFormState(selectedCliente, nazioni));
       setIsViewing(true);
       setIsEditing(false);
     }
@@ -476,6 +521,7 @@ export function ClientiPage() {
           onClick={() => {
             setShowNewForm(true);
             setSubmitAttempted(false);
+            setFormData({ ...EMPTY_FORM, nazione: getDefaultNazione() });
           }}
           className="wow-button"
         >
@@ -955,13 +1001,13 @@ export function ClientiPage() {
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                       Nazione
                     </label>
-                    <input
-                      type="text"
-                      value={formData.nazione}
-                      onChange={(e) => setFormData({ ...formData, nazione: e.target.value })}
+                    <SearchableNazioneSelect
+                      nazioni={nazioni}
+                      value={formData.nazione || null}
+                      onChange={(value) => setFormData({ ...formData, nazione: value || '' })}
+                      loading={nazioniLoading}
                       disabled={isViewing}
-                      className="w-full rounded-2xl border border-white/70 bg-white/90 px-4 py-2.5 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                      placeholder="Italia"
+                      placeholder="Seleziona nazione..."
                     />
                   </div>
                 </div>
