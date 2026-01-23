@@ -21,8 +21,10 @@ pnpm-debug.log*
 
 # Environment (keep .env.example tracked)
 .env
+.env.local
 .env.*
 !.env.example
+!.env.local.example
 
 # Runtime data
 apps/backend/uploads/
