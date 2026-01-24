@@ -227,7 +227,8 @@ export function SearchableNazioneSelect({
                 ))
               )}
             </div>
-          </div>
+          </div>,
+          document.body,
         )}
     </div>
   );
