@@ -214,6 +214,14 @@ export function TicketsPage() {
         await ticketsApi.deactivate(ticket.id);
         success('Ticket disattivato');
       } else {
+        if (!(await confirm({
+          title: 'Riattiva ticket',
+          message: 'Riattivare questo ticket?',
+          confirmText: 'Riattiva',
+          variant: 'info',
+        }))) {
+          return;
+        }
         await ticketsApi.reactivate(ticket.id);
         success('Ticket riattivato');
       }
@@ -544,6 +552,9 @@ export function TicketsPage() {
                   <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
                     <span>
                       <strong>Richiedente:</strong> {ticket.autore}
+                    </span>
+                    <span>
+                      <strong>Stato:</strong> {ticket.attivo ? 'Attivo' : 'Disattivato'}
                     </span>
                     <span>
                       <strong>Creato:</strong> {new Date(ticket.dataCreazione).toLocaleDateString('it-IT')}

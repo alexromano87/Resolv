@@ -89,8 +89,28 @@ export class TassiMonitoraggioService implements OnModuleInit, OnModuleDestroy {
     const oggi = this.startOfDay(new Date());
 
     try {
-      const hasLegale = await this.hasValidRate('legale', oggi);
-      const hasMoratorio = await this.hasValidRate('moratorio', oggi);
+      let hasLegale = await this.hasValidRate('legale', oggi);
+      let hasMoratorio = await this.hasValidRate('moratorio', oggi);
+
+      if ((!hasLegale || !hasMoratorio) && this.isEnabled) {
+        this.logger.warn('Tassi mancanti o scaduti: avvio recupero automatico.');
+        try {
+          const result = await this.tassiFetchService.fetchCurrentRates();
+          this.logFetchResult(result, 'SCHEDULATO');
+          await this.notifyAutoSavedRates(result, 'SCADENZA');
+          if (result.needsApproval > 0) {
+            await this.notifyNewRatesFound(result);
+          }
+        } catch (error) {
+          this.logger.error(
+            `Errore durante il recupero automatico tassi: ${error.message}`,
+            error.stack,
+          );
+        }
+
+        hasLegale = await this.hasValidRate('legale', oggi);
+        hasMoratorio = await this.hasValidRate('moratorio', oggi);
+      }
 
       if (!hasLegale) {
         await this.notificationsService.notifyAdminsUnique({
@@ -151,8 +171,7 @@ export class TassiMonitoraggioService implements OnModuleInit, OnModuleDestroy {
 
       // Log risultati
       this.logFetchResult(result, 'MANUALE');
-
-      // Future: inviare notifiche se configurate
+      await this.notifyAutoSavedRates(result, 'MANUALE');
 
       return result;
     } catch (error) {
@@ -182,6 +201,7 @@ export class TassiMonitoraggioService implements OnModuleInit, OnModuleDestroy {
 
       // Log risultati
       this.logFetchResult(result, 'SCHEDULATO');
+      await this.notifyAutoSavedRates(result, 'SCHEDULATO');
 
       // Notifica admin se trovati nuovi tassi che richiedono approvazione
       if (result.needsApproval > 0) {
@@ -260,5 +280,38 @@ export class TassiMonitoraggioService implements OnModuleInit, OnModuleDestroy {
     // - Email agli admin
     // - Notifiche in-app
     // - Alert nel pannello admin
+  }
+
+  private async notifyAutoSavedRates(
+    result: FetchTassiResultDto,
+    trigger: 'MANUALE' | 'SCHEDULATO' | 'SCADENZA',
+  ): Promise<void> {
+    const autoSavedRates = result.rates.filter((rate) => rate.status === 'auto-saved');
+    if (autoSavedRates.length === 0) return;
+
+    for (const rate of autoSavedRates) {
+      const startDate = rate.data.dataInizioValidita?.toLocaleDateString('it-IT') || 'N/D';
+      const endDate = rate.data.dataFineValidita
+        ? ` al ${rate.data.dataFineValidita.toLocaleDateString('it-IT')}`
+        : '';
+      const message =
+        `Creato tasso ${rate.data.tipo} ${rate.data.tassoPercentuale}% ` +
+        `dal ${startDate}${endDate} (${rate.data.source}).`;
+
+      await this.notificationsService.notifyAdminsUnique({
+        type: 'tasso_interesse_auto_creato',
+        title: 'Nuovo tasso creato',
+        message,
+        metadata: {
+          tassoId: rate.savedTassoId,
+          tipo: rate.data.tipo,
+          tassoPercentuale: rate.data.tassoPercentuale,
+          dataInizioValidita: rate.data.dataInizioValidita?.toISOString(),
+          dataFineValidita: rate.data.dataFineValidita?.toISOString() ?? null,
+          source: rate.data.source,
+          trigger,
+        },
+      });
+    }
   }
 }

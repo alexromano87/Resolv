@@ -10,6 +10,8 @@ import { Studio } from '../studi/studio.entity';
 
 interface ReportOptions {
   clienteId: string;
+  clienteIds?: string[];
+  studioId?: string;
   dataInizio?: Date;
   dataFine?: Date;
 }
@@ -41,17 +43,28 @@ export class ReportExcelService {
   }
 
   private async loadReportData(options: ReportOptions) {
-    const cliente = await this.clienteRepo.findOne({
-      where: { id: options.clienteId },
-      relations: ['studio'],
-    });
+    const isAllClients = options.clienteId === 'all';
+    let cliente: Cliente;
+    let clientiIds: string[] = [];
 
-    if (!cliente) {
-      throw new Error('Cliente non trovato');
+    if (isAllClients) {
+      clientiIds = options.clienteIds ?? [];
+      cliente = { id: 'all', ragioneSociale: 'Tutti i clienti' } as Cliente;
+    } else {
+      const clienteEntity = await this.clienteRepo.findOne({
+        where: { id: options.clienteId },
+        relations: ['studio'],
+      });
+
+      if (!clienteEntity) {
+        throw new Error('Cliente non trovato');
+      }
+      cliente = clienteEntity;
+      clientiIds = [clienteEntity.id];
     }
 
     let pratiche = await this.praticaRepo.find({
-      where: { clienteId: options.clienteId },
+      where: { clienteId: In(clientiIds) },
       relations: ['debitore', 'avvocati', 'collaboratori'],
       order: { createdAt: 'DESC' },
     });

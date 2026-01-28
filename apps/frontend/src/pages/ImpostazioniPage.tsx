@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../theme/ThemeProvider';
 import { studiApi } from '../api/studi';
 import { CustomSelect } from '../components/ui/CustomSelect';
+import { PhoneInput } from '../components/ui/PhoneInput';
 import { useToast } from '../components/ui/ToastProvider';
 import { authApi } from '../api/auth';
 import {
@@ -437,12 +438,11 @@ export function ImpostazioniPage() {
                       onChange={(value) => setTwoFactorChannel(value as 'sms' | 'email')}
                     />
                     {twoFactorChannel === 'sms' && (
-                      <input
-                        type="text"
+                      <PhoneInput
                         value={draftTelefono}
-                        onChange={(e) => setDraftTelefono(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                        onChange={setDraftTelefono}
                         placeholder="Numero di telefono"
+                        inputClassName="text-xs"
                       />
                     )}
                     <button

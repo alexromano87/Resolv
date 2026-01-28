@@ -13,6 +13,7 @@ import {
   fetchDebitoriForCliente,
   fetchDebitori,
   fetchClientiForDebitore,
+  linkDebitoreToCliente,
   unlinkDebitoreFromCliente,
   deactivateDebitore,
   reactivateDebitore,
@@ -148,7 +149,9 @@ export function useDebitoriPage(params?: UseDebitoriPageParams) {
 
   // === STATO DEBITORI ===
   const [debitori, setDebitori] = useState<Debitore[]>([]);
+  const [allDebitori, setAllDebitori] = useState<Debitore[]>([]);
   const [loadingDebitori, setLoadingDebitori] = useState(false);
+  const [inactiveFetchAttempted, setInactiveFetchAttempted] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [clientiPerDebitore, setClientiPerDebitore] = useState<Record<string, string[]>>({});
 
@@ -221,20 +224,48 @@ export function useDebitoriPage(params?: UseDebitoriPageParams) {
   // === FLAG PER SELEZIONE DEBITORE INIZIALE ===
   const [initialDebitoreSelected, setInitialDebitoreSelected] = useState(false);
 
+  const filterDebitori = (items: Debitore[], term?: string): Debitore[] => {
+    const activeOnly = !showInactive;
+    const filteredByStatus = activeOnly ? items.filter((d) => d.attivo !== false) : items;
+    const normalizedTerm = term?.trim().toLowerCase() || '';
+    if (!normalizedTerm) return filteredByStatus;
+    return filteredByStatus.filter((d) => {
+      const nome = getDebitoreDisplayName(d).toLowerCase();
+      const cf = (d.codiceFiscale || '').toLowerCase();
+      const piva = (d.partitaIva || '').toLowerCase();
+      const email = (d.email || '').toLowerCase();
+      const tel = (d.telefono || '').toLowerCase();
+      return (
+        nome.includes(normalizedTerm) ||
+        cf.includes(normalizedTerm) ||
+        piva.includes(normalizedTerm) ||
+        email.includes(normalizedTerm) ||
+        tel.includes(normalizedTerm)
+      );
+    });
+  };
+
   // === CARICAMENTO DEBITORI ===
   const loadDebitori = async (term?: string) => {
     setLoadingDebitori(true);
     try {
       setError(null);
+      const effectiveTerm = term !== undefined ? term : searchTerm;
+      const hasTerm = Boolean(effectiveTerm && effectiveTerm.trim());
+      if (!selectedClienteId && !hasTerm) {
+        setDebitori([]);
+        setAllDebitori([]);
+        setLoadingDebitori(false);
+        return;
+      }
       const data = selectedClienteId
-        ? await fetchDebitoriForCliente(selectedClienteId, showInactive)
-        : await fetchDebitori(showInactive);
+        ? await fetchDebitoriForCliente(selectedClienteId, true)
+        : await fetchDebitori(true);
 
       // Precarica associazioni clienti per i debitori caricati
-      const missing = data.filter((d) => !clientiPerDebitore[d.id]);
-      if (missing.length > 0) {
+      if (data.length > 0) {
         const results = await Promise.all(
-          missing.map(async (d) => {
+          data.map(async (d) => {
             try {
               const res = await fetchClientiForDebitore(d.id);
               return { id: d.id, clientiIds: res.clientiIds };
@@ -255,19 +286,8 @@ export function useDebitoriPage(params?: UseDebitoriPageParams) {
         });
       }
 
-      const filtered = term
-        ? data.filter((d) => {
-            const t = term.toLowerCase();
-            const nome = getDebitoreDisplayName(d).toLowerCase();
-            const cf = (d.codiceFiscale || '').toLowerCase();
-            const piva = (d.partitaIva || '').toLowerCase();
-            const email = (d.email || '').toLowerCase();
-            const tel = (d.telefono || '').toLowerCase();
-            return nome.includes(t) || cf.includes(t) || piva.includes(t) || email.includes(t) || tel.includes(t);
-          })
-        : data;
-
-      setDebitori(filtered);
+      setAllDebitori(data);
+      setDebitori(filterDebitori(data, effectiveTerm));
 
       if (!params?.initialDebitoreId || initialDebitoreSelected) {
         setSelectedDebitoreId(null);
@@ -291,12 +311,32 @@ export function useDebitoriPage(params?: UseDebitoriPageParams) {
     loadDebitori();
   }, [
     selectedClienteId,
-    showInactive,
     toastError,
     params?.initialDebitoreId,
     initialDebitoreSelected,
     clienti,
   ]);
+
+  useEffect(() => {
+    if (allDebitori.length === 0) return;
+    const term = searchTerm.trim() ? searchTerm : undefined;
+    setDebitori(filterDebitori(allDebitori, term));
+  }, [showInactive, searchTerm, allDebitori]);
+
+  useEffect(() => {
+    if (!showInactive || loadingDebitori || allDebitori.length === 0) return;
+    const hasInactive = allDebitori.some((d) => d.attivo === false);
+    if (!hasInactive && !inactiveFetchAttempted) {
+      setInactiveFetchAttempted(true);
+      void loadDebitori(searchTerm);
+    }
+  }, [showInactive, loadingDebitori, allDebitori, inactiveFetchAttempted, searchTerm]);
+
+  useEffect(() => {
+    if (!showInactive) {
+      setInactiveFetchAttempted(false);
+    }
+  }, [showInactive]);
 
   // === SELEZIONE DEBITORE INIZIALE (dopo caricamento debitori) ===
   useEffect(() => {
@@ -499,6 +539,26 @@ export function useDebitoriPage(params?: UseDebitoriPageParams) {
 
       const created = await createDebitore(payload);
       setDebitori((prev) => [created, ...prev]);
+      setAllDebitori((prev) => [created, ...prev]);
+
+      try {
+        if (clienteId) {
+          await linkDebitoreToCliente(clienteId, created.id);
+        }
+        const { clientiIds } = await fetchClientiForDebitore(created.id);
+        const linkedIds = clientiIds ?? [];
+        if (linkedIds.length > 0) {
+          setClientiPerDebitore((prev) => ({
+            ...prev,
+            [created.id]: linkedIds
+              .map((id) => clienti.find((c) => c.id === id)?.ragioneSociale || '')
+              .filter(Boolean),
+          }));
+        }
+      } catch (linkErr) {
+        console.warn('Errore aggiornamento associazione cliente-debitore', linkErr);
+      }
+
       resetNewForm();
       toastSuccess('Debitore creato e collegato correttamente', 'Operazione riuscita');
       return true;
@@ -518,6 +578,7 @@ export function useDebitoriPage(params?: UseDebitoriPageParams) {
     try {
       await unlinkDebitoreFromCliente(selectedClienteId, debitoreId);
       setDebitori((prev) => prev.filter((d) => d.id !== debitoreId));
+      setAllDebitori((prev) => prev.filter((d) => d.id !== debitoreId));
       if (selectedDebitoreId === debitoreId) {
         setSelectedDebitoreId(null);
         setIsEditing(false);
@@ -534,6 +595,7 @@ export function useDebitoriPage(params?: UseDebitoriPageParams) {
   const deactivateDebitoreAction = async (debitoreId: string): Promise<boolean> => {
     try {
       const updated = await deactivateDebitore(debitoreId);
+      setAllDebitori((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
       if (showInactive) {
         setDebitori((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
         if (selectedDebitoreId === debitoreId) {
@@ -558,6 +620,7 @@ export function useDebitoriPage(params?: UseDebitoriPageParams) {
   const reactivateDebitoreAction = async (debitoreId: string): Promise<boolean> => {
     try {
       const updated = await reactivateDebitore(debitoreId);
+      setAllDebitori((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
       setDebitori((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
       if (selectedDebitoreId === debitoreId) {
         setDetailForm(debitoreToFormState(updated));
@@ -575,6 +638,7 @@ export function useDebitoriPage(params?: UseDebitoriPageParams) {
     try {
       await deleteDebitore(debitoreId);
       setDebitori((prev) => prev.filter((d) => d.id !== debitoreId));
+      setAllDebitori((prev) => prev.filter((d) => d.id !== debitoreId));
       if (selectedDebitoreId === debitoreId) {
         setSelectedDebitoreId(null);
         setIsEditing(false);

@@ -50,21 +50,6 @@ type RisultatoRicerca = {
   data: any;
 };
 
-type SavedFilter = {
-  id: string;
-  name: string;
-  filters: {
-    termineRicerca: string;
-    filtroTipo: 'tutti' | 'clienti' | 'debitori' | 'pratiche' | 'alerts' | 'tickets';
-    filtroStato: string;
-    valoreDa: string;
-    valoreA: string;
-    tipoImporto: 'capitale' | 'interessi' | 'anticipazioni' | 'compensi';
-    categoriaImporto: 'affidato' | 'recuperato' | 'da_recuperare';
-  };
-};
-
-const SAVED_FILTERS_STORAGE_KEY = 'rc-ricerca-saved-filters';
 
 const formatoItalianoANumero = (valore: string) => {
   if (!valore) return '';
@@ -81,9 +66,6 @@ const numeroAFormatoItaliano = (valore: string) => {
     maximumFractionDigits: 2,
   });
 };
-
-const createSavedFilterId = () =>
-  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 const formatCsvValue = (value: unknown) => {
   if (value === null || value === undefined) return '';
@@ -167,9 +149,6 @@ export function RicercaPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
   const [ricercaEffettuata, setRicercaEffettuata] = useState(false);
-  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
-  const [selectedSavedFilterId, setSelectedSavedFilterId] = useState('');
-  const [savedFilterName, setSavedFilterName] = useState('');
 
   const tipoOptions = [
     { value: 'tutti', label: 'Tutti i tipi' },
@@ -232,7 +211,7 @@ export function RicercaPage() {
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
 
   const navigate = useNavigate();
-  const { error: toastError, success: toastSuccess, info: toastInfo } = useToast();
+  const { error: toastError, info: toastInfo } = useToast();
   const getImportiPratica = (p: Pratica): ImportiPratica => {
     const t = movimentiPerPratica[p.id] || defaultTotals;
     return {
@@ -294,29 +273,6 @@ export function RicercaPage() {
 
     load();
   }, [toastError]);
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(SAVED_FILTERS_STORAGE_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed)) {
-        const validFilters = parsed.filter(
-          (filter: unknown): filter is SavedFilter =>
-            Boolean(
-              filter &&
-                typeof filter === 'object' &&
-                'id' in filter &&
-                'name' in filter &&
-                'filters' in filter,
-            ),
-        );
-        setSavedFilters(validFilters);
-      }
-    } catch {
-      // ignore malformed storage values
-    }
-  }, []);
 
   // === Gestione focus/blur per i campi valore con formattazione italiana ===
   const handleValoreFocus = (campo: 'da' | 'a', valore: string) => {
@@ -383,75 +339,6 @@ export function RicercaPage() {
       return importi.compensiRecuperati;
     }
     return importi.compensi - importi.compensiRecuperati;
-  };
-
-  const persistSavedFilters = (next: SavedFilter[]) => {
-    setSavedFilters(next);
-    try {
-      localStorage.setItem(SAVED_FILTERS_STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // ignore storage errors
-    }
-  };
-
-  const applySavedFilter = (filter: SavedFilter) => {
-    setTermineRicerca(filter.filters.termineRicerca);
-    setFiltroTipo(filter.filters.filtroTipo);
-    setFiltroStato(filter.filters.filtroStato);
-    setValoreDa(filter.filters.valoreDa);
-    setValoreA(filter.filters.valoreA);
-    setTipoImporto(filter.filters.tipoImporto);
-    setCategoriaImporto(filter.filters.categoriaImporto);
-    toastInfo('Filtro caricato. Premi Cerca per aggiornare i risultati.', 'Filtro salvato');
-  };
-
-  const handleSaveFilter = () => {
-    const name = savedFilterName.trim();
-    if (!name) {
-      toastInfo('Inserisci un nome per salvare il filtro.', 'Nome filtro mancante');
-      return;
-    }
-    const nextFilter = {
-      id: createSavedFilterId(),
-      name,
-      filters: {
-        termineRicerca,
-        filtroTipo,
-        filtroStato,
-        valoreDa,
-        valoreA,
-        tipoImporto,
-        categoriaImporto,
-      },
-    };
-
-    const existingIndex = savedFilters.findIndex((filter) => filter.name.toLowerCase() === name.toLowerCase());
-    if (existingIndex >= 0) {
-      const updated = [...savedFilters];
-      const existing = updated[existingIndex];
-      updated[existingIndex] = { ...nextFilter, id: existing.id };
-      persistSavedFilters(updated);
-      setSelectedSavedFilterId(existing.id);
-      toastSuccess('Filtro aggiornato con successo.', 'Filtro salvato');
-      return;
-    }
-
-    const updated = [nextFilter, ...savedFilters];
-    persistSavedFilters(updated);
-    setSelectedSavedFilterId(nextFilter.id);
-    toastSuccess('Filtro salvato con successo.', 'Filtro salvato');
-  };
-
-  const handleDeleteFilter = () => {
-    if (!selectedSavedFilterId) {
-      toastInfo('Seleziona un filtro da eliminare.', 'Filtro salvato');
-      return;
-    }
-    const updated = savedFilters.filter((filter) => filter.id !== selectedSavedFilterId);
-    persistSavedFilters(updated);
-    setSelectedSavedFilterId('');
-    setSavedFilterName('');
-    toastSuccess('Filtro eliminato.', 'Filtro salvato');
   };
 
   const exportToCsv = () => {
@@ -1075,83 +962,16 @@ export function RicercaPage() {
   };
 
   // === Render ===
-  return (
-    <div className="space-y-4 wow-stagger">
-      {/* Header */}
-      <div className="wow-card space-y-2 p-4 md:p-5">
-        <span className="wow-chip">Strumenti</span>
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50 display-font">
-          Ricerca avanzata
-        </h1>
-        <p className="max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-          Cerca trasversalmente tra clienti, debitori, pratiche, alert e ticket.
-          Filtra per tipo, stato e range di importo affidato.
-        </p>
-      </div>
-
-      {error && (
-        <div className="rounded-lg border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-xs text-rose-100 shadow-sm shadow-rose-900/40">
-          {error}
-        </div>
-      )}
-
+  const filtersArea = (
+    <>
       {/* Pannello filtri */}
       <div className="wow-panel p-4 md:p-5 relative z-30">
         <div className="space-y-3">
-          <div className="flex flex-col gap-2 md:flex-row md:items-end">
-            <div className="min-w-[220px] flex-1">
+          <div className="grid gap-3 md:grid-cols-2 md:items-end">
+            <div className="w-full">
               <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1.5">
-                Filtri salvati
+                Cerca
               </label>
-              <CustomSelect
-                options={[
-                  { value: '', label: savedFilters.length ? 'Seleziona un filtro' : 'Nessun filtro salvato' },
-                  ...savedFilters.map((filter) => ({
-                    value: filter.id,
-                    label: filter.name,
-                  })),
-                ]}
-                value={selectedSavedFilterId}
-                onChange={(value) => {
-                  const nextId = value as string;
-                  setSelectedSavedFilterId(nextId);
-                  const selected = savedFilters.find((filter) => filter.id === nextId);
-                  if (selected) {
-                    setSavedFilterName(selected.name);
-                    applySavedFilter(selected);
-                  }
-                }}
-                disabled={!savedFilters.length}
-              />
-            </div>
-            <div className="min-w-[200px] flex-1">
-              <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1.5">
-                Nome filtro
-              </label>
-              <input
-                type="text"
-                value={savedFilterName}
-                onChange={(e) => setSavedFilterName(e.target.value)}
-                placeholder="Es. Importi chiusi"
-                className="w-full rounded-2xl border border-white/70 bg-white/90 px-4 py-2.5 text-xs text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50 dark:placeholder:text-slate-500"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button type="button" onClick={handleSaveFilter} className="wow-button text-xs">
-                Salva filtro
-              </button>
-              <button type="button" onClick={handleDeleteFilter} className="wow-button-ghost text-xs">
-                Elimina
-              </button>
-            </div>
-          </div>
-
-          {/* Campo ricerca */}
-          <div>
-            <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1.5">
-              Cerca
-            </label>
-            <div className="flex gap-3">
               <input
                 type="text"
                 value={termineRicerca}
@@ -1160,16 +980,38 @@ export function RicercaPage() {
                   if (e.key === 'Enter') eseguiRicerca();
                 }}
                 placeholder="Inserisci nome, email, telefono, fase, importo..."
-                className="flex-1 rounded-2xl border border-white/70 bg-white/90 px-4 py-2 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50 dark:placeholder:text-slate-500"
+                className="w-full rounded-2xl border border-white/70 bg-white/90 px-4 py-2 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50 dark:placeholder:text-slate-500"
               />
-              <button
-                type="button"
-                onClick={eseguiRicerca}
-                className="wow-button text-xs"
-              >
-                <Search className="h-4 w-4" />
-                Cerca
-              </button>
+            </div>
+            <div className="w-full">
+              <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1.5">
+                Tipo
+              </label>
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <CustomSelect
+                    options={tipoOptions}
+                    value={filtroTipo}
+                    onChange={(value) => {
+                      const nextValue = value as typeof filtroTipo;
+                      setFiltroTipo(nextValue);
+                      setFiltroStato('tutti');
+                      if (nextValue !== 'pratiche' && nextValue !== 'tutti') {
+                        setValoreDa('');
+                        setValoreA('');
+                      }
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={eseguiRicerca}
+                  className="wow-button text-xs"
+                >
+                  <Search className="h-4 w-4" />
+                  Cerca
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1199,29 +1041,6 @@ export function RicercaPage() {
               )}
             </div>
           )}
-
-          {/* Filtri avanzati */}
-          <div className="grid gap-3 md:grid-cols-2">
-            {/* Tipo */}
-            <div>
-              <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1.5">
-                Tipo
-              </label>
-              <CustomSelect
-                options={tipoOptions}
-                value={filtroTipo}
-                onChange={(value) => {
-                  const nextValue = value as typeof filtroTipo;
-                  setFiltroTipo(nextValue);
-                  setFiltroStato('tutti');
-                  if (nextValue !== 'pratiche' && nextValue !== 'tutti') {
-                    setValoreDa('');
-                    setValoreA('');
-                  }
-                }}
-              />
-            </div>
-          </div>
 
           {(filtroTipo === 'pratiche' || filtroTipo === 'alerts' || filtroTipo === 'tickets') && (
             <div className="grid gap-3 md:grid-cols-2">
@@ -1377,7 +1196,11 @@ export function RicercaPage() {
           </div>
         )}
       </div>
+    </>
+  );
 
+  const risultatiArea = (
+    <>
       {/* Area risultati */}
       {loading && !ricercaEffettuata ? (
         <div
@@ -1722,6 +1545,30 @@ export function RicercaPage() {
           />
         </div>
       )}
+    </>
+  );
+
+  return (
+    <div className="space-y-4 wow-stagger">
+      {/* Header */}
+      <div className="wow-card space-y-2 p-4 md:p-5">
+        <span className="wow-chip">Strumenti</span>
+        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50 display-font">
+          Ricerca avanzata
+        </h1>
+        <p className="max-w-2xl text-sm text-slate-500 dark:text-slate-400">
+          Cerca trasversalmente tra clienti, debitori, pratiche, alert e ticket.
+          Filtra per tipo, stato e range di importo affidato.
+        </p>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-xs text-rose-100 shadow-sm shadow-rose-900/40">
+          {error}
+        </div>
+      )}
+      <div className="space-y-4">{filtersArea}</div>
+      {risultatiArea}
 
       {/* Modale dettaglio debitore */}
       <DebitoreDetailModal

@@ -7,6 +7,7 @@ import { avvocatiApi, type Avvocato, type CreateAvvocatoDto, type LivelloAccesso
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { CustomSelect } from '../components/ui/CustomSelect';
+import { PhoneInput } from '../components/ui/PhoneInput';
 import { Pagination } from '../components/Pagination';
 import { useToast } from '../components/ui/ToastProvider';
 import { useAuth } from '../contexts/AuthContext';
@@ -182,12 +183,19 @@ export function AvvocatiPage() {
   };
 
   const handleReactivate = async (avvocato: Avvocato) => {
-    try {
-      await avvocatiApi.reactivate(avvocato.id);
-      success('Avvocato riattivato');
-      await loadAvvocati();
-    } catch (err: any) {
-      toastError(err.message || 'Errore durante la riattivazione');
+    if (await confirm({
+      title: 'Riattiva avvocato',
+      message: `Riattivare ${getAvvocatoDisplayName(avvocato)}?`,
+      confirmText: 'Riattiva',
+      variant: 'info',
+    })) {
+      try {
+        await avvocatiApi.reactivate(avvocato.id);
+        success('Avvocato riattivato');
+        await loadAvvocati();
+      } catch (err: any) {
+        toastError(err.message || 'Errore durante la riattivazione');
+      }
     }
   };
 
@@ -337,6 +345,7 @@ export function AvvocatiPage() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Contatti</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Accesso</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Permessi</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Stato</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-slate-300">Azioni</th>
                 </tr>
               </thead>
@@ -387,6 +396,15 @@ export function AvvocatiPage() {
                       }`}>
                         <FileText className="h-3 w-3" />
                         {avvocato.livelloPermessi === 'modifica' ? 'Modifica' : 'Solo lettura'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                        avvocato.attivo
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                          : 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                      }`}>
+                        {avvocato.attivo ? 'Attivo' : 'Disattivo'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -499,6 +517,14 @@ export function AvvocatiPage() {
             </div>
 
             <div className="flex-1 overflow-auto p-4 space-y-4">
+              {isViewing && selectedAvvocato && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
+                    <span className="block text-[11px] uppercase tracking-wide text-slate-400">Stato</span>
+                    {selectedAvvocato.attivo ? 'Attivo' : 'Disattivo'}
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -572,13 +598,11 @@ export function AvvocatiPage() {
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                     Telefono
                   </label>
-                  <input
-                    type="tel"
+                  <PhoneInput
                     value={formData.telefono}
-                    onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, telefono: value })}
+                    placeholder="Numero di telefono"
                     disabled={isViewing}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                    placeholder="+39 333 1234567"
                   />
                 </div>
               </div>

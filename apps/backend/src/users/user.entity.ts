@@ -69,7 +69,7 @@ export class User {
   studioId: string | null; // Studio primario/attivo corrente (null per admin e clienti)
 
   @Column({ type: 'uuid', nullable: true })
-  currentStudioId: string | null; // Studio selezionato nella sessione corrente (per avvocati multi-studio)
+  currentStudioId: string | null; // Studio selezionato nella sessione corrente (per avvocati/collaboratori multi-studio)
 
   @Column({ default: true })
   attivo: boolean;
@@ -121,7 +121,7 @@ export class User {
   @JoinColumn({ name: 'studioId' })
   studio: Studio | null;
 
-  // Relazione many-to-many per avvocati che lavorano per più studi
+  // Relazione many-to-many per avvocati/collaboratori che lavorano per più studi
   @ManyToMany(() => Studio, { nullable: true })
   @JoinTable({
     name: 'user_studi',

@@ -518,6 +518,7 @@ export class StudiService {
         email: studio.email,
         telefono: studio.telefono,
         attivo: studio.attivo,
+        maxUtenti: studio.maxUtenti ?? null,
         createdAt: studio.createdAt,
         updatedAt: studio.updatedAt,
       },

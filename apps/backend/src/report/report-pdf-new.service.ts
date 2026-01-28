@@ -14,6 +14,8 @@ export const LOGO_RESOLV_FULL = 'iVBORw0KGgoAAAANSUhEUgAAAXQAAACBCAYAAADQS0FNAAA
 
 interface ReportOptions {
     clienteId: string;
+    clienteIds?: string[];
+    studioId?: string;
     dataInizio?: Date;
     dataFine?: Date;
     includiDettaglioPratiche?: boolean;
@@ -57,16 +59,36 @@ export class ReportPdfServiceNew {
     private readonly ticketRepo: Repository<Ticket>,
   ) {}
       async generaReportCliente(options: ReportOptions): Promise<Buffer> {
-          const cliente = await this.clienteRepo.findOne({
-              where: { id: options.clienteId },
-              relations: ['studio'],
-          });
-          if (!cliente) {
-              throw new Error('Cliente non trovato');
+          const isAllClients = options.clienteId === 'all';
+          let cliente: Cliente;
+          let studio: Studio | null = null;
+          let clientiIds: string[] = [];
+
+          if (isAllClients) {
+              clientiIds = options.clienteIds ?? [];
+              cliente = { id: 'all', ragioneSociale: 'Tutti i clienti' } as Cliente;
+              if (options.studioId) {
+                  studio = await this.studioRepo.findOne({ where: { id: options.studioId } });
+              }
+          } else {
+              const clienteEntity = await this.clienteRepo.findOne({
+                  where: { id: options.clienteId },
+                  relations: ['studio'],
+              });
+              if (!clienteEntity) {
+                  throw new Error('Cliente non trovato');
+              }
+              cliente = clienteEntity;
+              studio = clienteEntity.studio;
+              clientiIds = [clienteEntity.id];
           }
-          const studio = cliente.studio || await this.studioRepo.findOne({ where: {} });
+
+          if (!studio) {
+              studio = await this.studioRepo.findOne({ where: {} });
+          }
+
           let pratiche = await this.praticaRepo.find({
-              where: { clienteId: options.clienteId },
+              where: { clienteId: In(clientiIds) },
               relations: ['debitore', 'avvocati', 'collaboratori'],
               order: { createdAt: 'DESC' },
           });
@@ -348,6 +370,7 @@ export class ReportPdfServiceNew {
               };
               return acc;
           }, {});
+          const compensiOggettiByPratica = {};
           data.movimenti.forEach((movimento) => {
               if (!movimento.praticaId)
                   return;
@@ -367,6 +390,14 @@ export class ReportPdfServiceNew {
               }
               if (tipo === 'compenso' || tipo === 'compensi') {
                   entry.compensi += importo;
+                  const oggetto = (movimento.oggetto || '').trim();
+                  if (oggetto) {
+                      const current = compensiOggettiByPratica[movimento.praticaId] || [];
+                      if (!current.includes(oggetto)) {
+                          current.push(oggetto);
+                          compensiOggettiByPratica[movimento.praticaId] = current;
+                      }
+                  }
               }
               if (tipo === 'recupero_compenso' || tipo === 'recupero_compensi') {
                   entry.compensiRecuperati += importo;
@@ -402,10 +433,13 @@ export class ReportPdfServiceNew {
               const debitore = pratica.debitore?.ragioneSociale
                   || (pratica.debitore ? `${pratica.debitore.nome || ''} ${pratica.debitore.cognome || ''}`.trim() : 'N/D');
               const liquidabili = Math.max(finanza.compensi - finanza.compensiRecuperati, 0);
+              const oggetti = compensiOggettiByPratica[pratica.id] || [];
+              const oggettoLabel = oggetti.length > 0 ? oggetti.join(', ') : '-';
               return {
                   id: pratica.id,
                   numero: pratica.numeroPratica || `#${pratica.id.slice(0, 8)}`,
                   debitore: debitore || 'N/D',
+                  oggetto: oggettoLabel,
                   maturati: finanza.compensi,
                   recuperati: finanza.compensiRecuperati,
                   liquidabili,
@@ -798,6 +832,7 @@ export class ReportPdfServiceNew {
           <tr>
             <th>Numero Pratica</th>
             <th>Debitore</th>
+            <th>Oggetto</th>
             <th class="text-right">Maturati</th>
             <th class="text-right">Recuperati</th>
             <th class="text-right">Liquidabili</th>
@@ -808,6 +843,7 @@ export class ReportPdfServiceNew {
           <tr>
             <td>${row.numero}</td>
             <td>${row.debitore}</td>
+            <td>${row.oggetto}</td>
             <td class="text-right">${this.formatCurrency(row.maturati)}</td>
             <td class="text-right">${this.formatCurrency(row.recuperati)}</td>
             <td class="text-right">${this.formatCurrency(row.liquidabili)}</td>
@@ -816,7 +852,7 @@ export class ReportPdfServiceNew {
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="2" class="text-right">Totale</td>
+            <td colspan="3" class="text-right">Totale</td>
             <td class="text-right">${this.formatCurrency(totaleCompensi)}</td>
             <td class="text-right">${this.formatCurrency(compensiRows.reduce((sum, row) => sum + row.recuperati, 0))}</td>
             <td class="text-right">${this.formatCurrency(compensiRows.reduce((sum, row) => sum + row.liquidabili, 0))}</td>

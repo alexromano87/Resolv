@@ -7,6 +7,7 @@ import { FetchedRatesPreview } from '../components/FetchedRatesPreview';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { DateField } from '../components/ui/DateField';
 import { BodyPortal } from '../components/ui/BodyPortal';
+import { useToast } from '../components/ui/ToastProvider';
 
 interface TassoFormData {
   tipo: 'legale' | 'moratorio';
@@ -19,6 +20,7 @@ interface TassoFormData {
 
 export default function TassiInteressePage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { success } = useToast();
   const [tassi, setTassi] = useState<TassoInteresse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -177,6 +179,16 @@ export default function TassiInteressePage() {
     return tipo === 'legale' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800';
   };
 
+  const formatRateNotice = (rate: FetchedRateWithStatus) => {
+    const start = rate.data.dataInizioValidita
+      ? new Date(rate.data.dataInizioValidita).toLocaleDateString('it-IT')
+      : 'N/D';
+    const end = rate.data.dataFineValidita
+      ? ` al ${new Date(rate.data.dataFineValidita).toLocaleDateString('it-IT')}`
+      : '';
+    return `${rate.data.tipo} ${rate.data.tassoPercentuale}% dal ${start}${end} (${rate.data.source})`;
+  };
+
   // Handler per recupero automatico tassi
   const handleFetchRates = async () => {
     try {
@@ -187,8 +199,10 @@ export default function TassiInteressePage() {
       setFetchResult(result);
 
       if (result.autoSaved > 0) {
-        // Mostra messaggio di successo
-        alert(`${result.autoSaved} ${result.autoSaved === 1 ? 'tasso salvato' : 'tassi salvati'} automaticamente da fonti ufficiali.`);
+        const autoSavedRates = result.rates.filter((rate) => rate.status === 'auto-saved');
+        const details = autoSavedRates.map(formatRateNotice).join(' • ');
+        const title = result.autoSaved === 1 ? 'Nuovo tasso creato' : 'Nuovi tassi creati';
+        success(details, title);
         await loadTassi(); // Ricarica tabella
       }
 

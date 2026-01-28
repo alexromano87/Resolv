@@ -95,7 +95,7 @@ export function AdminUsersPage() {
       cognome: user.cognome,
       ruolo: user.ruolo,
       clienteId: user.clienteId || null,
-      studioId: user.studioId || null,
+      studioId: user.studioId || user.studio?.id || null,
     });
     setShowModal(true);
   };
@@ -142,7 +142,7 @@ export function AdminUsersPage() {
           cognome: formData.cognome,
           ruolo: formData.ruolo,
           clienteId: formData.clienteId,
-          studioId: formData.studioId,
+          studioId: formData.studioId || selectedUser?.studioId || selectedUser?.studio?.id || null,
         };
 
         // Solo se è stata inserita una nuova password
@@ -372,8 +372,8 @@ export function AdminUsersPage() {
                         {user.id === currentUser?.id && (
                           <div className="text-xs text-slate-500">(Tu)</div>
                         )}
-                        {/* Non mostrare studio per avvocati (possono averne molti) */}
-                        {user.ruolo !== 'avvocato' && (
+                        {/* Non mostrare studio per avvocati/collaboratori (possono averne molti) */}
+                        {user.ruolo !== 'avvocato' && user.ruolo !== 'collaboratore' && (
                           <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                             {user.studio ? user.studio.nome : 'Nessuno studio associato'}
                           </div>
@@ -414,8 +414,8 @@ export function AdminUsersPage() {
                       >
                         <Key size={16} />
                       </button>
-                      {/* Pulsante gestione studi solo per avvocati */}
-                      {user.ruolo === 'avvocato' && (
+                      {/* Pulsante gestione studi per avvocati/collaboratori */}
+                      {(user.ruolo === 'avvocato' || user.ruolo === 'collaboratore') && (
                         <button
                           onClick={() => handleOpenManageStudi(user)}
                           className="text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300"
@@ -563,8 +563,11 @@ export function AdminUsersPage() {
                 </div>
               </div>
 
-              {/* Mostra il campo Studio solo se il ruolo NON è admin, cliente o avvocato */}
-              {formData.ruolo !== 'admin' && formData.ruolo !== 'cliente' && formData.ruolo !== 'avvocato' && (
+              {/* Mostra il campo Studio solo se il ruolo richiede uno studio singolo */}
+              {formData.ruolo !== 'admin' &&
+                formData.ruolo !== 'cliente' &&
+                formData.ruolo !== 'avvocato' &&
+                formData.ruolo !== 'collaboratore' && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                     Studio legale {isStudioRequired && '*'}

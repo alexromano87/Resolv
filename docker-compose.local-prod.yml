@@ -1,0 +1,187 @@
+# Local "prod-like" Docker Compose Configuration
+# Usage: docker compose -f docker-compose.local-prod.yml --env-file .env.local up -d --build
+name: resolv-local
+
+services:
+  # MySQL Database with production optimizations
+  mysql:
+    image: mysql:8.0
+    container_name: resolv-mysql-local
+    restart: always
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DEFAULT_AUTHENTICATION_PLUGIN: mysql_native_password
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max_connections=200
+      --innodb_buffer_pool_size=1G
+      --innodb_log_file_size=256M
+      --innodb_flush_log_at_trx_commit=2
+      --innodb_flush_method=O_DIRECT
+      --slow_query_log=1
+      --slow_query_log_file=/var/log/mysql/slow.log
+      --long_query_time=2
+    volumes:
+      - mysql_data_local:/var/lib/mysql
+      - mysql_logs_local:/var/log/mysql
+    networks:
+      - resolv-local-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache with production optimizations
+  redis:
+    image: redis:7-alpine
+    container_name: resolv-redis-local
+    restart: always
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis_data_local:/data
+    networks:
+      - resolv-local-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Backend API with production optimizations
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+      target: runner
+    container_name: resolv-backend-local
+    restart: always
+    environment:
+      NODE_ENV: production
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_DATABASE: ${DB_DATABASE}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CORS_ORIGINS: ${CORS_ORIGINS}
+
+      # Rate Limiting (production values)
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+      RATE_LIMIT_TTL: ${RATE_LIMIT_TTL:-60000}
+
+      # Monitoring
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_ENVIRONMENT: production
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_TO_FILE: ${LOG_TO_FILE:-true}
+
+      # Performance
+      ENABLE_PERFORMANCE_MONITORING: true
+      SLOW_OPERATION_MS: 1000
+      SLOW_QUERY_MS: 1000
+
+      # Email (configure for production)
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM:-noreply@yourdomain.com}
+
+      # Backup
+      BACKUP_MAX_COUNT: ${BACKUP_MAX_COUNT:-30}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+
+    volumes:
+      - backend_logs_local:/usr/src/app/logs
+      - backup_data_local:/usr/src/app/backups
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - resolv-local-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  frontend:
+    image: node:20-alpine
+    container_name: resolv-frontend-build-local
+    working_dir: /usr/src/app
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      NPM_CONFIG_PRODUCTION: "false"
+      VITE_API_URL: /api
+    volumes:
+      - ./apps/frontend:/usr/src/app
+      - frontend_node_modules_local:/usr/src/app/node_modules
+    command: >
+      sh -c "npm ci --include=dev && npm run build && tail -f /dev/null"
+    networks:
+      - resolv-local-network
+
+  # Nginx Reverse Proxy (HTTP only for local)
+  nginx:
+    image: nginx:alpine
+    container_name: resolv-nginx-local
+    restart: always
+    ports:
+      - "8081:80"
+    volumes:
+      - ./nginx.local.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./apps/frontend/dist:/var/www/resolv/frontend:ro
+      - nginx_logs_local:/var/log/nginx
+    depends_on:
+      - backend
+    networks:
+      - resolv-local-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  mysql_data_local:
+    driver: local
+  mysql_logs_local:
+    driver: local
+  redis_data_local:
+    driver: local
+  backend_logs_local:
+    driver: local
+  backup_data_local:
+    driver: local
+  nginx_logs_local:
+    driver: local
+  frontend_node_modules_local:
+    driver: local
+
+networks:
+  resolv-local-network:
+    driver: bridge

@@ -26,6 +26,7 @@ import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { Pagination } from '../components/Pagination';
 import { useToast } from '../components/ui/ToastProvider';
 import { useAuth } from '../contexts/AuthContext';
+import { PhoneInput } from '../components/ui/PhoneInput';
 
 export function DebitoriPage() {
   const { user } = useAuth();
@@ -122,6 +123,7 @@ export function DebitoriPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
   const [searchTerm, setSearchTerm] = useState(hookSearchTerm || '');
+  const [searchValidationError, setSearchValidationError] = useState(false);
 
   useEffect(() => {
     if (hookNewClienteId) {
@@ -330,11 +332,19 @@ export function DebitoriPage() {
   };
 
   const handleReactivate = async (debitore: any) => {
-    try {
-      await reactivateDebitore(debitore.id);
-      success('Debitore riattivato');
-    } catch (err: any) {
-      toastError(err.message || 'Errore durante la riattivazione');
+    const displayName = getDebitoreDisplayName(debitore);
+    if (await confirm({
+      title: 'Riattiva debitore',
+      message: `Riattivare ${displayName}?`,
+      confirmText: 'Riattiva',
+      variant: 'info',
+    })) {
+      try {
+        await reactivateDebitore(debitore.id);
+        success('Debitore riattivato');
+      } catch (err: any) {
+        toastError(err.message || 'Errore durante la riattivazione');
+      }
     }
   };
 
@@ -382,9 +392,19 @@ export function DebitoriPage() {
             <SearchableClienteSelect
               clienti={clienti}
               selectedClienteId={selectedClienteId}
-              onSelect={handleSelectCliente}
+              onSelect={(id) => {
+                handleSelectCliente(id);
+                if (id || searchTerm.trim()) {
+                  setSearchValidationError(false);
+                }
+              }}
               loading={loadingClienti}
               placeholder="Cerca cliente..."
+              triggerClassName={
+                searchValidationError && !selectedClienteId
+                  ? '!border-rose-400 !focus:border-rose-500 !focus:ring-rose-200'
+                  : ''
+              }
             />
           </div>
           {selectedCliente && (
@@ -421,19 +441,36 @@ export function DebitoriPage() {
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSearchTerm(value);
+                if (value.trim() || selectedClienteId) {
+                  setSearchValidationError(false);
+                }
+              }}
               placeholder="Cerca debitore (nome, CF, email...)"
-              className="w-64 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              className={[
+                'w-64 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+                searchValidationError && !searchTerm.trim()
+                  ? '!border-rose-400 !focus:border-rose-500 !focus:ring-rose-200'
+                  : '',
+              ].join(' ')}
             />
             <button
               onClick={async () => {
                 setCurrentPage(1);
                 setInlineNewError(null);
+                if (!selectedClienteId && !searchTerm.trim()) {
+                  setSearchValidationError(true);
+                  toastError('Seleziona un cliente o inserisci un termine di ricerca.', 'Ricerca non avviata');
+                  return;
+                }
+                setSearchValidationError(false);
                 setHookSearchTerm(searchTerm);
                 await loadDebitori(searchTerm.trim() || undefined);
               }}
-              className="wow-button px-4"
-            >
+            className="wow-button px-4"
+          >
               Cerca
             </button>
           </div>
@@ -471,14 +508,15 @@ export function DebitoriPage() {
               <table className="w-full wow-stagger-rows">
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Debitore</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Cliente</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Tipo</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Contatti</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-slate-300">Azioni</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Debitore</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Cliente</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Tipo</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Contatti</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Stato</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-slate-300">Azioni</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredDebitori
                     .slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
                     .map((debitore) => (
@@ -506,9 +544,7 @@ export function DebitoriPage() {
                       </td>
                       <td className="px-4 py-3">
                         <p className="text-xs text-slate-600 dark:text-slate-400">
-                          {selectedCliente?.ragioneSociale ||
-                            clientiPerDebitore[debitore.id]?.join(', ') ||
-                            '—'}
+                          {clientiPerDebitore[debitore.id]?.join(', ') || '—'}
                         </p>
                       </td>
                       <td className="px-4 py-3">
@@ -528,6 +564,15 @@ export function DebitoriPage() {
                             <p className="text-xs text-slate-400">-</p>
                           )}
                         </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                          debitore.attivo
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                            : 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                        }`}>
+                          {debitore.attivo ? 'Attivo' : 'Disattivo'}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
@@ -806,11 +851,10 @@ export function DebitoriPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Telefono</label>
-                  <input
-                    type="tel"
+                  <PhoneInput
                     value={newForm.telefono}
-                    onChange={handleNewFormField('telefono')}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    onChange={(value) => updateNewForm('telefono', value)}
+                    placeholder="Numero di telefono"
                   />
                 </div>
                 <div>
@@ -913,6 +957,15 @@ export function DebitoriPage() {
                   disabled
                 />
               </div>
+
+              {selectedDebitore && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
+                    <span className="block text-[11px] uppercase tracking-wide text-slate-400">Stato</span>
+                    {selectedDebitore.attivo ? 'Attivo' : 'Disattivo'}
+                  </div>
+                </div>
+              )}
 
               {detailForm.tipoSoggetto === 'persona_fisica' ? (
                 <div className="grid grid-cols-2 gap-4">
@@ -1056,11 +1109,11 @@ export function DebitoriPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Telefono</label>
-                  <input
-                    type="tel"
+                  <PhoneInput
                     value={detailForm.telefono}
+                    onChange={() => {}}
+                    placeholder="Numero di telefono"
                     disabled
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                 </div>
                 <div>
@@ -1285,11 +1338,10 @@ export function DebitoriPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Telefono</label>
-                  <input
-                    type="tel"
+                  <PhoneInput
                     value={detailForm.telefono}
-                    onChange={handleDetailFormField('telefono')}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    onChange={(value) => updateDetailForm('telefono', value)}
+                    placeholder="Numero di telefono"
                   />
                 </div>
                 <div>

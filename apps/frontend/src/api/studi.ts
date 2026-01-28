@@ -3,6 +3,8 @@ import { api } from './config';
 export interface Studio {
   id: string;
   nome: string;
+  tipologia: 'individuale' | 'associato' | 'societa_tra_professionisti';
+  maxUtenti?: number | null;
   ragioneSociale?: string;
   partitaIva?: string;
   codiceFiscale?: string;
@@ -22,6 +24,8 @@ export interface Studio {
 
 export interface CreateStudioDto {
   nome: string;
+  tipologia: 'individuale' | 'associato' | 'societa_tra_professionisti';
+  maxUtenti?: number | null;
   ragioneSociale?: string;
   partitaIva?: string;
   codiceFiscale?: string;
@@ -36,6 +40,8 @@ export interface CreateStudioDto {
 
 export interface UpdateStudioDto {
   nome?: string;
+  tipologia?: 'individuale' | 'associato' | 'societa_tra_professionisti';
+  maxUtenti?: number | null;
   ragioneSociale?: string;
   partitaIva?: string;
   codiceFiscale?: string;

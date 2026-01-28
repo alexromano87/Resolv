@@ -4,7 +4,7 @@ import {
   type ValidationOptions,
 } from 'class-validator';
 
-const NO_SPECIAL_CHARS_REGEX = /^[A-Za-zÀ-ÖØ-öø-ÿ0-9\s.,'/_&-]+$/u;
+const NO_SPECIAL_CHARS_REGEX = /^[A-Za-zÀ-ÖØ-öø-ÿ0-9\s.,'/_&+-]+$/u;
 
 export function NoSpecialChars(validationOptions?: ValidationOptions): PropertyDecorator {
   return (target: object, propertyKey: string | symbol) => {

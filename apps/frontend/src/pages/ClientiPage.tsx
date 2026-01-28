@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Building2,
   Plus,
@@ -32,6 +32,9 @@ import { Pagination } from '../components/Pagination';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
 import { CustomSelect } from '../components/ui/CustomSelect';
+import { SearchableNazioneSelect } from '../components/ui/SearchableNazioneSelect';
+import { PhoneInput } from '../components/ui/PhoneInput';
+import { nazioniApi, type Nazione } from '../api/nazioni';
 
 type ClienteFormState = {
   tipoSoggetto: ClienteTipoSoggetto;
@@ -77,7 +80,18 @@ const EMPTY_FORM: ClienteFormState = {
   pec: '',
 };
 
-function clienteToFormState(c: Cliente | null): ClienteFormState {
+function normalizeNazioneValue(value: string, nazioni: Nazione[]): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const upper = trimmed.toUpperCase();
+  const byCode = nazioni.find((n) => n.codice === upper);
+  if (byCode) return byCode.codice;
+  const lower = trimmed.toLowerCase();
+  const byName = nazioni.find((n) => n.nome.toLowerCase() === lower);
+  return byName ? byName.codice : trimmed;
+}
+
+function clienteToFormState(c: Cliente | null, nazioni: Nazione[]): ClienteFormState {
   if (!c) return EMPTY_FORM;
   return {
     tipoSoggetto: c.tipoSoggetto ?? 'persona_giuridica',
@@ -91,7 +105,7 @@ function clienteToFormState(c: Cliente | null): ClienteFormState {
     cap: c.cap ?? '',
     citta: c.citta ?? '',
     provincia: c.provincia ?? '',
-    nazione: c.nazione ?? '',
+    nazione: normalizeNazioneValue(c.nazione ?? '', nazioni),
     referente: c.referente ?? '',
     referenteNome: c.referenteNome ?? '',
     referenteCognome: c.referenteCognome ?? '',
@@ -134,6 +148,8 @@ export function ClientiPage() {
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [formData, setFormData] = useState<ClienteFormState>(EMPTY_FORM);
+  const [nazioni, setNazioni] = useState<Nazione[]>([]);
+  const [nazioniLoading, setNazioniLoading] = useState(false);
   const tipologiaDisabled = isViewing || formData.tipoSoggetto === 'persona_fisica';
 
   // Sharing configuration
@@ -151,6 +167,32 @@ export function ClientiPage() {
     email: '',
     telefono: '',
   });
+
+  const loadNazioni = async () => {
+    try {
+      setNazioniLoading(true);
+      const data = await nazioniApi.getAll(true);
+      setNazioni(data);
+    } catch (err: any) {
+      console.error('Errore caricamento nazioni:', err);
+      toastError(err.message || 'Errore durante il caricamento delle nazioni');
+    } finally {
+      setNazioniLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadNazioni();
+  }, []);
+
+  useEffect(() => {
+    if (!nazioni.length) return;
+    if (!formData.nazione) return;
+    const normalized = normalizeNazioneValue(formData.nazione, nazioni);
+    if (normalized !== formData.nazione) {
+      setFormData((prev) => ({ ...prev, nazione: normalized }));
+    }
+  }, [nazioni, formData.nazione]);
 
   const loadClienti = async () => {
     try {
@@ -189,6 +231,10 @@ export function ClientiPage() {
     await loadClienti();
   };
 
+  const getDefaultNazione = () => {
+    return nazioni.find((n) => n.codice === 'IT') ? 'IT' : '';
+  };
+
   const handleResetFilters = () => {
     setFilters({
       ragioneSociale: '',
@@ -204,7 +250,7 @@ export function ClientiPage() {
   };
 
   const resetForm = () => {
-    setFormData(EMPTY_FORM);
+    setFormData({ ...EMPTY_FORM, nazione: getDefaultNazione() });
     setSubmitAttempted(false);
   };
 
@@ -236,7 +282,7 @@ export function ClientiPage() {
           cap: formData.cap.trim() || undefined,
           citta: formData.citta.trim() || undefined,
           provincia: formData.provincia.trim() || undefined,
-          nazione: formData.nazione.trim() || undefined,
+          nazione: formData.nazione.trim() ? formData.nazione.trim().toUpperCase() : undefined,
           referente: formData.referente.trim() || undefined,
           referenteNome: formData.referenteNome.trim() || undefined,
           referenteCognome: formData.referenteCognome.trim() || undefined,
@@ -288,7 +334,7 @@ export function ClientiPage() {
           cap: formData.cap.trim() || undefined,
           citta: formData.citta.trim() || undefined,
           provincia: formData.provincia.trim() || undefined,
-          nazione: formData.nazione.trim() || undefined,
+          nazione: formData.nazione.trim() ? formData.nazione.trim().toUpperCase() : undefined,
           referente: formData.referente.trim() || undefined,
           referenteNome: formData.referenteNome.trim() || undefined,
           referenteCognome: formData.referenteCognome.trim() || undefined,
@@ -307,7 +353,7 @@ export function ClientiPage() {
         );
         if (updatedCliente) {
           setSelectedCliente(updatedCliente);
-          setFormData(clienteToFormState(updatedCliente));
+          setFormData(clienteToFormState(updatedCliente, nazioni));
         }
       } catch (err: any) {
         setSubmitAttempted(true);
@@ -336,12 +382,19 @@ export function ClientiPage() {
   };
 
   const handleReactivate = async (cliente: Cliente) => {
-    try {
-      await reactivateCliente(cliente.id);
-      success('Cliente riattivato');
-      await loadClienti();
-    } catch (err: any) {
-      toastError(err.message || 'Errore durante la riattivazione');
+    if (await confirm({
+      title: 'Riattiva cliente',
+      message: `Riattivare ${cliente.ragioneSociale}?`,
+      confirmText: 'Riattiva',
+      variant: 'info',
+    })) {
+      try {
+        await reactivateCliente(cliente.id);
+        success('Cliente riattivato');
+        await loadClienti();
+      } catch (err: any) {
+        toastError(err.message || 'Errore durante la riattivazione');
+      }
     }
   };
 
@@ -364,7 +417,7 @@ export function ClientiPage() {
 
   const handleRowClick = (cliente: Cliente) => {
     setSelectedCliente(cliente);
-    setFormData(clienteToFormState(cliente));
+    setFormData(clienteToFormState(cliente, nazioni));
     setIsViewing(true);
     setIsEditing(false);
   };
@@ -377,7 +430,7 @@ export function ClientiPage() {
 
   const handleCancelEditing = () => {
     if (selectedCliente) {
-      setFormData(clienteToFormState(selectedCliente));
+      setFormData(clienteToFormState(selectedCliente, nazioni));
       setIsViewing(true);
       setIsEditing(false);
     }
@@ -476,6 +529,7 @@ export function ClientiPage() {
           onClick={() => {
             setShowNewForm(true);
             setSubmitAttempted(false);
+            setFormData({ ...EMPTY_FORM, nazione: getDefaultNazione() });
           }}
           className="wow-button"
         >
@@ -608,6 +662,7 @@ export function ClientiPage() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Cliente</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Contatti</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Località</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Stato</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-slate-300">Azioni</th>
                 </tr>
               </thead>
@@ -647,6 +702,15 @@ export function ClientiPage() {
                       <div className="text-xs text-slate-600 dark:text-slate-400">
                         {cliente.citta && cliente.provincia ? `${cliente.citta} (${cliente.provincia})` : cliente.citta || '-'}
                       </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                        cliente.attivo
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                          : 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                      }`}>
+                        {cliente.attivo ? 'Attivo' : 'Disattivo'}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
@@ -772,6 +836,14 @@ export function ClientiPage() {
                 <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-900/40 dark:text-rose-200">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                   <span>{inlineError}</span>
+                </div>
+              )}
+              {isViewing && selectedCliente && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
+                    <span className="block text-[11px] uppercase tracking-wide text-slate-400">Stato</span>
+                    {selectedCliente.attivo ? 'Attivo' : 'Disattivo'}
+                  </div>
                 </div>
               )}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -955,13 +1027,13 @@ export function ClientiPage() {
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                       Nazione
                     </label>
-                    <input
-                      type="text"
-                      value={formData.nazione}
-                      onChange={(e) => setFormData({ ...formData, nazione: e.target.value })}
+                    <SearchableNazioneSelect
+                      nazioni={nazioni}
+                      value={formData.nazione || null}
+                      onChange={(value) => setFormData({ ...formData, nazione: value || '' })}
+                      loading={nazioniLoading}
                       disabled={isViewing}
-                      className="w-full rounded-2xl border border-white/70 bg-white/90 px-4 py-2.5 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                      placeholder="Italia"
+                      placeholder="Seleziona nazione..."
                     />
                   </div>
                 </div>
@@ -1035,13 +1107,11 @@ export function ClientiPage() {
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                     Telefono
                   </label>
-                  <input
-                    type="tel"
+                  <PhoneInput
                     value={formData.telefono}
-                    onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, telefono: value })}
+                    placeholder="Numero di telefono"
                     disabled={isViewing}
-                    className="w-full rounded-2xl border border-white/70 bg-white/90 px-4 py-2.5 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                    placeholder="+39 123 4567890"
                   />
                 </div>
                 <div>

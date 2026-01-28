@@ -27,6 +27,7 @@ import { MonitoringModule } from './monitoring/monitoring.module';
 import { ReportModule } from './report/report.module';
 import { RateAmmortamentoModule } from './rate-ammortamento/rate-ammortamento.module';
 import { UtilitaModule } from './utilita/utilita.module';
+import { NazioniModule } from './nazioni/nazioni.module';
 import { APP_GUARD } from '@nestjs/core';
 import { RedisRateLimitGuard } from './common/redis-rate-limit.guard';
 import { HealthController } from './health/health.controller';
@@ -95,6 +96,7 @@ import { CacheService } from './common/cache.service';
     ReportModule,
     RateAmmortamentoModule,
     UtilitaModule,
+    NazioniModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -1636,8 +1636,12 @@ export function PraticaDetailPage() {
 
     const totaliMovimentiDerivati = calculateMovimentiTotals(movimenti || []);
 
+    const capitaleOriginarioBase =
+      (totaliMovimentiDerivati.capitaleOriginario || 0) > 0
+        ? totaliMovimentiDerivati.capitaleOriginario
+        : n(pratica.capitale);
     // Somma capitale originario e nuovo capitale per ottenere il totale
-    const capitaleTotale = n(pratica.capitale) + (totaliMovimentiDerivati.capitaleOriginario || 0) + (totaliMovimentiDerivati.nuovoCapitale || 0);
+    const capitaleTotale = capitaleOriginarioBase + (totaliMovimentiDerivati.nuovoCapitale || 0);
     const anticipazioniTotale = n(pratica.anticipazioni) + (totaliMovimentiDerivati.anticipazioni || 0);
     const compensiTotale = n(pratica.compensiLegali) + (totaliMovimentiDerivati.compensi || 0);
     const interessiCalcolatiValue = interessiCalcolati?.interessiCalcolati || 0;
@@ -1653,7 +1657,7 @@ export function PraticaDetailPage() {
 
     return {
       capitaleTotale,
-      capitaleOriginario: n(pratica.capitale) + (totaliMovimentiDerivati.capitaleOriginario || 0),
+      capitaleOriginario: capitaleOriginarioBase,
       nuovoCapitale: totaliMovimentiDerivati.nuovoCapitale || 0,
       anticipazioniTotale,
       compensiTotale,

@@ -67,6 +67,7 @@ export interface StudioStats {
     email: string;
     telefono: string;
     attivo: boolean;
+    maxUtenti: number | null;
     createdAt: string;
     updatedAt: string;
   };

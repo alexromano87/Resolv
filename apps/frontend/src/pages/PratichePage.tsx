@@ -387,13 +387,16 @@ export function PratichePage() {
       };
       if (noteNuovaPratica.trim()) formData.note = noteNuovaPratica.trim();
 
-      await createPratica(formData);
+      const created = await createPratica(formData);
       success('Pratica creata con successo');
       if (hasSearched) {
         await loadPratiche();
       }
       setShowNewForm(false);
       resetNewForm();
+      if (created?.id) {
+        navigate(`/pratiche/${created.id}`);
+      }
     } catch (err) {
       console.error('Errore creazione pratica:', err);
       toastError('Errore durante la creazione della pratica');
@@ -715,6 +718,12 @@ export function PratichePage() {
                                 <span className="text-slate-500 dark:text-slate-400">Capitale</span>
                                 <span className="font-bold text-slate-900 dark:text-slate-100">
                                   € {formatCurrency(getPraticaImporti(pratica).capitale)}
+                                </span>
+                              </div>
+                              <div className="mt-2 flex items-center justify-between text-xs">
+                                <span className="text-slate-500 dark:text-slate-400">Stato</span>
+                                <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                  {pratica.attivo ? 'Attiva' : 'Disattivata'}
                                 </span>
                               </div>
 

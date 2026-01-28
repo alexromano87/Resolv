@@ -7,6 +7,7 @@ import {
   UseGuards,
   ForbiddenException,
   Post,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ReportPdfService } from './report-pdf.service';
@@ -51,14 +52,26 @@ export class ReportController {
     @Query('includeTicketIds') includeTicketIds?: string,
     @Query('note') note?: string,
   ) {
-    // Verifica accesso al cliente
-    const canAccess = await this.clientiService.canAccessCliente(user, clienteId);
-    if (!canAccess) {
-      throw new ForbiddenException('Accesso non consentito');
+    const isAllClients = clienteId === 'all';
+    let clienteIds: string[] | undefined;
+    if (isAllClients) {
+      const clienti = await this.clientiService.findAllForUser(user, false);
+      clienteIds = clienti.map((cliente) => cliente.id);
+      if (clienteIds.length === 0) {
+        throw new ForbiddenException('Accesso non consentito');
+      }
+    } else {
+      // Verifica accesso al cliente
+      const canAccess = await this.clientiService.canAccessCliente(user, clienteId);
+      if (!canAccess) {
+        throw new ForbiddenException('Accesso non consentito');
+      }
     }
 
     const options = {
       clienteId,
+      clienteIds,
+      studioId: user.ruolo === 'admin' ? undefined : user.studioId || undefined,
       dataInizio: dataInizio ? new Date(dataInizio) : undefined,
       dataFine: dataFine ? new Date(dataFine) : undefined,
       includiDettaglioPratiche: includiDettaglio !== 'false',
@@ -77,9 +90,10 @@ export class ReportController {
 
     const buffer = await this.pdfServiceNew.generaReportCliente(options);
 
+    const filenamePrefix = isAllClients ? 'tutti-clienti' : clienteId;
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename=report-${clienteId}-${new Date().toISOString().split('T')[0]}.pdf`,
+      'Content-Disposition': `attachment; filename=report-${filenamePrefix}-${new Date().toISOString().split('T')[0]}.pdf`,
       'Content-Length': buffer.length,
     });
 
@@ -106,6 +120,9 @@ export class ReportController {
     @Query('includeTicketIds') includeTicketIds?: string,
     @Query('note') note?: string,
   ) {
+    if (clienteId === 'all') {
+      throw new BadRequestException('Impossibile salvare un report per tutti i clienti');
+    }
     const canAccess = await this.clientiService.canAccessCliente(user, clienteId);
     if (!canAccess) {
       throw new ForbiddenException('Accesso non consentito');
@@ -146,6 +163,9 @@ export class ReportController {
     @CurrentUser() user: CurrentUserData,
     @Param('clienteId') clienteId: string,
   ) {
+    if (clienteId === 'all') {
+      throw new BadRequestException('Impossibile elencare i report per tutti i clienti');
+    }
     const canAccess = await this.clientiService.canAccessCliente(user, clienteId);
     if (!canAccess) {
       throw new ForbiddenException('Accesso non consentito');
@@ -184,23 +204,36 @@ export class ReportController {
     @Query('dataInizio') dataInizio?: string,
     @Query('dataFine') dataFine?: string,
   ) {
-    // Verifica accesso al cliente
-    const canAccess = await this.clientiService.canAccessCliente(user, clienteId);
-    if (!canAccess) {
-      throw new ForbiddenException('Accesso non consentito');
+    const isAllClients = clienteId === 'all';
+    let clienteIds: string[] | undefined;
+    if (isAllClients) {
+      const clienti = await this.clientiService.findAllForUser(user, false);
+      clienteIds = clienti.map((cliente) => cliente.id);
+      if (clienteIds.length === 0) {
+        throw new ForbiddenException('Accesso non consentito');
+      }
+    } else {
+      // Verifica accesso al cliente
+      const canAccess = await this.clientiService.canAccessCliente(user, clienteId);
+      if (!canAccess) {
+        throw new ForbiddenException('Accesso non consentito');
+      }
     }
 
     const options = {
       clienteId,
+      clienteIds,
+      studioId: user.ruolo === 'admin' ? undefined : user.studioId || undefined,
       dataInizio: dataInizio ? new Date(dataInizio) : undefined,
       dataFine: dataFine ? new Date(dataFine) : undefined,
     };
 
     const buffer = await this.excelService.generaReportCliente(options);
 
+    const filenamePrefix = isAllClients ? 'tutti-clienti' : clienteId;
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename=report-${clienteId}-${new Date().toISOString().split('T')[0]}.xlsx`,
+      'Content-Disposition': `attachment; filename=report-${filenamePrefix}-${new Date().toISOString().split('T')[0]}.xlsx`,
       'Content-Length': buffer.length,
     });
 
@@ -215,22 +248,35 @@ export class ReportController {
     @Query('dataInizio') dataInizio?: string,
     @Query('dataFine') dataFine?: string,
   ) {
-    const canAccess = await this.clientiService.canAccessCliente(user, clienteId);
-    if (!canAccess) {
-      throw new ForbiddenException('Accesso non consentito');
+    const isAllClients = clienteId === 'all';
+    let clienteIds: string[] | undefined;
+    if (isAllClients) {
+      const clienti = await this.clientiService.findAllForUser(user, false);
+      clienteIds = clienti.map((cliente) => cliente.id);
+      if (clienteIds.length === 0) {
+        throw new ForbiddenException('Accesso non consentito');
+      }
+    } else {
+      const canAccess = await this.clientiService.canAccessCliente(user, clienteId);
+      if (!canAccess) {
+        throw new ForbiddenException('Accesso non consentito');
+      }
     }
 
     const options = {
       clienteId,
+      clienteIds,
+      studioId: user.ruolo === 'admin' ? undefined : user.studioId || undefined,
       dataInizio: dataInizio ? new Date(dataInizio) : undefined,
       dataFine: dataFine ? new Date(dataFine) : undefined,
     };
 
     const buffer = await this.excelService.generaReportClienteCsv(options);
 
+    const filenamePrefix = isAllClients ? 'tutti-clienti' : clienteId;
     res.set({
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename=report-${clienteId}-${new Date().toISOString().split('T')[0]}.csv`,
+      'Content-Disposition': `attachment; filename=report-${filenamePrefix}-${new Date().toISOString().split('T')[0]}.csv`,
       'Content-Length': buffer.length,
     });
 

@@ -18,6 +18,33 @@ export class UsersService {
     private studioRepository: Repository<Studio>,
   ) {}
 
+  private isStudioUserRole(ruolo?: string) {
+    return ruolo !== 'admin' && ruolo !== 'cliente';
+  }
+
+  private async assertUserLimitAvailable(studioId: string, excludeUserId?: string) {
+    const studio = await this.studioRepository.findOne({ where: { id: studioId } });
+    if (!studio || studio.maxUtenti == null) {
+      return;
+    }
+
+    const query = this.userRepository
+      .createQueryBuilder('user')
+      .leftJoin('user.studi', 'userStudi')
+      .where('user.attivo = :attivo', { attivo: true })
+      .andWhere("user.ruolo NOT IN ('admin', 'cliente')")
+      .andWhere('(user.studioId = :studioId OR userStudi.id = :studioId)', { studioId });
+
+    if (excludeUserId) {
+      query.andWhere('user.id != :excludeUserId', { excludeUserId });
+    }
+
+    const activeCount = await query.getCount();
+    if (activeCount >= studio.maxUtenti) {
+      throw new BadRequestException('Numero massimo di utenti attivi raggiunto per lo studio');
+    }
+  }
+
   async findAll(
     filters?: {
       studioId?: string;
@@ -34,7 +61,12 @@ export class UsersService {
     // Applica filtri
     if (filters) {
       if (filters.studioId !== undefined) {
-        query.andWhere('user.studioId = :studioId', { studioId: filters.studioId });
+        query.leftJoin('user.studi', 'userStudi');
+        query.andWhere(
+          '(user.studioId = :studioId OR userStudi.id = :studioId)',
+          { studioId: filters.studioId },
+        );
+        query.distinct(true);
       }
 
       if (filters.ruolo) {
@@ -93,6 +125,11 @@ export class UsersService {
     // Hash password
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
 
+    const isActive = createUserDto.attivo !== false;
+    if (isActive && createUserDto.studioId && this.isStudioUserRole(createUserDto.ruolo)) {
+      await this.assertUserLimitAvailable(createUserDto.studioId);
+    }
+
     const user = this.userRepository.create({
       ...createUserDto,
       email: normalizedEmail,
@@ -110,7 +147,10 @@ export class UsersService {
       throw new NotFoundException('Utente non trovato');
     }
     if (updateUserDto.ruolo === 'titolare_studio' && !updateUserDto.studioId) {
-      throw new ConflictException('Studio obbligatorio per il titolare');
+      if (!user.studioId) {
+        throw new ConflictException('Studio obbligatorio per il titolare');
+      }
+      updateUserDto.studioId = user.studioId;
     }
 
     // Se viene aggiornata l'email, normalizzala e verifica che non sia già in uso
@@ -134,6 +174,18 @@ export class UsersService {
       updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
     }
 
+    const nextRuolo = updateUserDto.ruolo ?? user.ruolo;
+    const nextStudioId = updateUserDto.studioId ?? user.studioId;
+    const nextAttivo = updateUserDto.attivo ?? user.attivo;
+    const isBecomingActive = !user.attivo && nextAttivo;
+    const isChangingStudio = updateUserDto.studioId !== undefined && updateUserDto.studioId !== user.studioId;
+
+    if (nextStudioId && this.isStudioUserRole(nextRuolo)) {
+      if (isBecomingActive || (isChangingStudio && nextAttivo)) {
+        await this.assertUserLimitAvailable(nextStudioId, user.id);
+      }
+    }
+
     Object.assign(user, updateUserDto);
     const updatedUser = await this.userRepository.save(user);
 
@@ -154,6 +206,10 @@ export class UsersService {
     const user = await this.userRepository.findOne({ where: { id } });
     if (!user) {
       throw new NotFoundException('Utente non trovato');
+    }
+
+    if (!user.attivo && user.studioId && this.isStudioUserRole(user.ruolo)) {
+      await this.assertUserLimitAvailable(user.studioId, user.id);
     }
 
     user.attivo = !user.attivo;
@@ -186,9 +242,18 @@ export class UsersService {
       throw new NotFoundException('Utente non trovato');
     }
 
-    // Verifica che l'utente sia un avvocato
-    if (user.ruolo !== 'avvocato') {
-      throw new BadRequestException('Solo gli avvocati possono essere associati a più studi');
+    // Verifica che l'utente sia un avvocato o collaboratore
+    if (!['avvocato', 'collaboratore'].includes(user.ruolo)) {
+      throw new BadRequestException('Solo avvocati e collaboratori possono essere associati a più studi');
+    }
+
+    const currentStudiIds = user.studi?.map((studio) => studio.id) ?? [];
+    const addedStudioIds = studiIds.filter((studioId) => !currentStudiIds.includes(studioId));
+
+    if (user.attivo && this.isStudioUserRole(user.ruolo)) {
+      for (const studioId of addedStudioIds) {
+        await this.assertUserLimitAvailable(studioId, user.id);
+      }
     }
 
     // Carica gli studi
