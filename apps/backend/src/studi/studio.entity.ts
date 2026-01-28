@@ -26,6 +26,16 @@ export class Studio {
   @Column()
   nome: string;
 
+  @Column({
+    type: 'enum',
+    enum: ['individuale', 'associato', 'societa_tra_professionisti'],
+    default: 'individuale',
+  })
+  tipologia: 'individuale' | 'associato' | 'societa_tra_professionisti';
+
+  @Column({ type: 'int', nullable: true })
+  maxUtenti: number | null;
+
   @Column({ nullable: true })
   ragioneSociale: string;
 

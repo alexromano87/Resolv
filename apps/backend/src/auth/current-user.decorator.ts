@@ -9,6 +9,7 @@ export interface CurrentUserData {
   ruolo: string;
   clienteId: string | null;
   studioId: string | null;
+  currentStudioId?: string | null;
 }
 
 export const CurrentUser = createParamDecorator(

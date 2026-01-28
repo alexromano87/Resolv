@@ -128,5 +128,15 @@ Una roba del genere non esiste
 
 rimuoviamo l'hero, il sotto titolo presente nell'hero come ad esempio "Visione completa e agigornata delle attività di recupero crediti" lo riportiamo dell'header accanto al nome della pagina ad esempio "Dashboard". Se sono presenti pulsanti che prevedono la creazione di un record o dei filtri, li inserisci nel primo container disponibile
 
-- [ ] inserire l'oggetto per anticipazioni e compensi
-- [ ] report su tutti i clienti
+- [X] inserire l'oggetto per anticipazioni e compensi
+- [X] report su tutti i clienti
+- [X] per i collaboratori vale lo stesso principio di multiselect degli studio
+- [ ] in ambiente admin devo poter vedere tutto tranne il contenuto delle pratiche
+- [X] tipologia studio: individuale - associato - società tra professionisti
+- [X] •⁠  ⁠in ambiente admin si crea lo studio indicando la tipologia e gli altri dati necessari (sarebbe a mio avviso opportuno inserire anche il numero di utenti perchè dobbiamo avere la possibilità di settare e calibrare il costo. Uno studio di tre avvocati non può pagare lo stesso costo di uno studio che ne ha 60)
+    •⁠  ⁠in ambiente user ⁠lo studio inserisce gli utenti e gli attribuisce ruolo e poteri (completa o solo visualizzazione)
+    In ambiente admin dobbiamo sapere quante utenze sono state attiviate e con quali ruoli (come è adesso) ed il sistema deve però bloccare automaticamente la possibilità per lo studio di attivare utenti oltre il numero licenziato
+- [X] automatizzare il recupero tasso d'interesse alla scadenza del tasso dall'area admin
+- [X] Nella scheda ho rilevato solo un problema con inserimento numero di telefono. Non consente di inserire +39 (ovvero il +, dice carattere non consentito)
+- [X] inserire label "Stato" attivo/disattivo su tutte le pagine, come già fatto su quella dei collaboratori
+- [ ] rivedere i simboli non permessi

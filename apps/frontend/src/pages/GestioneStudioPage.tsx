@@ -3,6 +3,7 @@ import { Save, Upload, XCircle } from 'lucide-react';
 import { studiApi, type Studio } from '../api/studi';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/ToastProvider';
+import { PhoneInput } from '../components/ui/PhoneInput';
 import { UNSAFE_NavigationContext as NavigationContext } from 'react-router-dom';
 
 function usePrompt(message: string, when: boolean) {
@@ -458,14 +459,12 @@ export function GestioneStudioPage() {
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                 Telefono
               </label>
-              <input
-                type="tel"
-                disabled={!isEditing}
+              <PhoneInput
                 value={formData.telefono}
-                onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
-                className={`mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 ${
-                  !isEditing ? 'bg-slate-100 text-slate-500 dark:bg-slate-800/60 dark:text-slate-400' : ''
-                }`}
+                onChange={(value) => setFormData({ ...formData, telefono: value })}
+                placeholder="Numero di telefono"
+                disabled={!isEditing}
+                inputClassName={`mt-1 ${!isEditing ? 'bg-slate-100 text-slate-500 dark:bg-slate-800/60 dark:text-slate-400' : ''}`}
               />
             </div>
 

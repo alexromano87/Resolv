@@ -1,5 +1,5 @@
 // apps/backend/src/users/dto/create-user.dto.ts
-import { IsEmail, IsNotEmpty, IsString, MinLength, IsEnum, IsOptional, IsUUID, MaxLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MinLength, IsEnum, IsOptional, IsUUID, MaxLength, IsBoolean } from 'class-validator';
 import type { UserRole, LivelloAccessoPratiche, LivelloPermessi } from '../user.entity';
 import { NoSpecialChars } from '../../common/validators/no-special-chars.decorator';
 
@@ -56,4 +56,8 @@ export class CreateUserDto {
   @IsOptional()
   @IsUUID()
   studioId?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  attivo?: boolean;
 }

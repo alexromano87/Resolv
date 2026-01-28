@@ -553,11 +553,12 @@ export function AppLayout({ children }: AppLayoutProps) {
       };
     }
 
-    // Per avvocati usa currentStudioId (studio della sessione corrente)
+    // Per avvocati/collaboratori usa currentStudioId (studio della sessione corrente)
     // Per altri ruoli usa studioId (studio primario)
-    const activeStudioId = user?.ruolo === 'avvocato'
-      ? user?.currentStudioId || user?.studioId
-      : user?.studioId;
+    const activeStudioId =
+      user?.ruolo === 'avvocato' || user?.ruolo === 'collaboratore'
+        ? user?.currentStudioId || user?.studioId
+        : user?.studioId;
 
     if (!activeStudioId) {
       setStudioName('');

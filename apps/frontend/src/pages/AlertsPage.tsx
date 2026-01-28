@@ -229,6 +229,14 @@ export function AlertsPage() {
         await alertsApi.deactivate(alert.id);
         success('Alert disattivato');
       } else {
+        if (!(await confirm({
+          title: 'Riattiva alert',
+          message: 'Riattivare questo alert?',
+          confirmText: 'Riattiva',
+          variant: 'info',
+        }))) {
+          return;
+        }
         await alertsApi.reactivate(alert.id);
         success('Alert riattivato');
       }
@@ -477,6 +485,9 @@ export function AlertsPage() {
                         <Calendar className="h-3.5 w-3.5" />
                         Scadenza: {new Date(alert.dataScadenza).toLocaleDateString('it-IT')}
                         {giorniRimanenti >= 0 && ` (${giorniRimanenti} giorni)`}
+                      </span>
+                      <span>
+                        <strong>Stato:</strong> {alert.attivo ? 'Attivo' : 'Disattivato'}
                       </span>
                       <span className="flex items-center gap-1">
                         <User className="h-3.5 w-3.5" />

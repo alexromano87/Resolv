@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEmail, IsNotEmpty } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsNotEmpty, IsEnum, IsInt, Min } from 'class-validator';
 import { NoSpecialChars } from '../../common/validators/no-special-chars.decorator';
 
 export class CreateStudioDto {
@@ -6,6 +6,14 @@ export class CreateStudioDto {
   @IsNotEmpty()
   @NoSpecialChars()
   nome: string;
+
+  @IsEnum(['individuale', 'associato', 'societa_tra_professionisti'])
+  tipologia: 'individuale' | 'associato' | 'societa_tra_professionisti';
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  maxUtenti?: number | null;
 
   @IsString()
   @IsOptional()

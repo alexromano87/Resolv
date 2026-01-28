@@ -61,7 +61,7 @@ export function DashboardPage() {
 
   // Filtri
   const [clienti, setClienti] = useState<Cliente[]>([]);
-  const [selectedClienteId, setSelectedClienteId] = useState<string>('');
+  const [selectedClienteId, setSelectedClienteId] = useState<string>('all');
 
   useEffect(() => {
     if (!user || user.ruolo === 'cliente') return;
@@ -109,7 +109,7 @@ export function DashboardPage() {
     try {
       setLoading(true);
       setError(null);
-      const clienteId = selectedClienteId || undefined;
+      const clienteId = selectedClienteId && selectedClienteId !== 'all' ? selectedClienteId : undefined;
       const [statsData, kpiData] = await Promise.all([
         fetchDashboardStats(clienteId),
         fetchDashboardKPI(clienteId),
@@ -806,7 +806,7 @@ export function DashboardPage() {
           <div className="max-w-md">
             <CustomSelect
               options={[
-                { value: '', label: 'Tutti i clienti' },
+                { value: 'all', label: 'Tutti i clienti' },
                 ...clienti.map((cliente) => ({
                   value: cliente.id,
                   label: cliente.ragioneSociale,
@@ -841,7 +841,9 @@ export function DashboardPage() {
                   Report Cliente
                 </h3>
                 <p className="text-sm text-slate-600 dark:text-slate-400">
-                  {clienti.find(c => c.id === selectedClienteId)?.ragioneSociale || 'Cliente selezionato'}
+                  {selectedClienteId === 'all'
+                    ? 'Tutti i clienti'
+                    : (clienti.find(c => c.id === selectedClienteId)?.ragioneSociale || 'Cliente selezionato')}
                 </p>
               </div>
             </div>

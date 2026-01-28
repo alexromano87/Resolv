@@ -230,8 +230,10 @@ export class AuthService {
       };
     }
 
-    // Verifica se l'avvocato ha più studi associati
-    if (user.ruolo === 'avvocato' && user.studi && user.studi.length > 1) {
+    const isMultiStudioRole = user.ruolo === 'avvocato' || user.ruolo === 'collaboratore';
+
+    // Verifica se l'utente ha più studi associati
+    if (isMultiStudioRole && user.studi && user.studi.length > 1) {
       return {
         requiresStudioSelection: true,
         userId: user.id,
@@ -244,7 +246,7 @@ export class AuthService {
     }
 
     // Se ha un solo studio, impostalo come corrente
-    if (user.ruolo === 'avvocato' && user.studi && user.studi.length === 1) {
+    if (isMultiStudioRole && user.studi && user.studi.length === 1) {
       user.currentStudioId = user.studi[0].id;
       if (!user.studioId) {
         user.studioId = user.studi[0].id;

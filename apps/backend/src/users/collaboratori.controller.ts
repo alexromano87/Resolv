@@ -96,6 +96,7 @@ export class CollaboratoriController {
       note: createDto.note ?? null,
       ruolo: 'collaboratore',
       studioId: createDto.studioId ?? null,
+      attivo: isAdmin ? undefined : false,
       clienteId: null,
     });
 

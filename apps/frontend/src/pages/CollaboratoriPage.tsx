@@ -27,6 +27,7 @@ import { BodyPortal } from '../components/ui/BodyPortal';
 import { Pagination } from '../components/Pagination';
 import { useAuth } from '../contexts/AuthContext';
 import { CustomSelect } from '../components/ui/CustomSelect';
+import { PhoneInput } from '../components/ui/PhoneInput';
 
 export function CollaboratoriPage() {
   const { user } = useAuth();
@@ -217,12 +218,19 @@ export function CollaboratoriPage() {
   };
 
   const handleReactivate = async (collaboratore: Collaboratore) => {
-    try {
-      await collaboratoriApi.reactivate(collaboratore.id);
-      success('Collaboratore riattivato');
-      await loadCollaboratori();
-    } catch (err: any) {
-      toastError(err.message || 'Errore durante la riattivazione');
+    if (await confirm({
+      title: 'Riattiva collaboratore',
+      message: `Riattivare ${collaboratore.nome} ${collaboratore.cognome}?`,
+      confirmText: 'Riattiva',
+      variant: 'info',
+    })) {
+      try {
+        await collaboratoriApi.reactivate(collaboratore.id);
+        success('Collaboratore riattivato');
+        await loadCollaboratori();
+      } catch (err: any) {
+        toastError(err.message || 'Errore durante la riattivazione');
+      }
     }
   };
 
@@ -595,13 +603,11 @@ export function CollaboratoriPage() {
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                     Telefono
                   </label>
-                  <input
-                    type="tel"
+                  <PhoneInput
                     value={formData.telefono || ''}
-                    onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, telefono: value })}
+                    placeholder="Numero di telefono"
                     disabled={isViewing}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                    placeholder="+39 333 123 4567"
                   />
                 </div>
               </div>

@@ -89,9 +89,18 @@ export function ReportClientePage() {
     try {
       setLoading(true);
 
-      // Carica cliente
-      const clienteData = await fetchCliente(id);
-      setCliente(clienteData);
+      const isAllClients = id === 'all';
+      if (isAllClients) {
+        setCliente({
+          id: 'all',
+          ragioneSociale: 'Tutti i clienti',
+          attivo: true,
+        } as Cliente);
+      } else {
+        // Carica cliente
+        const clienteData = await fetchCliente(id);
+        setCliente(clienteData);
+      }
 
       // Carica studio
       if (user?.studioId) {
@@ -99,8 +108,8 @@ export function ReportClientePage() {
         setStudio(studioData);
       }
 
-      // Carica pratiche del cliente
-      const praticheData = await fetchPratiche({ clienteId: id });
+      // Carica pratiche
+      const praticheData = isAllClients ? await fetchPratiche() : await fetchPratiche({ clienteId: id });
       setPratiche(praticheData);
 
       // Carica movimenti
@@ -198,6 +207,10 @@ export function ReportClientePage() {
 
   const handleSaveReport = async () => {
     if (!id) return;
+    if (id === 'all') {
+      toastError('Seleziona un cliente specifico per salvare il report.');
+      return;
+    }
     try {
       setSavingReport(true);
       const saved = await salvaReportPDF(id, {
@@ -356,6 +369,23 @@ export function ReportClientePage() {
     return map;
   }, [filteredMovimenti]);
 
+  const compensiOggettiByPratica = useMemo(() => {
+    const map: Record<string, string[]> = {};
+
+    filteredMovimenti.forEach((movimento) => {
+      if (!movimento.praticaId) return;
+      const tipo = String(movimento.tipo || '').toLowerCase();
+      if (tipo !== 'compenso' && tipo !== 'compensi') return;
+      const oggetto = (movimento.oggetto || '').trim();
+      if (!oggetto) return;
+      const lista = map[movimento.praticaId] || [];
+      if (!lista.includes(oggetto)) lista.push(oggetto);
+      map[movimento.praticaId] = lista;
+    });
+
+    return map;
+  }, [filteredMovimenti]);
+
   const getFinanzaPratica = (pratica: Pratica) => {
     const extra = movimentiFinanzaByPratica[pratica.id] || {
       anticipazioni: 0,
@@ -491,7 +521,7 @@ export function ReportClientePage() {
             <div className="flex flex-wrap justify-end gap-3">
               <button
                 onClick={handleSaveReport}
-                disabled={generatingPdf || generatingCsv || savingReport}
+                disabled={generatingPdf || generatingCsv || savingReport || id === 'all'}
                 className="wow-button-ghost inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {savingReport ? (
@@ -1055,6 +1085,7 @@ export function ReportClientePage() {
                             <th className="px-3 py-3 text-left font-semibold">Includi</th>
                             <th className="px-4 py-3 text-left font-semibold">Numero pratica</th>
                             <th className="px-4 py-3 text-left font-semibold">Debitore</th>
+                            <th className="px-4 py-3 text-left font-semibold">Oggetto</th>
                             <th className="px-4 py-3 text-right font-semibold">Maturati</th>
                             <th className="px-4 py-3 text-right font-semibold">Recuperati</th>
                             <th className="px-4 py-3 text-right font-semibold">Liquidabili</th>
@@ -1066,6 +1097,8 @@ export function ReportClientePage() {
                               (pratica.debitore ? `${pratica.debitore.nome || ''} ${pratica.debitore.cognome || ''}`.trim() : 'N/D');
                             const finanza = getFinanzaPratica(pratica);
                             const included = selectedCompensi.has(pratica.id);
+                            const oggetti = compensiOggettiByPratica[pratica.id] || [];
+                            const oggettoLabel = oggetti.length > 0 ? oggetti.join(', ') : '-';
                             return (
                               <tr
                                 key={pratica.id}
@@ -1085,6 +1118,7 @@ export function ReportClientePage() {
                                   {pratica.numeroPratica ? pratica.numeroPratica : `#${pratica.id.slice(0, 8)}`}
                                 </td>
                                 <td className="px-4 py-3 text-slate-700">{debitoreNome || 'N/D'}</td>
+                                <td className="px-4 py-3 text-slate-600">{oggettoLabel}</td>
                                 <td className="px-4 py-3 text-right text-slate-900">
                                   {formatCurrency(finanza.compensi)}
                                 </td>

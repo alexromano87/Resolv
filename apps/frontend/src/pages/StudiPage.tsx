@@ -7,6 +7,8 @@ import { useSecureConfirmDialog } from '../components/ui/SecureConfirmDialog';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { Pagination } from '../components/Pagination';
 import { useAuth } from '../contexts/AuthContext';
+import { PhoneInput } from '../components/ui/PhoneInput';
+import { CustomSelect } from '../components/ui/CustomSelect';
 
 export function StudiPage() {
   const { user: currentUser } = useAuth();
@@ -24,6 +26,8 @@ export function StudiPage() {
 
   const [formData, setFormData] = useState<CreateStudioDto>({
     nome: '',
+    tipologia: 'individuale',
+    maxUtenti: null,
     ragioneSociale: '',
     partitaIva: '',
     codiceFiscale: '',
@@ -62,6 +66,8 @@ export function StudiPage() {
     setSubmitAttempted(false);
     setFormData({
       nome: '',
+      tipologia: 'individuale',
+      maxUtenti: null,
       ragioneSociale: '',
       partitaIva: '',
       codiceFiscale: '',
@@ -84,6 +90,8 @@ export function StudiPage() {
     setLogoToUpload(null);
     setFormData({
       nome: studio.nome,
+      tipologia: studio.tipologia || 'individuale',
+      maxUtenti: studio.maxUtenti ?? null,
       ragioneSociale: studio.ragioneSociale || '',
       partitaIva: studio.partitaIva || '',
       codiceFiscale: studio.codiceFiscale || '',
@@ -131,6 +139,11 @@ export function StudiPage() {
       if (!formData.partitaIva?.trim()) {
         setSubmitAttempted(true);
         toastError('La Partita IVA è obbligatoria per la creazione dello studio');
+        return;
+      }
+      if (!formData.maxUtenti || formData.maxUtenti < 1) {
+        setSubmitAttempted(true);
+        toastError('Il numero di utenti licenziati è obbligatorio');
         return;
       }
     }
@@ -530,6 +543,53 @@ export function StudiPage() {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Tipologia studio *
+                </label>
+                <div className="mt-1">
+                  <CustomSelect
+                    options={[
+                      { value: 'individuale', label: 'Individuale' },
+                      { value: 'associato', label: 'Associato' },
+                      { value: 'societa_tra_professionisti', label: 'Societa tra professionisti' },
+                    ]}
+                    value={formData.tipologia}
+                    onChange={(value) =>
+                      setFormData({ ...formData, tipologia: value as CreateStudioDto['tipologia'] })
+                    }
+                  />
+                </div>
+                {formData.tipologia === 'individuale' && (
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Per lo studio individuale, titolare e avvocato coincidono.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Numero utenti licenziati {!isEditing && '*'}
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={formData.maxUtenti ?? ''}
+                  onChange={(e) => {
+                    const nextValue = e.target.value;
+                    setFormData({
+                      ...formData,
+                      maxUtenti: nextValue ? Number(nextValue) : null,
+                    });
+                  }}
+                  className={`mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 ${
+                    submitAttempted && !isEditing && (!formData.maxUtenti || formData.maxUtenti < 1)
+                      ? '!border-rose-400 !focus:border-rose-500 !focus:ring-rose-200'
+                      : ''
+                  }`}
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -624,11 +684,11 @@ export function StudiPage() {
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                     Telefono
                   </label>
-                  <input
-                    type="tel"
+                  <PhoneInput
                     value={formData.telefono}
-                    onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
-                    className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    onChange={(value) => setFormData({ ...formData, telefono: value })}
+                    placeholder="Numero di telefono"
+                    inputClassName="mt-1"
                   />
                 </div>
                 <div>

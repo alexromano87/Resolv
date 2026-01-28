@@ -22,6 +22,8 @@ export interface CustomSelectProps {
   dropUp?: boolean;
   className?: string;
   triggerClassName?: string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }
 
 export function CustomSelect({
@@ -34,14 +36,28 @@ export function CustomSelect({
   dropUp = false,
   className = '',
   triggerClassName = '',
+  searchable = false,
+  searchPlaceholder = 'Cerca...',
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+  const [searchTerm, setSearchTerm] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const selectedOption = options.find((o) => o.value === value);
+  const filteredOptions = searchable && searchTerm.trim()
+    ? options.filter((option) => {
+        const term = searchTerm.toLowerCase().trim();
+        return (
+          option.label.toLowerCase().includes(term) ||
+          option.value.toLowerCase().includes(term) ||
+          (option.sublabel ? option.sublabel.toLowerCase().includes(term) : false)
+        );
+      })
+    : options;
 
   // Chiudi dropdown quando si clicca fuori
   useEffect(() => {
@@ -64,11 +80,13 @@ export function CustomSelect({
     if (option.disabled) return;
     onChange(option.value);
     setIsOpen(false);
+    setSearchTerm('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       setIsOpen(false);
+      setSearchTerm('');
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       setIsOpen(!isOpen);
@@ -124,6 +142,12 @@ export function CustomSelect({
     };
   }, [isOpen, dropUp]);
 
+  useEffect(() => {
+    if (isOpen && searchable && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isOpen, searchable]);
+
   return (
     <div ref={containerRef} className={`relative z-30 ${className}`}>
       {/* Trigger Button */}
@@ -171,14 +195,26 @@ export function CustomSelect({
             style={dropdownStyle}
             className="overflow-hidden rounded-2xl border border-white/70 bg-white/95 shadow-[0_20px_60px_rgba(15,23,42,0.16)] backdrop-blur-xl dark:border-slate-700 dark:bg-slate-900"
           >
+            {searchable && (
+              <div className="border-b border-slate-200/70 p-2 dark:border-slate-700">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder={searchPlaceholder}
+                  className="w-full rounded-xl border border-slate-200/80 bg-white/80 py-2 pl-3 pr-3 text-xs outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:bg-slate-900 dark:focus:ring-indigo-500/30"
+                />
+              </div>
+            )}
             {/* Results List */}
             <div className="max-h-64 overflow-y-auto py-1">
-              {options.length === 0 ? (
+              {filteredOptions.length === 0 ? (
                 <div className="px-3 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
                   Nessuna opzione disponibile
                 </div>
               ) : (
-                options.map((option) => {
+                filteredOptions.map((option) => {
                   const isSelected = option.value === value;
                   const isCompletedStatus = option.status === 'completed';
                   return (
