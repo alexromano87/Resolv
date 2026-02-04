@@ -316,9 +316,11 @@ export class ImportService {
           const value = record[uniqueField];
           if (value) {
             try {
-              const existing = await repo.findOne({
-                where: { [uniqueField]: value },
-              });
+              const where: any = { [uniqueField]: value };
+              if (record.studioId) {
+                where.studioId = record.studioId;
+              }
+              const existing = await repo.findOne({ where });
               if (existing) {
                 result.skipped += 1;
                 result.errors.push({

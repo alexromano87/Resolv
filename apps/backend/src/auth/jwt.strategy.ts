@@ -44,11 +44,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     let resolvedClienteId = user.clienteId;
     if (user.ruolo === 'cliente' && !resolvedClienteId) {
       const email = user.email.toLowerCase().trim();
-      const cliente = await this.clienteRepository
+      const query = this.clienteRepository
         .createQueryBuilder('cliente')
         .where('LOWER(cliente.referenteEmail) = :email', { email })
-        .orWhere('LOWER(cliente.email) = :email', { email })
-        .getOne();
+        .orWhere('LOWER(cliente.email) = :email', { email });
+      if (user.currentStudioId) {
+        query.andWhere('cliente.studioId = :studioId', { studioId: user.currentStudioId });
+      }
+      const cliente = await query.getOne();
       resolvedClienteId = cliente?.id ?? null;
     }
 

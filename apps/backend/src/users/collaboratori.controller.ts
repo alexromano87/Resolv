@@ -100,6 +100,10 @@ export class CollaboratoriController {
       clienteId: null,
     });
 
+    if (!isAdmin && (created as any).linkedExisting) {
+      return created;
+    }
+
     if (!isAdmin) {
       return this.usersService.update(created.id, { attivo: false });
     }

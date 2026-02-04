@@ -45,6 +45,55 @@ export class UsersService {
     }
   }
 
+  private isMultiStudioRole(ruolo?: string) {
+    return ruolo === 'avvocato' || ruolo === 'collaboratore' || ruolo === 'cliente';
+  }
+
+  private async attachExistingUserToStudio(existingUser: User, createUserDto: CreateUserDto) {
+    if (!createUserDto.studioId) {
+      throw new ConflictException('Email già registrata');
+    }
+
+    if (existingUser.ruolo === 'admin') {
+      throw new ConflictException('Email già registrata');
+    }
+
+    if (existingUser.ruolo !== createUserDto.ruolo) {
+      throw new ConflictException('Email già registrata con ruolo diverso');
+    }
+
+    if (!this.isMultiStudioRole(existingUser.ruolo)) {
+      throw new ConflictException('Email già registrata');
+    }
+
+    const studio = await this.studioRepository.findOne({ where: { id: createUserDto.studioId } });
+    if (!studio) {
+      throw new BadRequestException('Studio non trovato');
+    }
+
+    const existingStudioIds = new Set<string>(
+      [
+        existingUser.studioId,
+        ...(existingUser.studi?.map((s) => s.id) ?? []),
+      ].filter(Boolean) as string[],
+    );
+
+    if (!existingStudioIds.has(studio.id)) {
+      if (existingUser.attivo) {
+        await this.assertUserLimitAvailable(studio.id, existingUser.id);
+      }
+      existingUser.studi = [...(existingUser.studi ?? []), studio];
+    }
+
+    if (!existingUser.studioId) {
+      existingUser.studioId = studio.id;
+    }
+
+    const savedUser = await this.userRepository.save(existingUser);
+    const { password, ...userWithoutPassword } = savedUser as any;
+    return { ...userWithoutPassword, linkedExisting: true };
+  }
+
   async findAll(
     filters?: {
       studioId?: string;
@@ -116,10 +165,11 @@ export class UsersService {
     // Verifica se email già esiste
     const existingUser = await this.userRepository.findOne({
       where: { email: normalizedEmail },
+      relations: ['studi'],
     });
 
     if (existingUser) {
-      throw new ConflictException('Email già registrata');
+      return this.attachExistingUserToStudio(existingUser, createUserDto) as any;
     }
 
     // Hash password
@@ -135,6 +185,14 @@ export class UsersService {
       email: normalizedEmail,
       password: hashedPassword,
     });
+
+    if (createUserDto.studioId && this.isMultiStudioRole(createUserDto.ruolo)) {
+      const studio = await this.studioRepository.findOne({ where: { id: createUserDto.studioId } });
+      if (!studio) {
+        throw new BadRequestException('Studio non trovato');
+      }
+      user.studi = [studio];
+    }
 
     const savedUser = await this.userRepository.save(user);
     const { password, ...userWithoutPassword } = savedUser;
@@ -243,8 +301,8 @@ export class UsersService {
     }
 
     // Verifica che l'utente sia un avvocato o collaboratore
-    if (!['avvocato', 'collaboratore'].includes(user.ruolo)) {
-      throw new BadRequestException('Solo avvocati e collaboratori possono essere associati a più studi');
+    if (!['avvocato', 'collaboratore', 'cliente'].includes(user.ruolo)) {
+      throw new BadRequestException('Solo avvocati, collaboratori e clienti possono essere associati a più studi');
     }
 
     const currentStudiIds = user.studi?.map((studio) => studio.id) ?? [];

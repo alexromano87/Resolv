@@ -37,11 +37,14 @@ export class AuthService {
       return user.clienteId;
     }
     const email = user.email.toLowerCase().trim();
-    const cliente = await this.clienteRepository
+    const query = this.clienteRepository
       .createQueryBuilder('cliente')
       .where('LOWER(cliente.referenteEmail) = :email', { email })
-      .orWhere('LOWER(cliente.email) = :email', { email })
-      .getOne();
+      .orWhere('LOWER(cliente.email) = :email', { email });
+    if (user.currentStudioId) {
+      query.andWhere('cliente.studioId = :studioId', { studioId: user.currentStudioId });
+    }
+    const cliente = await query.getOne();
     return cliente?.id ?? null;
   }
 
@@ -230,7 +233,8 @@ export class AuthService {
       };
     }
 
-    const isMultiStudioRole = user.ruolo === 'avvocato' || user.ruolo === 'collaboratore';
+    const isMultiStudioRole =
+      user.ruolo === 'avvocato' || user.ruolo === 'collaboratore' || user.ruolo === 'cliente';
 
     // Verifica se l'utente ha più studi associati
     if (isMultiStudioRole && user.studi && user.studi.length > 1) {

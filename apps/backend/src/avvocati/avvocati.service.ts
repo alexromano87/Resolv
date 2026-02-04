@@ -16,9 +16,10 @@ export class AvvocatiService {
 
   async create(createAvvocatoDto: CreateAvvocatoDto): Promise<Avvocato> {
     // Verifica se email già esistente
-    const existing = await this.avvocatiRepository.findOne({
-      where: { email: createAvvocatoDto.email },
-    });
+    const where = createAvvocatoDto.studioId
+      ? { email: createAvvocatoDto.email, studioId: createAvvocatoDto.studioId }
+      : { email: createAvvocatoDto.email };
+    const existing = await this.avvocatiRepository.findOne({ where });
     if (existing) {
       throw new ConflictException('Email già registrata');
     }
@@ -63,9 +64,11 @@ export class AvvocatiService {
 
     // Se sta cambiando email, verifica che non sia già usata
     if (updateAvvocatoDto.email && updateAvvocatoDto.email !== avvocato.email) {
-      const existing = await this.avvocatiRepository.findOne({
-        where: { email: updateAvvocatoDto.email },
-      });
+      const studioId = updateAvvocatoDto.studioId ?? avvocato.studioId;
+      const where = studioId
+        ? { email: updateAvvocatoDto.email, studioId }
+        : { email: updateAvvocatoDto.email };
+      const existing = await this.avvocatiRepository.findOne({ where });
       if (existing) {
         throw new ConflictException('Email già registrata');
       }

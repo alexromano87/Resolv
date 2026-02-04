@@ -4,13 +4,15 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Cliente } from './cliente.entity';
 import { Pratica } from '../pratiche/pratica.entity';
 import { Avvocato } from '../avvocati/avvocato.entity';
+import { User } from '../users/user.entity';
+import { Studio } from '../studi/studio.entity';
 import { ClientiController } from './clienti.controller';
 import { ClientiService } from './clienti.service';
 import { ClientiDebitoriModule } from '../relazioni/clienti-debitori.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Cliente, Pratica, Avvocato]),
+    TypeOrmModule.forFeature([Cliente, Pratica, Avvocato, User, Studio]),
     ClientiDebitoriModule,   
   ],
   controllers: [ClientiController],

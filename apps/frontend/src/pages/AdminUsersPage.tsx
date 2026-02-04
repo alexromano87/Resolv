@@ -414,16 +414,6 @@ export function AdminUsersPage() {
                       >
                         <Key size={16} />
                       </button>
-                      {/* Pulsante gestione studi per avvocati/collaboratori */}
-                      {(user.ruolo === 'avvocato' || user.ruolo === 'collaboratore') && (
-                        <button
-                          onClick={() => handleOpenManageStudi(user)}
-                          className="text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300"
-                          title="Gestisci studi"
-                        >
-                          <Building2 size={16} />
-                        </button>
-                      )}
                       {/* Nascondi pulsanti Disattiva ed Elimina per admin@resolv.it */}
                       {user.email !== 'admin@resolv.it' && (
                         <>
@@ -564,10 +554,7 @@ export function AdminUsersPage() {
               </div>
 
               {/* Mostra il campo Studio solo se il ruolo richiede uno studio singolo */}
-              {formData.ruolo !== 'admin' &&
-                formData.ruolo !== 'cliente' &&
-                formData.ruolo !== 'avvocato' &&
-                formData.ruolo !== 'collaboratore' && (
+              {formData.ruolo !== 'admin' && formData.ruolo !== 'cliente' && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                     Studio legale {isStudioRequired && '*'}
