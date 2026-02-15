@@ -102,11 +102,11 @@ export class PraticheController {
   // POST /pratiche -> creazione nuova pratica
   @Post()
   create(@CurrentUser() user: CurrentUserData, @Body() dto: CreatePraticaDto) {
-    if (!['admin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     // Assegna automaticamente lo studioId dell'utente loggato (se non è admin)
-    if (user.ruolo !== 'admin' && user.studioId) {
+    if (user.ruolo !== 'superuser' && user.studioId) {
       dto.studioId = user.studioId;
     }
     return this.praticheService.create(dto);

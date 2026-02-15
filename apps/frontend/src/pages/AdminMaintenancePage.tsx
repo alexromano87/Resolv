@@ -4,8 +4,10 @@ import { studiApi, type Studio, type OrphanedRecords } from '../api/studi';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { AlertTriangle, CheckCircle, Database, Users, UserCheck } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function AdminMaintenancePage() {
+  const { user } = useAuth();
   const [orphanData, setOrphanData] = useState<OrphanDataReport | null>(null);
   const [orphanedRecords, setOrphanedRecords] = useState<OrphanedRecords | null>(null);
   const [studi, setStudi] = useState<Studio[]>([]);
@@ -27,9 +29,24 @@ export default function AdminMaintenancePage() {
   const [confirmAssignAll, setConfirmAssignAll] = useState(false);
   const [confirmAssignSelected, setConfirmAssignSelected] = useState<keyof typeof selectedRecords | null>(null);
 
+  if (user?.ruolo !== 'superuser') {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+        <AlertTriangle className="mx-auto h-12 w-12 text-slate-400" />
+        <h3 className="mt-4 text-lg font-medium text-slate-900 dark:text-slate-100">
+          Accesso negato
+        </h3>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+          Solo i superuser possono accedere a questa pagina.
+        </p>
+      </div>
+    );
+  }
+
   useEffect(() => {
+    if (user?.ruolo !== 'superuser') return;
     loadData();
-  }, []);
+  }, [user?.ruolo]);
 
   const loadData = async () => {
     try {

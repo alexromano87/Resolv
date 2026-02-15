@@ -9,9 +9,10 @@ import { Debitore } from '../debitori/debitore.entity';
 import { User } from '../users/user.entity';
 import { Avvocato } from '../avvocati/avvocato.entity';
 import { Pratica } from '../pratiche/pratica.entity';
+import { UsersModule } from '../users/users.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Studio, Cliente, Debitore, User, Avvocato, Pratica])],
+  imports: [TypeOrmModule.forFeature([Studio, Cliente, Debitore, User, Avvocato, Pratica]), UsersModule],
   controllers: [StudiController],
   providers: [StudiService, BackupService],
   exports: [StudiService, BackupService],

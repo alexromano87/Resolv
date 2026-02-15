@@ -21,10 +21,12 @@ export class CacheService {
     try {
       const redisHost = this.configService.get<string>('REDIS_HOST', 'localhost');
       const redisPort = this.configService.get<number>('REDIS_PORT', 6379);
+      const redisPassword = this.configService.get<string>('REDIS_PASSWORD');
 
       this.redis = new Redis({
         host: redisHost,
         port: redisPort,
+        ...(redisPassword ? { password: redisPassword } : {}),
         maxRetriesPerRequest: 3,
         retryStrategy: (times) => {
           if (times > 3) {

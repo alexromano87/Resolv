@@ -7,6 +7,7 @@ export interface CurrentUserData {
   nome: string;
   cognome: string;
   ruolo: string;
+  isAdmin?: boolean;
   clienteId: string | null;
   studioId: string | null;
   currentStudioId?: string | null;

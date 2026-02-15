@@ -7,12 +7,17 @@ import {
   Body,
   Param,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { StudiService } from './studi.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
+import { SuperuserGuard } from '../auth/superuser.guard';
 import { CreateStudioDto } from './dto/create-studio.dto';
 import { UpdateStudioDto } from './dto/update-studio.dto';
+import { ProvisionStudioDto } from './dto/provision-studio.dto';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { CurrentUserData } from '../auth/current-user.decorator';
 
 @Controller('studi')
 @UseGuards(JwtAuthGuard)
@@ -20,28 +25,50 @@ export class StudiController {
   constructor(private readonly studiService: StudiService) {}
 
   @Get()
-  async findAll() {
+  async findAll(@CurrentUser() user: CurrentUserData) {
+    if (user.ruolo !== 'superuser') {
+      if (!user.studioId) {
+        throw new ForbiddenException('Studio non assegnato');
+      }
+      return [await this.studiService.findOne(user.studioId)];
+    }
     return this.studiService.findAll();
   }
 
   @Get('active')
-  async findAllActive() {
+  async findAllActive(@CurrentUser() user: CurrentUserData) {
+    if (user.ruolo !== 'superuser') {
+      if (!user.studioId) {
+        throw new ForbiddenException('Studio non assegnato');
+      }
+      const studio = await this.studiService.findOne(user.studioId);
+      return studio.attivo ? [studio] : [];
+    }
     return this.studiService.findAllActive();
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
+  async findOne(@Param('id') id: string, @CurrentUser() user: CurrentUserData) {
+    if (user.ruolo !== 'superuser' && user.studioId && user.studioId !== id) {
+      throw new ForbiddenException('Accesso negato allo studio richiesto');
+    }
     return this.studiService.findOne(id);
   }
 
   @Post()
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   async create(@Body() createStudioDto: CreateStudioDto) {
     return this.studiService.create(createStudioDto);
   }
 
+  @Post('provision')
+  @UseGuards(SuperuserGuard)
+  async provision(@Body() dto: ProvisionStudioDto) {
+    return this.studiService.createWithAdmin(dto);
+  }
+
   @Put(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   async update(
     @Param('id') id: string,
     @Body() updateStudioDto: UpdateStudioDto,
@@ -50,43 +77,46 @@ export class StudiController {
   }
 
   @Delete(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   async remove(@Param('id') id: string) {
     return this.studiService.remove(id);
   }
 
   @Delete(':id/permanent')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   async permanentDelete(@Param('id') id: string) {
     return this.studiService.permanentDelete(id);
   }
 
   @Post(':id/restore')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   async restore(@Param('id') id: string) {
     return this.studiService.restore(id);
   }
 
   @Put(':id/toggle-active')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   async toggleActive(@Param('id') id: string) {
     return this.studiService.toggleActive(id);
   }
 
   @Get(':id/stats')
   @UseGuards(AdminGuard)
-  async getStudioStats(@Param('id') id: string) {
+  async getStudioStats(@Param('id') id: string, @CurrentUser() user: CurrentUserData) {
+    if (user.ruolo !== 'superuser' && user.studioId && user.studioId !== id) {
+      throw new ForbiddenException('Accesso negato allo studio richiesto');
+    }
     return this.studiService.getStudioStats(id);
   }
 
   @Get('orphaned/records')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   async getOrphanedRecords() {
     return this.studiService.getOrphanedRecords();
   }
 
   @Post('orphaned/assign')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   async assignOrphanedRecords(
     @Body() dto: { entityType: string; recordIds: string[]; studioId: string },
   ) {

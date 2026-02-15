@@ -44,6 +44,7 @@ export function ImpostazioniPage() {
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [twoFactorStep, setTwoFactorStep] = useState<'idle' | 'enable-pending' | 'disable-pending'>('idle');
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+  const [twoFactorNotice, setTwoFactorNotice] = useState('');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
@@ -153,8 +154,12 @@ export function ImpostazioniPage() {
         telefono: twoFactorChannel === 'sms' ? draftTelefono : undefined,
       });
       setTwoFactorStep('enable-pending');
+      const channelLabel = twoFactorChannel === 'sms' ? 'SMS' : 'email';
+      const phoneInfo = twoFactorChannel === 'sms' && draftTelefono ? ` al numero ${draftTelefono}` : '';
+      setTwoFactorNotice(`Codice inviato via ${channelLabel}${phoneInfo}. Inseriscilo per completare l'attivazione.`);
       success('Codice 2FA inviato');
     } catch (err: any) {
+      setTwoFactorNotice('');
       error(err.message || 'Errore invio codice 2FA');
     } finally {
       setTwoFactorLoading(false);
@@ -169,6 +174,7 @@ export function ImpostazioniPage() {
       setTwoFactorEnabled(true);
       setTwoFactorStep('idle');
       setTwoFactorCode('');
+      setTwoFactorNotice('');
       success('2FA attivato');
     } catch (err: any) {
       error(err.message || 'Codice 2FA non valido');
@@ -182,8 +188,12 @@ export function ImpostazioniPage() {
     try {
       await authApi.requestTwoFactorDisable();
       setTwoFactorStep('disable-pending');
+      const channelLabel = twoFactorChannel === 'sms' ? 'SMS' : 'email';
+      const phoneInfo = twoFactorChannel === 'sms' ? ` al numero ${draftTelefono || savedTelefono}` : '';
+      setTwoFactorNotice(`Codice inviato via ${channelLabel}${phoneInfo}. Inseriscilo per completare la disattivazione.`);
       success('Codice 2FA inviato');
     } catch (err: any) {
+      setTwoFactorNotice('');
       error(err.message || 'Errore invio codice 2FA');
     } finally {
       setTwoFactorLoading(false);
@@ -198,6 +208,7 @@ export function ImpostazioniPage() {
       setTwoFactorEnabled(false);
       setTwoFactorStep('idle');
       setTwoFactorCode('');
+      setTwoFactorNotice('');
       success('2FA disattivato');
     } catch (err: any) {
       error(err.message || 'Codice 2FA non valido');
@@ -266,7 +277,7 @@ export function ImpostazioniPage() {
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Ruolo</p>
                 <p className="text-sm text-slate-700 dark:text-slate-200">
-                  {user?.ruolo || 'N/D'}
+                  {user ? (user.isAdmin && user.ruolo !== 'superuser' ? 'Admin' : user.ruolo) : 'N/D'}
                 </p>
               </div>
             </div>
@@ -426,6 +437,11 @@ export function ImpostazioniPage() {
                   {twoFactorEnabled ? 'Attiva' : 'Disattiva'}
                 </span>
               </div>
+              {twoFactorNotice && (
+                <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/10 dark:text-emerald-200">
+                  {twoFactorNotice}
+                </div>
+              )}
               <div className="mt-3 space-y-2">
                 {!twoFactorEnabled && (
                   <>

@@ -22,7 +22,7 @@ export class RegisterDto {
   @NoSpecialChars()
   cognome: string;
 
-  @IsEnum(['admin', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'])
+  @IsEnum(['superuser', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'])
   @IsOptional()
   ruolo?: UserRole;
 

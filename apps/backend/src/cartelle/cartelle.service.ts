@@ -210,7 +210,7 @@ export class CartelleService {
     query: ReturnType<Repository<Cartella>['createQueryBuilder']>,
     user: CurrentUserData,
   ) {
-    if (user.ruolo === 'admin') {
+    if (user.ruolo === 'superuser') {
       return;
     }
 

@@ -48,7 +48,8 @@ export class BackupService {
     const dbUser = this.configService.get<string>('DB_USERNAME', 'rc_user');
     const dbPassword = this.configService.get<string>('DB_PASSWORD', 'rc_pass');
 
-    const command = `mysqldump -h ${dbHost} -P ${dbPort} -u ${dbUser} -p${dbPassword} --single-transaction --quick --lock-tables=false --skip-ssl ${dbName} > ${filepath}`;
+    // Usa MYSQL_PWD env var per evitare password visibile nella process list
+    const command = `MYSQL_PWD='${dbPassword.replace(/'/g, "\\'")}' mysqldump -h ${dbHost} -P ${dbPort} -u ${dbUser} --single-transaction --quick --lock-tables=false --skip-ssl ${dbName} > ${filepath}`;
 
     try {
       await execAsync(command);
@@ -143,7 +144,8 @@ export class BackupService {
     const dbUser = this.configService.get<string>('DB_USERNAME', 'rc_user');
     const dbPassword = this.configService.get<string>('DB_PASSWORD', 'rc_pass');
 
-    const command = `mysql -h ${dbHost} -P ${dbPort} -u ${dbUser} -p${dbPassword} --skip-ssl ${dbName} < ${filepath}`;
+    // Usa MYSQL_PWD env var per evitare password visibile nella process list
+    const command = `MYSQL_PWD='${dbPassword.replace(/'/g, "\\'")}' mysql -h ${dbHost} -P ${dbPort} -u ${dbUser} --skip-ssl ${dbName} < ${filepath}`;
 
     try {
       await execAsync(command);

@@ -49,7 +49,13 @@ export class ImportController {
     }
 
     try {
-      const result = await this.importService.importBackup(file.buffer);
+      if (user.ruolo !== 'superuser' && !user.studioId) {
+        throw new HttpException('Studio non assegnato', HttpStatus.FORBIDDEN);
+      }
+      const result = await this.importService.importBackup(
+        file.buffer,
+        user.ruolo === 'superuser' ? undefined : (user.studioId || undefined),
+      );
 
       try {
         await this.auditLogService.log({
@@ -95,7 +101,14 @@ export class ImportController {
     }
 
     try {
-      const result = await this.importService.importCsv(dto.entity, file.buffer);
+      if (user.ruolo !== 'superuser' && !user.studioId) {
+        throw new HttpException('Studio non assegnato', HttpStatus.FORBIDDEN);
+      }
+      const result = await this.importService.importCsv(
+        dto.entity,
+        file.buffer,
+        user.ruolo === 'superuser' ? undefined : (user.studioId || undefined),
+      );
 
       try {
         let entityType: 'USER' | 'CLIENTE' | 'DEBITORE' | 'AVVOCATO' | 'PRATICA' | 'SYSTEM' = 'SYSTEM';

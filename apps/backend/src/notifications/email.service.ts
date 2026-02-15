@@ -14,15 +14,19 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter | null = null;
   private from: string | null = null;
+  private replyTo: string | null = null;
   private enabled = false;
 
   constructor(private readonly configService: ConfigService) {
     const host = this.configService.get<string>('SMTP_HOST');
     const port = Number(this.configService.get<string>('SMTP_PORT', '587'));
     const user = this.configService.get<string>('SMTP_USER');
-    const pass = this.configService.get<string>('SMTP_PASS');
+    const pass =
+      this.configService.get<string>('SMTP_PASS') ||
+      this.configService.get<string>('SMTP_PASSWORD');
     const secure = this.configService.get<string>('SMTP_SECURE', 'false') === 'true';
     const from = this.configService.get<string>('SMTP_FROM');
+    const replyTo = this.configService.get<string>('SMTP_REPLY_TO');
 
     if (!host || !from) {
       this.logger.warn('SMTP non configurato. Invio email disabilitato.');
@@ -30,6 +34,7 @@ export class EmailService {
     }
 
     this.from = from;
+    this.replyTo = replyTo || null;
     this.transporter = nodemailer.createTransport({
       host,
       port,
@@ -54,6 +59,7 @@ export class EmailService {
         subject: payload.subject,
         text: payload.text,
         html: payload.html,
+        replyTo: this.replyTo || undefined,
       });
     } catch (error) {
       this.logger.error(`Errore invio email: ${payload.subject}`, error as Error);

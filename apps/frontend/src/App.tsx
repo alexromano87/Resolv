@@ -46,6 +46,17 @@ const CollaboratoriPage = lazyNamed(
 const AlertsPage = lazyNamed(() => import('./pages/AlertsPage'), 'AlertsPage');
 const TicketsPage = lazyNamed(() => import('./pages/TicketsPage'), 'TicketsPage');
 const AdminUsersPage = lazyNamed(() => import('./pages/AdminUsersPage'), 'AdminUsersPage');
+const AdminCheckupUsersPage = lazyNamed(() => import('./pages/AdminCheckupUsersPage'), 'default');
+const AdminCheckupLicensesPage = lazyNamed(() => import('./pages/AdminCheckupLicensesPage'), 'default');
+const AdminCheckupSublicensesPage = lazyNamed(
+  () => import('./pages/AdminCheckupSublicensesPage'),
+  'default',
+);
+const AdminCheckupStudiosPage = lazyNamed(() => import('./pages/AdminCheckupStudiosPage'), 'default');
+const AdminSuperSettingsPage = lazyNamed(
+  () => import('./pages/AdminSuperSettingsPage'),
+  'default',
+);
 const StudiPage = lazyNamed(() => import('./pages/StudiPage'), 'StudiPage');
 const ExportDatiPage = lazyNamed(() => import('./pages/ExportDatiPage'), 'ExportDatiPage');
 const ImportDatiPage = lazyNamed(() => import('./pages/ImportDatiPage'), 'ImportDatiPage');
@@ -82,6 +93,22 @@ const PraticaDetailRoute = () => {
   return <PraticaDetailPage />;
 };
 
+const HomeRoute = () => {
+  const { user } = useAuth();
+
+  if (user?.ruolo === 'superuser') {
+    return <Navigate to="/admin/users" replace />;
+  }
+  if (user?.isAdmin) {
+    const adminView = localStorage.getItem('admin_view') !== 'user';
+    if (adminView) {
+      return <Navigate to="/admin/users" replace />;
+    }
+  }
+
+  return <DashboardPage />;
+};
+
 const errorFallback = (
   <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
     <div className="text-center space-y-4 rounded-2xl border border-rose-200 bg-rose-50 p-6 shadow-lg dark:border-rose-800 dark:bg-rose-900/60">
@@ -114,7 +141,8 @@ function App() {
               <ProtectedRoute>
                 <AppLayout>
                   <Routes>
-                    <Route path="/" element={<DashboardPage />} />
+                    <Route path="/" element={<HomeRoute />} />
+                    <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/clienti" element={<ClientiPage />} />
                     <Route path="/clienti/:id" element={<ClientiPage />} />
                     <Route path="/debitori" element={<DebitoriPage />} />
@@ -132,6 +160,11 @@ function App() {
                     <Route path="/report/fatturazione" element={<ReportFatturazionePage />} />
                     <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
                     <Route path="/admin/users" element={<AdminUsersPage />} />
+                    <Route path="/admin/checkup-users" element={<AdminCheckupUsersPage />} />
+                    <Route path="/admin/checkup-licenses" element={<AdminCheckupLicensesPage />} />
+                    <Route path="/admin/checkup-sublicenses" element={<AdminCheckupSublicensesPage />} />
+                    <Route path="/admin/checkup-studios" element={<AdminCheckupStudiosPage />} />
+                    <Route path="/admin/impostazioni" element={<AdminSuperSettingsPage />} />
                     <Route path="/admin/studi" element={<StudiPage />} />
                     <Route path="/admin/maintenance" element={<AdminMaintenancePage />} />
                     <Route path="/admin/audit-logs" element={<AuditLogsPage />} />

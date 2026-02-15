@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as os from 'os';
+import * as v8 from 'v8';
 
 /**
  * Performance Monitoring Service
@@ -152,8 +153,11 @@ export class PerformanceService {
 
     // Process memory
     const processMemory = process.memoryUsage();
+    const heapStats = v8.getHeapStatistics();
+    const heapLimitMb = heapStats.heap_size_limit / 1024 / 1024;
     this.recordMetric('process.heap_used_mb', processMemory.heapUsed / 1024 / 1024);
     this.recordMetric('process.heap_total_mb', processMemory.heapTotal / 1024 / 1024);
+    this.recordMetric('process.heap_limit_mb', heapLimitMb);
     this.recordMetric('process.rss_mb', processMemory.rss / 1024 / 1024);
 
     // Uptime
@@ -169,9 +173,14 @@ export class PerformanceService {
       this.logger.warn(`High memory usage: ${memUsagePercent.toFixed(2)}%`);
     }
 
-    const heapUsedPercent = (processMemory.heapUsed / processMemory.heapTotal) * 100;
-    if (heapUsedPercent > 90) {
-      this.logger.warn(`High heap usage: ${heapUsedPercent.toFixed(2)}%`);
+    // Usa heap_size_limit (V8 max) come denominatore, NON heapTotal (allocazione corrente).
+    // heapUsed/heapTotal è quasi sempre ~95% perché V8 alloca blocchi e li riempie
+    // quasi tutti prima di espanderne di nuovi — è un falso allarme.
+    const heapUsedPercent = (processMemory.heapUsed / heapStats.heap_size_limit) * 100;
+    if (heapUsedPercent > 75) {
+      this.logger.warn(
+        `High heap usage: ${heapUsedPercent.toFixed(1)}% (${(processMemory.heapUsed / 1024 / 1024).toFixed(0)}MB / ${heapLimitMb.toFixed(0)}MB limit)`,
+      );
     }
   }
 
@@ -187,20 +196,21 @@ export class PerformanceService {
   } {
     const cpuStats = this.getMetricStats('system.cpu_usage_percent');
     const memStats = this.getMetricStats('system.memory_usage_percent');
-    const heapStats = this.getMetricStats('process.heap_used_mb');
-    const heapTotalStats = this.getMetricStats('process.heap_total_mb');
+    const heapUsedStats = this.getMetricStats('process.heap_used_mb');
+    const heapLimitStats = this.getMetricStats('process.heap_limit_mb');
 
     const cpu = cpuStats?.avg || 0;
     const memory = memStats?.avg || 0;
-    const heap = heapStats && heapTotalStats
-      ? (heapStats.avg / heapTotalStats.avg) * 100
+    // Usa heap_limit (V8 max) come denominatore per una metrica accurata
+    const heap = heapUsedStats && heapLimitStats && heapLimitStats.avg > 0
+      ? (heapUsedStats.avg / heapLimitStats.avg) * 100
       : 0;
 
     let status: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
 
-    if (cpu > 80 || memory > 80 || heap > 90) {
+    if (cpu > 80 || memory > 80 || heap > 80) {
       status = 'unhealthy';
-    } else if (cpu > 60 || memory > 60 || heap > 75) {
+    } else if (cpu > 60 || memory > 60 || heap > 65) {
       status = 'degraded';
     }
 

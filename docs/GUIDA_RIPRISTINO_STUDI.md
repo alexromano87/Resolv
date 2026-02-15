@@ -18,7 +18,7 @@ Quando elimini uno studio dalla pagina "Gestione Studi Legali", **non viene canc
 **Percorso:** Admin → Gestione Studi Legali
 
 **Procedura:**
-1. Accedi come **admin** (admin@resolv.it)
+1. Accedi come **admin** (admin@resolv.legal)
 2. Vai su **Admin → Gestione Studi Legali**
 3. Cerca lo studio con il badge **"🗑️ Eliminato"**
 4. Clicca sul pulsante verde **↻ Ripristina**
@@ -47,7 +47,7 @@ Quando elimini uno studio dalla pagina "Gestione Studi Legali", **non viene canc
 # 1. Fai login per ottenere il token
 TOKEN=$(curl -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@resolv.it","password":"Admin123!"}' \
+  -d '{"email":"admin@resolv.legal","password":"admin123"}' \
   | jq -r '.token')
 
 # 2. Ripristina lo studio

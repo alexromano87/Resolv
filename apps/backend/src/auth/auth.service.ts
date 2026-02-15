@@ -1,10 +1,11 @@
 // apps/backend/src/auth/auth.service.ts
-import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomInt } from 'crypto';
 import { User } from '../users/user.entity';
 import { Cliente } from '../clienti/cliente.entity';
 import { LoginDto } from './dto/login.dto';
@@ -13,9 +14,12 @@ import { JwtPayload } from './jwt.strategy';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { EmailService } from '../notifications/email.service';
+import { buildTwoFactorEmailHtml, buildTwoFactorEmailText } from '../notifications/email-templates';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
@@ -23,6 +27,7 @@ export class AuthService {
     private clienteRepository: Repository<Cliente>,
     private jwtService: JwtService,
     private emailService: EmailService,
+    private configService: ConfigService,
   ) {}
 
   private readonly lockoutThreshold = 5;
@@ -80,6 +85,7 @@ export class AuthService {
       studioId: user.studioId,
       currentStudioId: user.currentStudioId,
       studi: user.studi,
+      isAdmin: user.isAdmin,
       telefono: user.telefono,
       twoFactorEnabled: user.twoFactorEnabled,
       twoFactorChannel: user.twoFactorChannel,
@@ -126,14 +132,19 @@ export class AuthService {
 
   private async sendTwoFactorCode(channel: 'sms' | 'email', destination: string, code: string) {
     if (channel === 'sms') {
-      console.info(`[2FA][SMS] Code ${code} to ${destination}`);
+      this.logger.log(`[2FA][SMS] Code sent to ${destination.slice(0, 3)}***`);
     } else {
-      console.info(`[2FA][Email] Code ${code} to ${destination}`);
+      await this.emailService.sendEmail({
+        to: destination,
+        subject: 'Codice di verifica 2FA',
+        text: buildTwoFactorEmailText({ code, product: 'Resolv' }),
+        html: buildTwoFactorEmailHtml({ code, product: 'Resolv' }),
+      });
     }
   }
 
   private generateTwoFactorCode() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+    return randomInt(100000, 999999).toString();
   }
 
   private async sendPasswordResetCode(email: string, token: string) {
@@ -171,45 +182,67 @@ export class AuthService {
     // Normalizza email in lowercase
     const normalizedEmail = loginDto.email.toLowerCase().trim();
 
-    // Trova utente con gli studi associati
-    const user = await this.userRepository
+    const users = await this.userRepository
       .createQueryBuilder('user')
       .addSelect('user.password')
+      .leftJoinAndSelect('user.studio', 'studio')
       .leftJoinAndSelect('user.studi', 'studi')
       .where('user.email = :email', { email: normalizedEmail })
-      .getOne();
+      .getMany();
 
-    if (!user) {
+    if (users.length === 0) {
       throw new UnauthorizedException('Credenziali non valide');
     }
 
-    if (!user.attivo) {
-      throw new UnauthorizedException('Utente disattivato');
-    }
-
-    if (user.lockoutUntil && user.lockoutUntil.getTime() > Date.now()) {
-      throw new UnauthorizedException('Account temporaneamente bloccato');
-    }
-
-    // Verifica password
-    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
-
-    if (!isPasswordValid) {
-      const attempts = (user.failedLoginAttempts ?? 0) + 1;
-      const update: any = { failedLoginAttempts: attempts };
-      if (attempts >= this.lockoutThreshold) {
-        update.lockoutUntil = new Date(Date.now() + this.lockoutWindowMs);
-        update.failedLoginAttempts = 0;
+    const validUsers: User[] = [];
+    for (const candidate of users) {
+      if (!candidate.attivo) continue;
+      if (candidate.lockoutUntil && candidate.lockoutUntil.getTime() > Date.now()) {
+        continue;
       }
-      await this.userRepository.update(user.id, update);
+      const isPasswordValid = await bcrypt.compare(loginDto.password, candidate.password);
+      if (isPasswordValid) {
+        validUsers.push(candidate);
+      } else {
+        const attempts = (candidate.failedLoginAttempts ?? 0) + 1;
+        const update: any = { failedLoginAttempts: attempts };
+        if (attempts >= this.lockoutThreshold) {
+          update.lockoutUntil = new Date(Date.now() + this.lockoutWindowMs);
+          update.failedLoginAttempts = 0;
+        }
+        await this.userRepository.update(candidate.id, update);
+      }
+    }
+
+    if (validUsers.length === 0) {
       throw new UnauthorizedException('Credenziali non valide');
     }
+
+    const isMultiUser = validUsers.length > 1;
+    if (isMultiUser) {
+      return {
+        requiresStudioSelection: true,
+        options: validUsers.map((u) => ({
+          userId: u.id,
+          studioId: u.studioId ?? u.currentStudioId ?? null,
+          nome: u.studio?.nome ?? u.studi?.[0]?.nome ?? 'Studio',
+          ragioneSociale: u.studio?.ragioneSociale ?? u.studi?.[0]?.ragioneSociale ?? null,
+        })),
+      };
+    }
+
+    const user = validUsers[0];
 
     if (user.failedLoginAttempts || user.lockoutUntil) {
       await this.userRepository.update(user.id, {
         failedLoginAttempts: 0,
         lockoutUntil: null,
       });
+    }
+
+    const forceSuperuser2fa = this.configService.get<string>('FORCE_SUPERUSER_2FA', 'false') === 'true';
+    if (forceSuperuser2fa && user.email.toLowerCase() === 'admin@resolv.legal' && !user.twoFactorEnabled) {
+      throw new BadRequestException('2FA obbligatorio per il superadmin');
     }
 
     if (user.twoFactorEnabled) {
@@ -236,20 +269,18 @@ export class AuthService {
     const isMultiStudioRole =
       user.ruolo === 'avvocato' || user.ruolo === 'collaboratore' || user.ruolo === 'cliente';
 
-    // Verifica se l'utente ha più studi associati
     if (isMultiStudioRole && user.studi && user.studi.length > 1) {
       return {
         requiresStudioSelection: true,
-        userId: user.id,
-        studi: user.studi.map(s => ({
-          id: s.id,
+        options: user.studi.map((s) => ({
+          userId: user.id,
+          studioId: s.id,
           nome: s.nome,
           ragioneSociale: s.ragioneSociale,
         })),
       };
     }
 
-    // Se ha un solo studio, impostalo come corrente
     if (isMultiStudioRole && user.studi && user.studi.length === 1) {
       user.currentStudioId = user.studi[0].id;
       if (!user.studioId) {
@@ -566,8 +597,11 @@ export class AuthService {
       throw new UnauthorizedException('Utente non trovato');
     }
 
-    // Verifica che lo studio sia tra quelli associati all'utente
-    const hasAccess = user.studi?.some(s => s.id === studioId);
+    const hasAccess = Boolean(
+      user.studioId === studioId ||
+        user.currentStudioId === studioId ||
+        user.studi?.some((s) => s.id === studioId),
+    );
     if (!hasAccess) {
       throw new UnauthorizedException('Accesso allo studio non autorizzato');
     }

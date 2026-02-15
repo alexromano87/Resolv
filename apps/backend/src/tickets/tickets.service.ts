@@ -391,7 +391,7 @@ export class TicketsService {
     query: ReturnType<Repository<Ticket>['createQueryBuilder']>,
     user: CurrentUserData,
   ) {
-    if (user.ruolo === 'admin') {
+    if (user.ruolo === 'superuser') {
       return;
     }
 

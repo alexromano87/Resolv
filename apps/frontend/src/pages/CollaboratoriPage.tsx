@@ -47,7 +47,7 @@ export function CollaboratoriPage() {
   const { success, error: toastError } = useToast();
   const { confirm, ConfirmDialog } = useConfirmDialog();
 
-  if (!['admin', 'titolare_studio', 'segreteria'].includes(user?.ruolo ?? '')) {
+  if (!user?.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user?.ruolo ?? '')) {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
         <h3 className="mt-2 text-lg font-medium text-slate-900 dark:text-slate-100">

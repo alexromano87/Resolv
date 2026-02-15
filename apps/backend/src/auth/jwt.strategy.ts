@@ -27,7 +27,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET', 'your-secret-key-change-in-production-12345678'),
+      secretOrKey: (() => {
+        const secret = configService.get<string>('JWT_SECRET');
+        if (!secret) {
+          throw new Error('FATAL: JWT_SECRET environment variable is not set. Server cannot start without it.');
+        }
+        return secret;
+      })(),
     });
   }
 
@@ -61,6 +67,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       nome: user.nome,
       cognome: user.cognome,
       ruolo: user.ruolo,
+      isAdmin: user.isAdmin,
       clienteId: resolvedClienteId,
       studioId: user.studioId,
       currentStudioId: user.currentStudioId,

@@ -148,7 +148,7 @@ export class ClientiService {
   }
 
   async findAllForUser(user: CurrentUserData, includeInactive = false, pagination?: PaginationOptions) {
-    if (user.ruolo === 'admin') {
+    if (user.ruolo === 'superuser') {
       return this.findAll(includeInactive, undefined, pagination);
     }
 
@@ -313,7 +313,7 @@ export class ClientiService {
   }
 
   async canAccessCliente(user: CurrentUserData, clienteId: string): Promise<boolean> {
-    if (user.ruolo === 'admin') return true;
+    if (user.ruolo === 'superuser') return true;
     if (user.ruolo === 'cliente') {
       const cliente = await this.resolveClienteForUser(user);
       return Boolean(cliente && cliente.id === clienteId);
