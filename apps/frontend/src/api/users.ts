@@ -11,6 +11,7 @@ export interface CreateUserDto {
   ruolo: UserRole;
   clienteId?: string | null;
   studioId?: string | null;
+  isAdmin?: boolean;
 }
 
 export interface UpdateUserDto {
@@ -23,6 +24,7 @@ export interface UpdateUserDto {
   clienteId?: string | null;
   studioId?: string | null;
   attivo?: boolean;
+  isAdmin?: boolean;
 }
 
 export const usersApi = {

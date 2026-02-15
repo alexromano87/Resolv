@@ -3,8 +3,10 @@ import { backupApi, type BackupInfo, type BackupStats } from '../api/backup';
 import { Database, Download, Trash2, RefreshCw, Upload, AlertCircle, CheckCircle, HardDrive } from 'lucide-react';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { Pagination } from '../components/Pagination';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function BackupPage() {
+  const { user } = useAuth();
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [stats, setStats] = useState<BackupStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -19,9 +21,24 @@ export default function BackupPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
+  if (user?.ruolo !== 'superuser') {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+        <AlertCircle className="mx-auto h-12 w-12 text-slate-400" />
+        <h3 className="mt-4 text-lg font-medium text-slate-900 dark:text-slate-100">
+          Accesso negato
+        </h3>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+          Solo i superuser possono accedere a questa pagina.
+        </p>
+      </div>
+    );
+  }
+
   useEffect(() => {
+    if (user?.ruolo !== 'superuser') return;
     loadBackups();
-  }, []);
+  }, [user?.ruolo]);
 
   const loadBackups = async () => {
     try {

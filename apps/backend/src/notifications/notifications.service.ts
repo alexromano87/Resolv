@@ -25,6 +25,17 @@ export class NotificationsService {
     private readonly praticheRepo: Repository<Pratica>,
   ) {}
 
+  private async getStudioAdminRecipients(studioId: string) {
+    return this.usersRepo
+      .createQueryBuilder('user')
+      .where('user.studioId = :studioId', { studioId })
+      .andWhere('user.attivo = :attivo', { attivo: true })
+      .andWhere('(user.ruolo IN (:...roles) OR user.isAdmin = 1)', {
+        roles: ['segreteria', 'titolare_studio'],
+      })
+      .getMany();
+  }
+
   async listForUser(userId: string, options?: { unread?: boolean; limit?: number }) {
     const where: Record<string, unknown> = { userId };
     if (options?.unread) {
@@ -73,14 +84,8 @@ export class NotificationsService {
 
     if (isClienteUpload) {
       const baseRecipients = await this.getRecipients(pratica);
-      const studioRecipients = pratica.studioId
-        ? await this.usersRepo.find({
-            where: {
-              studioId: pratica.studioId,
-              ruolo: In(['segreteria', 'titolare_studio']),
-              attivo: true,
-            },
-          })
+    const studioRecipients = pratica.studioId
+        ? await this.getStudioAdminRecipients(pratica.studioId)
         : [];
 
       const unique = new Map<string, User>();
@@ -119,13 +124,7 @@ export class NotificationsService {
     const praticaLabel = this.buildPraticaLabel(pratica);
     const baseRecipients = await this.getRecipients(pratica);
     const studioRecipients = pratica.studioId
-      ? await this.usersRepo.find({
-          where: {
-            studioId: pratica.studioId,
-            ruolo: In(['segreteria', 'titolare_studio']),
-            attivo: true,
-          },
-        })
+      ? await this.getStudioAdminRecipients(pratica.studioId)
       : [];
 
     const unique = new Map<string, User>();
@@ -185,13 +184,7 @@ export class NotificationsService {
 
     const baseRecipients = await this.getRecipients(pratica);
     const studioRecipients = pratica.studioId
-      ? await this.usersRepo.find({
-          where: {
-            studioId: pratica.studioId,
-            ruolo: In(['segreteria', 'titolare_studio'] as UserRole[]),
-            attivo: true,
-          },
-        })
+      ? await this.getStudioAdminRecipients(pratica.studioId)
       : [];
     const unique = new Map<string, User>();
     [...baseRecipients, ...studioRecipients].forEach((user) => unique.set(user.id, user));
@@ -214,7 +207,7 @@ export class NotificationsService {
 
   async notifyAdmins(payload: NotificationPayload) {
     const admins = await this.usersRepo.find({
-      where: { ruolo: 'admin', attivo: true },
+      where: { ruolo: 'superuser', attivo: true },
     });
     if (admins.length === 0) return;
 
@@ -234,7 +227,7 @@ export class NotificationsService {
 
   async notifyAdminsUnique(payload: NotificationPayload) {
     const admins = await this.usersRepo.find({
-      where: { ruolo: 'admin', attivo: true },
+      where: { ruolo: 'superuser', attivo: true },
     });
     if (admins.length === 0) return;
 

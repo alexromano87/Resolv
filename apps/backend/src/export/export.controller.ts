@@ -8,6 +8,7 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  ForbiddenException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ExportService } from './export.service';
@@ -37,6 +38,12 @@ export class ExportController {
     @Res() res: Response,
   ) {
     try {
+      if (user.ruolo !== 'superuser') {
+        if (!user.studioId) {
+          throw new ForbiddenException('Studio non assegnato');
+        }
+        dto.studioId = user.studioId;
+      }
       const buffer = await this.exportService.exportData(dto);
 
       // Log export action (non bloccare l'export se il log fallisce)
@@ -99,6 +106,12 @@ export class ExportController {
     @Res() res: Response,
   ) {
     try {
+      if (user.ruolo !== 'superuser') {
+        if (!user.studioId) {
+          throw new ForbiddenException('Studio non assegnato');
+        }
+        dto.studioId = user.studioId;
+      }
       const buffer = await this.exportService.backupStudio(
         dto.studioId,
         dto.includeDocuments,

@@ -4,12 +4,15 @@ import { Repository, IsNull, In } from 'typeorm';
 import { Studio } from './studio.entity';
 import { CreateStudioDto } from './dto/create-studio.dto';
 import { UpdateStudioDto } from './dto/update-studio.dto';
+import { ProvisionStudioDto } from './dto/provision-studio.dto';
 import { BackupService } from './backup.service';
 import { Cliente } from '../clienti/cliente.entity';
 import { Debitore } from '../debitori/debitore.entity';
 import { User } from '../users/user.entity';
 import { Avvocato } from '../avvocati/avvocato.entity';
 import { Pratica } from '../pratiche/pratica.entity';
+import { UsersService } from '../users/users.service';
+import { randomBytes } from 'crypto';
 
 @Injectable()
 export class StudiService {
@@ -29,6 +32,7 @@ export class StudiService {
     @InjectRepository(Pratica)
     private praticheRepository: Repository<Pratica>,
     private backupService: BackupService,
+    private usersService: UsersService,
   ) {}
 
   async findAll(): Promise<Studio[]> {
@@ -74,6 +78,50 @@ export class StudiService {
 
     const studio = this.studioRepository.create(createStudioDto);
     return this.studioRepository.save(studio);
+  }
+
+  async createWithAdmin(dto: ProvisionStudioDto): Promise<{
+    studio: Studio;
+    adminUser: User;
+    tempPassword?: string;
+  }> {
+    const {
+      adminEmail,
+      adminPassword,
+      adminNome,
+      adminCognome,
+      adminTelefono,
+      adminCodiceFiscale,
+      ...studioData
+    } = dto;
+
+    const studio = await this.create(studioData as CreateStudioDto);
+    const generatedPassword = adminPassword ?? randomBytes(12).toString('base64url');
+
+    try {
+      const adminUser = await this.usersService.create({
+        email: adminEmail,
+        password: generatedPassword,
+        nome: adminNome,
+        cognome: adminCognome,
+        telefono: adminTelefono ?? null,
+        codiceFiscale: adminCodiceFiscale ?? null,
+        ruolo: 'titolare_studio',
+        isAdmin: true,
+        studioId: studio.id,
+        clienteId: null,
+        attivo: true,
+      });
+
+      return {
+        studio,
+        adminUser,
+        tempPassword: adminPassword ? undefined : generatedPassword,
+      };
+    } catch (error) {
+      await this.studioRepository.delete({ id: studio.id });
+      throw error;
+    }
   }
 
   async update(id: string, updateStudioDto: UpdateStudioDto): Promise<Studio> {
@@ -569,8 +617,8 @@ export class StudiService {
       }),
     ]);
 
-    // Filtra admin@resolv.it dagli utenti orfani per evitare assegnazioni accidentali
-    const users = allUsers.filter(user => user.email !== 'admin@resolv.it');
+    // Filtra admin@resolv.legal dagli utenti orfani per evitare assegnazioni accidentali
+    const users = allUsers.filter(user => user.email !== 'admin@resolv.legal');
 
     return {
       clienti,

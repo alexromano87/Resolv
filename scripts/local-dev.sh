@@ -44,8 +44,8 @@ fi
 echo "==> Building and starting local stack"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build
 
-echo "==> Ensuring frontend build container runs"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d frontend
+echo "==> Rebuilding frontend assets"
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build --force-recreate frontend
 
 if [[ "$DO_MIGRATE" == "true" ]]; then
   echo "==> Running migrations"

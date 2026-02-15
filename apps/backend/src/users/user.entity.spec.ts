@@ -49,20 +49,11 @@ describe('User Entity', () => {
       expect(user.ruolo).toBe('cliente');
     });
 
-    it('should accept studio role', () => {
-      user.ruolo = 'studio';
-      expect(user.ruolo).toBe('studio');
+    it('should accept superuser role', () => {
+      user.ruolo = 'superuser';
+      expect(user.ruolo).toBe('superuser');
     });
 
-    it('should accept superadmin role', () => {
-      user.ruolo = 'superadmin';
-      expect(user.ruolo).toBe('superadmin');
-    });
-
-    it('should accept admin role', () => {
-      user.ruolo = 'admin';
-      expect(user.ruolo).toBe('admin');
-    });
   });
 
   describe('status flags', () => {

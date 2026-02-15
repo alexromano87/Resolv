@@ -2,15 +2,20 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 import { Cliente } from './cliente.entity';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { UpdateClienteDto } from './dto/update-cliente.dto';
 import { Pratica } from '../pratiche/pratica.entity';
 import type { CurrentUserData } from '../auth/current-user.decorator';
 import { Avvocato } from '../avvocati/avvocato.entity';
+import { User } from '../users/user.entity';
+import { Studio } from '../studi/studio.entity';
 import { normalizePagination, type PaginationOptions } from '../common/pagination';
 
 @Injectable()
@@ -22,13 +27,90 @@ export class ClientiService {
     private readonly praticheRepo: Repository<Pratica>,
     @InjectRepository(Avvocato)
     private readonly avvocatiRepo: Repository<Avvocato>,
+    @InjectRepository(User)
+    private readonly usersRepo: Repository<User>,
+    @InjectRepository(Studio)
+    private readonly studioRepo: Repository<Studio>,
   ) {}
+
+  private normalizeEmail(value?: string | null) {
+    const normalized = value?.toLowerCase().trim();
+    return normalized ? normalized : null;
+  }
+
+  private resolveReferenteEmail(data: { referenteEmail?: string | null; email?: string | null }) {
+    return this.normalizeEmail(data.referenteEmail) ?? this.normalizeEmail(data.email);
+  }
+
+  private async linkReferenteToStudio(email: string | null, studioId?: string | null, cliente?: Cliente) {
+    if (!email || !studioId) return;
+
+    const studio = await this.studioRepo.findOne({ where: { id: studioId } });
+    if (!studio) {
+      throw new BadRequestException('Studio non trovato');
+    }
+
+    let user = await this.usersRepo.findOne({
+      where: { email },
+      relations: ['studi'],
+    });
+
+    if (user && user.ruolo !== 'cliente') {
+      throw new ConflictException('Email già registrata con un ruolo diverso');
+    }
+
+    if (!user) {
+      const password = randomBytes(12).toString('base64url');
+      const hashedPassword = await bcrypt.hash(password, 10);
+      user = this.usersRepo.create({
+        email,
+        password: hashedPassword,
+        nome: cliente?.referenteNome || cliente?.ragioneSociale || 'Cliente',
+        cognome: cliente?.referenteCognome || cliente?.referente || 'Referente',
+        ruolo: 'cliente',
+        attivo: true,
+        clienteId: null,
+      });
+    }
+
+    const existingStudioIds = new Set<string>(
+      [
+        user.studioId,
+        ...(user.studi?.map((s) => s.id) ?? []),
+      ].filter(Boolean) as string[],
+    );
+
+    if (!existingStudioIds.has(studioId)) {
+      user.studi = [...(user.studi ?? []), studio];
+    }
+
+    if (!user.studioId) {
+      user.studioId = studioId;
+    }
+
+    await this.usersRepo.save(user);
+  }
+
+  private async resolveClienteForUser(user: CurrentUserData): Promise<Cliente | null> {
+    const email = this.normalizeEmail(user.email);
+    if (!email) return null;
+    const query = this.repo
+      .createQueryBuilder('cliente')
+      .where('LOWER(cliente.referenteEmail) = :email', { email })
+      .orWhere('LOWER(cliente.email) = :email', { email });
+    if (user.currentStudioId) {
+      query.andWhere('cliente.studioId = :studioId', { studioId: user.currentStudioId });
+    } else if (user.studioId) {
+      query.andWhere('cliente.studioId = :studioId', { studioId: user.studioId });
+    }
+    return query.getOne();
+  }
 
   async create(data: CreateClienteDto) {
     // Verifica duplicati per P.IVA
     if (data.partitaIva) {
       const existing = await this.repo.findOne({
-        where: { partitaIva: data.partitaIva },
+        where: data.studioId ? { partitaIva: data.partitaIva, studioId: data.studioId } : { partitaIva: data.partitaIva },
       });
       if (existing) {
         throw new ConflictException(
@@ -38,7 +120,10 @@ export class ClientiService {
     }
 
     const cliente = this.repo.create(data);
-    return this.repo.save(cliente);
+    const saved = await this.repo.save(cliente);
+    const referenteEmail = this.resolveReferenteEmail(saved);
+    await this.linkReferenteToStudio(referenteEmail, saved.studioId, saved);
+    return saved;
   }
 
   /**
@@ -63,18 +148,15 @@ export class ClientiService {
   }
 
   async findAllForUser(user: CurrentUserData, includeInactive = false, pagination?: PaginationOptions) {
-    if (user.ruolo === 'admin') {
+    if (user.ruolo === 'superuser') {
       return this.findAll(includeInactive, undefined, pagination);
     }
 
     if (user.ruolo === 'cliente') {
-      if (!user.clienteId) return [];
-      const where: any = { id: user.clienteId };
-      if (!includeInactive) {
-        where.attivo = true;
-      }
-      const cliente = await this.repo.findOne({ where });
-      return cliente ? [cliente] : [];
+      const cliente = await this.resolveClienteForUser(user);
+      if (!cliente) return [];
+      if (!includeInactive && !cliente.attivo) return [];
+      return [cliente];
     }
 
     if (!user.studioId) return [];
@@ -153,9 +235,11 @@ export class ClientiService {
 
     // Se sta cambiando P.IVA, verifica duplicati
     if (data.partitaIva && data.partitaIva !== cliente.partitaIva) {
-      const existing = await this.repo.findOne({
-        where: { partitaIva: data.partitaIva },
-      });
+      const studioId = data.studioId ?? cliente.studioId;
+      const where = studioId
+        ? { partitaIva: data.partitaIva, studioId }
+        : { partitaIva: data.partitaIva };
+      const existing = await this.repo.findOne({ where });
       if (existing && existing.id !== id) {
         throw new ConflictException(
           'Esiste già un cliente con questa Partita IVA',
@@ -164,7 +248,10 @@ export class ClientiService {
     }
 
     await this.repo.update({ id }, data);
-    return this.findOne(id);
+    const updated = await this.findOne(id);
+    const referenteEmail = this.resolveReferenteEmail(updated);
+    await this.linkReferenteToStudio(referenteEmail, updated.studioId, updated);
+    return updated;
   }
 
   /**
@@ -226,9 +313,10 @@ export class ClientiService {
   }
 
   async canAccessCliente(user: CurrentUserData, clienteId: string): Promise<boolean> {
-    if (user.ruolo === 'admin') return true;
+    if (user.ruolo === 'superuser') return true;
     if (user.ruolo === 'cliente') {
-      return Boolean(user.clienteId && user.clienteId === clienteId);
+      const cliente = await this.resolveClienteForUser(user);
+      return Boolean(cliente && cliente.id === clienteId);
     }
     if (!user.studioId) return false;
 

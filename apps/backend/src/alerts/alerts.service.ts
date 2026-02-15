@@ -348,7 +348,7 @@ export class AlertsService {
     query: ReturnType<Repository<Alert>['createQueryBuilder']>,
     user: CurrentUserData,
   ) {
-    if (user.ruolo === 'admin') {
+    if (user.ruolo === 'superuser') {
       return;
     }
 

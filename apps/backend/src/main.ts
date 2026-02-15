@@ -57,8 +57,10 @@ async function bootstrap() {
         // Defaults per development locale
         'http://localhost:5173',
         'http://localhost:3000',
+        'http://localhost:8081',
         'http://localhost',
         'http://127.0.0.1:5173',
+        'http://127.0.0.1:8081',
         'http://127.0.0.1',
       ];
 
@@ -67,8 +69,8 @@ async function bootstrap() {
       // Permetti richieste senza origin (Postman, curl, etc.)
       if (!origin) return callback(null, true);
 
-      // Controlla se origin è nella lista
-      if (allowedOrigins.some(allowed => allowed && origin.startsWith(allowed))) {
+      // Controlla se origin è nella lista (confronto esatto per evitare bypass)
+      if (allowedOrigins.some(allowed => allowed && origin === allowed)) {
         callback(null, true);
       } else {
         logger.warn(`CORS blocked origin: ${origin}`);
@@ -92,19 +94,22 @@ async function bootstrap() {
     }),
   );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Resolv API')
-    .setDescription('Documentazione automatica per i servizi REST di Resolv')
-    .setVersion('1.0')
-    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'Bearer Auth')
-    .build();
-  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api-docs', app, swaggerDocument, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      docExpansion: 'list',
-    },
-  });
+  // Swagger solo in development (non esporre API docs in produzione)
+  if (!isProduction) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Resolv API')
+      .setDescription('Documentazione automatica per i servizi REST di Resolv')
+      .setVersion('1.0')
+      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'Bearer Auth')
+      .build();
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api-docs', app, swaggerDocument, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        docExpansion: 'list',
+      },
+    });
+  }
 
   const port = configService.get<number>('PORT', 3000);
   await app.listen(port);

@@ -53,9 +53,11 @@ const LoginPage: React.FC = () => {
         return;
       }
 
-      if (response && response.user.ruolo === 'admin') {
+      if (response && (response.user.isAdmin || response.user.ruolo === 'superuser')) {
+        localStorage.setItem('admin_view', 'admin');
         navigate('/admin/users');
       } else {
+        localStorage.setItem('admin_view', 'user');
         navigate('/');
       }
     } catch (err: any) {
@@ -97,9 +99,11 @@ const LoginPage: React.FC = () => {
     try {
       const response = await authApi.verifyTwoFactorLogin(twoFactorUserId, twoFactorCode.trim());
       setSession(response);
-      if (response.user.ruolo === 'admin') {
+      if (response.user.isAdmin || response.user.ruolo === 'superuser') {
+        localStorage.setItem('admin_view', 'admin');
         navigate('/admin/users');
       } else {
+        localStorage.setItem('admin_view', 'user');
         navigate('/');
       }
     } catch (err: any) {

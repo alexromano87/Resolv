@@ -2,7 +2,7 @@
 import { api } from './config';
 
 export type UserRole =
-  | 'admin'
+  | 'superuser'
   | 'titolare_studio'
   | 'avvocato'
   | 'collaboratore'
@@ -29,6 +29,7 @@ export interface User {
   nome: string;
   cognome: string;
   ruolo: UserRole;
+  isAdmin?: boolean;
   clienteId: string | null;
   studioId: string | null;
   currentStudioId?: string | null;
@@ -81,11 +82,11 @@ export interface TwoFactorLoginResponse {
 
 export interface StudioSelectionResponse {
   requiresStudioSelection: true;
-  userId: string;
-  studi: Array<{
-    id: string;
+  options: Array<{
+    userId: string;
+    studioId: string | null;
     nome: string;
-    ragioneSociale?: string;
+    ragioneSociale?: string | null;
   }>;
 }
 

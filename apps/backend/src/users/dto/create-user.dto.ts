@@ -46,7 +46,7 @@ export class CreateUserDto {
   @NoSpecialChars()
   note?: string | null;
 
-  @IsEnum(['admin', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'])
+  @IsEnum(['superuser', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'])
   ruolo: UserRole;
 
   @IsOptional()
@@ -56,6 +56,10 @@ export class CreateUserDto {
   @IsOptional()
   @IsUUID()
   studioId?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isAdmin?: boolean;
 
   @IsOptional()
   @IsBoolean()

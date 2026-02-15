@@ -47,7 +47,7 @@ export class UpdateUserDto {
   @NoSpecialChars()
   note?: string | null;
 
-  @IsEnum(['admin', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'])
+  @IsEnum(['superuser', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'])
   @IsOptional()
   ruolo?: UserRole;
 
@@ -62,4 +62,8 @@ export class UpdateUserDto {
   @IsBoolean()
   @IsOptional()
   attivo?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isAdmin?: boolean;
 }

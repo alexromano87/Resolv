@@ -52,7 +52,7 @@ export class ImportService {
     private usersRepo: Repository<User>,
   ) {}
 
-  async importBackup(buffer: Buffer) {
+  async importBackup(buffer: Buffer, studioId?: string) {
     const payload = JSON.parse(buffer.toString('utf-8')) as {
       data?: Record<string, any[]>;
     };
@@ -72,10 +72,12 @@ export class ImportService {
       requiredFields: string[],
       rowOffset: number = 1,
     ) => {
-      const result = await this.importRecords(repo, records, {
+      const scopedRecords = studioId ? this.filterRecordsByStudio(records, studioId) : records;
+      const result = await this.importRecords(repo, scopedRecords, {
         allowedFields,
         requiredFields,
         rowOffset,
+        forceStudioId: studioId,
       });
       results[entity] = result;
       result.errors.forEach((err) => errors.push({ entity, ...err }));
@@ -132,7 +134,9 @@ export class ImportService {
         ['clienteId', 'debitoreId'],
       );
 
-      await this.syncPraticheAvvocati(data.pratiche);
+      await this.syncPraticheAvvocati(
+        studioId ? this.filterRecordsByStudio(data.pratiche, studioId) : data.pratiche,
+      );
     }
 
     if (Array.isArray(data.movimentiFinanziari)) {
@@ -191,7 +195,7 @@ export class ImportService {
     };
   }
 
-  async importCsv(entity: ImportCsvEntity, buffer: Buffer): Promise<ImportResult> {
+  async importCsv(entity: ImportCsvEntity, buffer: Buffer, studioId?: string): Promise<ImportResult> {
     let expectedHeaders: string[];
     let csvMap: Record<string, string>;
     let records: any[];
@@ -269,6 +273,7 @@ export class ImportService {
       rowOffset: 2, // header row
       coerce: true,
       uniqueFields,
+      forceStudioId: studioId,
     });
   }
 
@@ -281,6 +286,7 @@ export class ImportService {
       rowOffset: number;
       coerce?: boolean;
       uniqueFields?: string[];
+      forceStudioId?: string;
     },
   ): Promise<ImportResult> {
     const result: ImportResult = {
@@ -294,6 +300,17 @@ export class ImportService {
       const raw = records[i];
       const row = i + options.rowOffset;
       const record = this.pickFields(raw, options.allowedFields, options.coerce);
+      if (options.forceStudioId && options.allowedFields.includes('studioId')) {
+        record.studioId = options.forceStudioId;
+      }
+      if (options.forceStudioId && record.ruolo === 'superuser') {
+        result.skipped += 1;
+        result.errors.push({
+          row,
+          reason: 'Ruolo superuser non importabile da questo account',
+        });
+        continue;
+      }
 
       const missing = options.requiredFields.filter((field) => {
         const value = record[field];
@@ -316,9 +333,11 @@ export class ImportService {
           const value = record[uniqueField];
           if (value) {
             try {
-              const existing = await repo.findOne({
-                where: { [uniqueField]: value },
-              });
+              const where: any = { [uniqueField]: value };
+              if (record.studioId) {
+                where.studioId = record.studioId;
+              }
+              const existing = await repo.findOne({ where });
               if (existing) {
                 result.skipped += 1;
                 result.errors.push({
@@ -373,6 +392,15 @@ export class ImportService {
       return Number.isNaN(parsed) ? value : parsed;
     }
     return value;
+  }
+
+  private filterRecordsByStudio(records: any[], studioId: string): any[] {
+    if (!studioId) return records;
+    return records.filter((record) => {
+      if (!record || typeof record !== 'object') return false;
+      if (!Object.prototype.hasOwnProperty.call(record, 'studioId')) return false;
+      return record.studioId === studioId;
+    });
   }
 
   private normalizeCsvRow(row: Record<string, string>, map: Record<string, string>) {

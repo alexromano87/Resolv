@@ -57,7 +57,7 @@ export class DebitoriService {
     includeInactive = false,
     pagination?: PaginationOptions,
   ): Promise<Debitore[]> {
-    if (user.ruolo === 'admin') {
+    if (user.ruolo === 'superuser') {
       return this.findAll(includeInactive, undefined, pagination);
     }
 
@@ -102,7 +102,7 @@ export class DebitoriService {
     includeInactive = false,
     pagination?: PaginationOptions,
   ): Promise<(Debitore & { clientiCount: number })[]> {
-    if (user.ruolo === 'admin') {
+    if (user.ruolo === 'superuser') {
       return this.findAllWithClientiCount(includeInactive, undefined, pagination);
     }
 
@@ -362,7 +362,7 @@ export class DebitoriService {
   }
 
   async canAccessDebitore(user: CurrentUserData, debitoreId: string): Promise<boolean> {
-    if (user.ruolo === 'admin') return true;
+    if (user.ruolo === 'superuser') return true;
     if (user.ruolo === 'cliente') {
       if (!user.clienteId) return false;
       const count = await this.praticheRepo.count({

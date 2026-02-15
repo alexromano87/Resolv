@@ -19,7 +19,7 @@ export class UsersService {
   ) {}
 
   private isStudioUserRole(ruolo?: string) {
-    return ruolo !== 'admin' && ruolo !== 'cliente';
+    return ruolo !== 'superuser' && ruolo !== 'cliente';
   }
 
   private async assertUserLimitAvailable(studioId: string, excludeUserId?: string) {
@@ -32,7 +32,7 @@ export class UsersService {
       .createQueryBuilder('user')
       .leftJoin('user.studi', 'userStudi')
       .where('user.attivo = :attivo', { attivo: true })
-      .andWhere("user.ruolo NOT IN ('admin', 'cliente')")
+      .andWhere("user.ruolo NOT IN ('superuser', 'cliente')")
       .andWhere('(user.studioId = :studioId OR userStudi.id = :studioId)', { studioId });
 
     if (excludeUserId) {
@@ -42,6 +42,17 @@ export class UsersService {
     const activeCount = await query.getCount();
     if (activeCount >= studio.maxUtenti) {
       throw new BadRequestException('Numero massimo di utenti attivi raggiunto per lo studio');
+    }
+  }
+
+  private isMultiStudioRole(ruolo?: string) {
+    return ruolo === 'avvocato' || ruolo === 'collaboratore' || ruolo === 'cliente';
+  }
+
+  private async ensureEmailNotInStudio(email: string, studioId: string) {
+    const existing = await this.userRepository.findOne({ where: { email, studioId } });
+    if (existing) {
+      throw new ConflictException('Email già presente in questo studio');
     }
   }
 
@@ -91,14 +102,23 @@ export class UsersService {
     });
   }
 
-  async findOne(id: string): Promise<User> {
-    const user = await this.userRepository.findOne({ where: { id } });
+  async findOne(id: string, withStudi = false): Promise<User> {
+    const user = await this.userRepository.findOne({
+      where: { id },
+      relations: withStudi ? ['studi'] : undefined,
+    });
     if (!user) {
       throw new NotFoundException('Utente non trovato');
     }
 
     const { password, ...userWithoutPassword } = user;
     return userWithoutPassword as User;
+  }
+
+  isUserInStudio(user: User, studioId: string): boolean {
+    if (user.studioId === studioId) return true;
+    const extra = user.studi?.some((studio) => studio.id === studioId);
+    return Boolean(extra);
   }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
@@ -113,13 +133,13 @@ export class UsersService {
     // Normalizza email in lowercase
     const normalizedEmail = createUserDto.email.toLowerCase().trim();
 
-    // Verifica se email già esiste
-    const existingUser = await this.userRepository.findOne({
-      where: { email: normalizedEmail },
-    });
-
-    if (existingUser) {
-      throw new ConflictException('Email già registrata');
+    if (createUserDto.studioId) {
+      await this.ensureEmailNotInStudio(normalizedEmail, createUserDto.studioId);
+    } else {
+      const existing = await this.userRepository.findOne({ where: { email: normalizedEmail } });
+      if (existing) {
+        throw new ConflictException('Email già registrata');
+      }
     }
 
     // Hash password
@@ -135,6 +155,14 @@ export class UsersService {
       email: normalizedEmail,
       password: hashedPassword,
     });
+
+    if (createUserDto.studioId && this.isMultiStudioRole(createUserDto.ruolo)) {
+      const studio = await this.studioRepository.findOne({ where: { id: createUserDto.studioId } });
+      if (!studio) {
+        throw new BadRequestException('Studio non trovato');
+      }
+      user.studi = [studio];
+    }
 
     const savedUser = await this.userRepository.save(user);
     const { password, ...userWithoutPassword } = savedUser;
@@ -161,9 +189,9 @@ export class UsersService {
         const existingUser = await this.userRepository.findOne({
           where: { email: normalizedEmail },
         });
-        if (existingUser) {
-          throw new ConflictException('Email già in uso');
-        }
+      if (existingUser && existingUser.id !== user.id) {
+        throw new ConflictException('Email già in uso');
+      }
       }
 
       updateUserDto.email = normalizedEmail;
@@ -180,7 +208,10 @@ export class UsersService {
     const isBecomingActive = !user.attivo && nextAttivo;
     const isChangingStudio = updateUserDto.studioId !== undefined && updateUserDto.studioId !== user.studioId;
 
-    if (nextStudioId && this.isStudioUserRole(nextRuolo)) {
+    if (nextStudioId) {
+      if (updateUserDto.email) {
+        await this.ensureEmailNotInStudio(updateUserDto.email, nextStudioId);
+      }
       if (isBecomingActive || (isChangingStudio && nextAttivo)) {
         await this.assertUserLimitAvailable(nextStudioId, user.id);
       }
@@ -243,8 +274,8 @@ export class UsersService {
     }
 
     // Verifica che l'utente sia un avvocato o collaboratore
-    if (!['avvocato', 'collaboratore'].includes(user.ruolo)) {
-      throw new BadRequestException('Solo avvocati e collaboratori possono essere associati a più studi');
+    if (!['avvocato', 'collaboratore', 'cliente'].includes(user.ruolo)) {
+      throw new BadRequestException('Solo avvocati, collaboratori e clienti possono essere associati a più studi');
     }
 
     const currentStudiIds = user.studi?.map((studio) => studio.id) ?? [];
