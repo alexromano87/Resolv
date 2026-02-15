@@ -1,0 +1,39 @@
+import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+
+export class CreateCheckupUserDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(8)
+  password: string;
+
+  @IsString()
+  @IsNotEmpty()
+  nome: string;
+
+  @IsString()
+  @IsNotEmpty()
+  cognome: string;
+
+  @IsOptional()
+  @IsString()
+  telefono?: string;
+
+  @IsEnum(['admin_studio', 'segreteria', 'collaboratore', 'cliente'])
+  ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
+
+  @IsOptional()
+  @IsString()
+  studioId?: string;
+
+  @IsOptional()
+  @IsString()
+  clientId?: string;
+
+  @IsOptional()
+  @IsString()
+  azienda?: string;
+}

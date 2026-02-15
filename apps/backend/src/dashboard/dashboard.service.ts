@@ -592,8 +592,10 @@ export class DashboardService {
     return result;
   }
 
-  async getAdminDashboard(): Promise<AdminDashboardStats> {
-    // Totali globali
+  async getAdminDashboard(studioId?: string): Promise<AdminDashboardStats> {
+    const studioFilter = studioId ? { studioId } : undefined;
+    const studio = studioId ? await this.studioRepository.findOne({ where: { id: studioId } }) : null;
+
     const [
       studi,
       studiAttivi,
@@ -605,26 +607,32 @@ export class DashboardService {
       debitori,
       avvocati,
     ] = await Promise.all([
-      this.studioRepository.count(),
-      this.studioRepository.count({ where: { attivo: true } }),
-      this.userRepository.count(),
-      this.userRepository.count({ where: { attivo: true } }),
-      this.praticheRepository.count({ where: { attivo: true } }),
-      this.praticheRepository.count({ where: { attivo: true, aperta: true } }),
-      this.clienteRepository.count({ where: { attivo: true } }),
-      this.debitoreRepository.count({ where: { attivo: true } }),
-      this.avvocatoRepository.count({ where: { attivo: true } }),
+      studioId ? (studio ? 1 : 0) : this.studioRepository.count(),
+      studioId
+        ? this.studioRepository.count({ where: { id: studioId, attivo: true } })
+        : this.studioRepository.count({ where: { attivo: true } }),
+      this.userRepository.count({ where: studioFilter }),
+      this.userRepository.count({ where: { ...studioFilter, attivo: true } }),
+      this.praticheRepository.count({ where: { ...studioFilter, attivo: true } }),
+      this.praticheRepository.count({ where: { ...studioFilter, attivo: true, aperta: true } }),
+      this.clienteRepository.count({ where: { ...studioFilter, attivo: true } }),
+      this.debitoreRepository.count({ where: { ...studioFilter, attivo: true } }),
+      this.avvocatoRepository.count({ where: { ...studioFilter, attivo: true } }),
     ]);
 
-    // Statistiche per studio
-    const studiConRelazioni = await this.studioRepository
+    const studioQuery = this.studioRepository
       .createQueryBuilder('studio')
       .leftJoinAndSelect('studio.users', 'user')
       .leftJoinAndSelect('studio.pratiche', 'pratica', 'pratica.attivo = :attivo', { attivo: true })
       .leftJoinAndSelect('studio.clienti', 'cliente', 'cliente.attivo = :attivo', { attivo: true })
       .leftJoinAndSelect('studio.debitori', 'debitore', 'debitore.attivo = :attivo', { attivo: true })
-      .leftJoinAndSelect('studio.avvocati', 'avvocato', 'avvocato.attivo = :attivo', { attivo: true })
-      .getMany();
+      .leftJoinAndSelect('studio.avvocati', 'avvocato', 'avvocato.attivo = :attivo', { attivo: true });
+
+    if (studioId) {
+      studioQuery.where('studio.id = :studioId', { studioId });
+    }
+
+    const studiConRelazioni = await studioQuery.getMany();
 
     const perStudio = studiConRelazioni.map(studio => ({
       studioId: studio.id,
@@ -637,13 +645,17 @@ export class DashboardService {
       numeroAvvocati: studio.avvocati ? studio.avvocati.length : 0,
     }));
 
-    // Ultimi 10 utenti creati
-    const ultimiUtenti = await this.userRepository
+    const usersQuery = this.userRepository
       .createQueryBuilder('user')
       .leftJoinAndSelect('user.studio', 'studio')
       .orderBy('user.createdAt', 'DESC')
-      .limit(10)
-      .getMany();
+      .limit(10);
+
+    if (studioId) {
+      usersQuery.where('user.studioId = :studioId', { studioId });
+    }
+
+    const ultimiUtenti = await usersQuery.getMany();
 
     const ultimiUtentiCreati = ultimiUtenti.map(user => ({
       id: user.id,
@@ -655,16 +667,20 @@ export class DashboardService {
       createdAt: user.createdAt,
     }));
 
-    // Ultime 10 pratiche create
-    const ultimePratiche = await this.praticheRepository
+    const praticheQuery = this.praticheRepository
       .createQueryBuilder('pratica')
       .leftJoinAndSelect('pratica.cliente', 'cliente')
       .leftJoinAndSelect('pratica.debitore', 'debitore')
       .leftJoinAndSelect('pratica.studio', 'studio')
       .where('pratica.attivo = :attivo', { attivo: true })
       .orderBy('pratica.createdAt', 'DESC')
-      .limit(10)
-      .getMany();
+      .limit(10);
+
+    if (studioId) {
+      praticheQuery.andWhere('pratica.studioId = :studioId', { studioId });
+    }
+
+    const ultimePratiche = await praticheQuery.getMany();
 
     const ultimePraticheCreate = ultimePratiche.map(pratica => ({
       id: pratica.id,

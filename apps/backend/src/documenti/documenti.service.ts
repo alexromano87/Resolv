@@ -197,7 +197,7 @@ export class DocumentiService {
     query: ReturnType<Repository<Documento>['createQueryBuilder']>,
     user: CurrentUserData,
   ) {
-    if (user.ruolo === 'admin') {
+    if (user.ruolo === 'superuser') {
       return;
     }
 

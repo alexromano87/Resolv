@@ -12,20 +12,21 @@ export class DashboardController {
 
   @Get('admin')
   @UseGuards(AdminGuard)
-  async getAdminDashboard() {
-    return this.dashboardService.getAdminDashboard();
+  async getAdminDashboard(@CurrentUser() user: CurrentUserData) {
+    const studioId = user.ruolo === 'superuser' ? undefined : (user.studioId || undefined);
+    return this.dashboardService.getAdminDashboard(studioId);
   }
 
   @Get('stats')
   async getStats(@CurrentUser() user: CurrentUserData, @Query('clienteId') clienteId?: string) {
-    const studioId = user.ruolo === 'admin' ? undefined : (user.studioId || undefined);
+    const studioId = user.ruolo === 'superuser' ? undefined : (user.studioId || undefined);
     const effectiveClienteId = user.ruolo === 'cliente' ? (user.clienteId || undefined) : clienteId;
     return this.dashboardService.getStats(effectiveClienteId, studioId, user);
   }
 
   @Get('kpi')
   async getKPI(@CurrentUser() user: CurrentUserData, @Query('clienteId') clienteId?: string) {
-    const studioId = user.ruolo === 'admin' ? undefined : (user.studioId || undefined);
+    const studioId = user.ruolo === 'superuser' ? undefined : (user.studioId || undefined);
     const effectiveClienteId = user.ruolo === 'cliente' ? (user.clienteId || undefined) : clienteId;
     return this.dashboardService.getKPI(effectiveClienteId, studioId, user);
   }

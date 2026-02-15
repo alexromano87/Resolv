@@ -19,17 +19,27 @@ export default function SelectStudioPage() {
     return null;
   }
 
-  const handleSelectStudio = async (studioId: string) => {
+  const handleSelectStudio = async (userId: string, studioId: string | null) => {
+    if (!studioId) {
+      setError('Studio non valido');
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
 
-      const response = await authApi.selectStudio(selectionData.userId, studioId);
+      const response = await authApi.selectStudio(userId, studioId);
 
       // Salva il token e l'utente nel context
       setSession(response);
 
       // Naviga alla dashboard
+      if (response.user?.isAdmin || response.user?.ruolo === 'superuser') {
+        localStorage.setItem('admin_view', 'admin');
+        navigate('/admin/users');
+        return;
+      }
+      localStorage.setItem('admin_view', 'user');
       navigate('/');
     } catch (err: any) {
       setError(err.message || 'Errore durante la selezione dello studio');
@@ -63,10 +73,10 @@ export default function SelectStudioPage() {
           )}
 
           <div className="space-y-3">
-            {selectionData.studi.map((studio) => (
+            {selectionData.options.map((studio) => (
               <button
-                key={studio.id}
-                onClick={() => handleSelectStudio(studio.id)}
+                key={`${studio.userId}-${studio.studioId ?? 'none'}`}
+                onClick={() => handleSelectStudio(studio.userId, studio.studioId)}
                 disabled={loading}
                 className="w-full p-6 border-2 border-slate-200 dark:border-slate-700 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 dark:hover:border-indigo-500 transition-all duration-200 text-left group disabled:opacity-50 disabled:cursor-not-allowed"
               >

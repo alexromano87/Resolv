@@ -27,7 +27,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET', 'your-secret-key-change-in-production-12345678'),
+      secretOrKey: (() => {
+        const secret = configService.get<string>('JWT_SECRET');
+        if (!secret) {
+          throw new Error('FATAL: JWT_SECRET environment variable is not set. Server cannot start without it.');
+        }
+        return secret;
+      })(),
     });
   }
 
@@ -44,11 +50,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     let resolvedClienteId = user.clienteId;
     if (user.ruolo === 'cliente' && !resolvedClienteId) {
       const email = user.email.toLowerCase().trim();
-      const cliente = await this.clienteRepository
+      const query = this.clienteRepository
         .createQueryBuilder('cliente')
         .where('LOWER(cliente.referenteEmail) = :email', { email })
-        .orWhere('LOWER(cliente.email) = :email', { email })
-        .getOne();
+        .orWhere('LOWER(cliente.email) = :email', { email });
+      if (user.currentStudioId) {
+        query.andWhere('cliente.studioId = :studioId', { studioId: user.currentStudioId });
+      }
+      const cliente = await query.getOne();
       resolvedClienteId = cliente?.id ?? null;
     }
 
@@ -58,6 +67,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       nome: user.nome,
       cognome: user.cognome,
       ruolo: user.ruolo,
+      isAdmin: user.isAdmin,
       clienteId: resolvedClienteId,
       studioId: user.studioId,
       currentStudioId: user.currentStudioId,

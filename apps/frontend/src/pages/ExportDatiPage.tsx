@@ -30,9 +30,10 @@ const ENTITIES_WITHOUT_STUDIO: readonly ExportEntity[] = [
 ];
 
 export function ExportDatiPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [studi, setStudi] = useState<Studio[]>([]);
   const [loadingStudi, setLoadingStudi] = useState(true);
+  const isSuperuser = user?.ruolo === 'superuser';
 
   // Export form state
   const [exportType, setExportType] = useState<'selective' | 'backup'>('selective');
@@ -59,20 +60,26 @@ export function ExportDatiPage() {
 
   useEffect(() => {
     loadStudi();
-  }, []);
+  }, [isSuperuser, user?.studioId]);
 
   // Pulisci la selezione dello studio quando si seleziona USERS o altre entità senza studio
   useEffect(() => {
-    if (ENTITIES_WITHOUT_STUDIO.includes(selectedEntity)) {
+    if (isSuperuser && ENTITIES_WITHOUT_STUDIO.includes(selectedEntity)) {
       setSelectedStudioId('');
     }
-  }, [selectedEntity]);
+  }, [selectedEntity, isSuperuser]);
 
   const loadStudi = async () => {
     try {
       setLoadingStudi(true);
-      const data = await studiApi.getAll();
-      setStudi(data);
+      if (isSuperuser) {
+        const data = await studiApi.getAll();
+        setStudi(data);
+      } else if (user?.studioId) {
+        const data = await studiApi.getOne(user.studioId);
+        setStudi([data]);
+        setSelectedStudioId(user.studioId);
+      }
     } catch (err) {
       console.error('Errore caricamento studi:', err);
     } finally {
@@ -97,7 +104,7 @@ export function ExportDatiPage() {
       const request: ExportRequest = {
         entity: selectedEntity,
         format: selectedFormat,
-        studioId: selectedStudioId || undefined,
+        studioId: (isSuperuser ? selectedStudioId : (user?.studioId || selectedStudioId)) || undefined,
         dataInizio: dataInizio || undefined,
         dataFine: dataFine || undefined,
         includeInactive,
@@ -116,7 +123,7 @@ export function ExportDatiPage() {
   };
 
   const handleBackupStudio = async () => {
-    if (!selectedStudioId) {
+    if (!selectedStudioId && !user?.studioId) {
       setError('Seleziona uno studio per il backup');
       return;
     }
@@ -128,7 +135,7 @@ export function ExportDatiPage() {
 
     try {
       const request: BackupStudioRequest = {
-        studioId: selectedStudioId,
+        studioId: isSuperuser ? selectedStudioId : (user?.studioId || selectedStudioId),
         includeDocuments,
         includeAuditLogs,
       };
@@ -155,7 +162,7 @@ export function ExportDatiPage() {
   }));
 
   const studioOptions = [
-    { value: '', label: 'Tutti gli studi' },
+    ...(isSuperuser ? [{ value: '', label: 'Tutti gli studi' }] : []),
     ...studi.map((s) => ({
       value: s.id,
       label: s.nome,
@@ -165,6 +172,7 @@ export function ExportDatiPage() {
 
   const isStudioRequired = ENTITIES_REQUIRING_STUDIO.includes(selectedEntity);
   const isStudioHidden = ENTITIES_WITHOUT_STUDIO.includes(selectedEntity);
+  const effectiveStudioId = isSuperuser ? selectedStudioId : (user?.studioId || selectedStudioId);
 
   return (
     <div className="space-y-6 wow-stagger">
@@ -262,19 +270,27 @@ export function ExportDatiPage() {
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                   Studio Legale {isStudioRequired && '*'}
                 </label>
-                <CustomSelect
-                  options={studioOptions}
-                  value={selectedStudioId}
-                  onChange={setSelectedStudioId}
-                  placeholder="Seleziona studio..."
-                  loading={loadingStudi}
-                />
-                <p className="mt-1 text-xs text-slate-500">
-                  {isStudioRequired
-                    ? 'Seleziona uno studio per questa tabella'
-                    : 'Lascia vuoto per esportare da tutti gli studi'
-                  }
-                </p>
+                {isSuperuser ? (
+                  <>
+                    <CustomSelect
+                      options={studioOptions}
+                      value={selectedStudioId}
+                      onChange={setSelectedStudioId}
+                      placeholder="Seleziona studio..."
+                      loading={loadingStudi}
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      {isStudioRequired
+                        ? 'Seleziona uno studio per questa tabella'
+                        : 'Lascia vuoto per esportare da tutti gli studi'
+                      }
+                    </p>
+                  </>
+                ) : (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    {studi[0]?.nome || 'Studio associato'}
+                  </div>
+                )}
               </div>
             )}
 
@@ -364,17 +380,23 @@ export function ExportDatiPage() {
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                 Studio Legale *
               </label>
-              <CustomSelect
-                options={studi.map((s) => ({
-                  value: s.id,
-                  label: s.nome,
-                  sublabel: s.partitaIva,
-                }))}
-                value={selectedStudioId}
-                onChange={setSelectedStudioId}
-                placeholder="Seleziona studio..."
-                loading={loadingStudi}
-              />
+              {isSuperuser ? (
+                <CustomSelect
+                  options={studi.map((s) => ({
+                    value: s.id,
+                    label: s.nome,
+                    sublabel: s.partitaIva,
+                  }))}
+                  value={selectedStudioId}
+                  onChange={setSelectedStudioId}
+                  placeholder="Seleziona studio..."
+                  loading={loadingStudi}
+                />
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                  {studi[0]?.nome || 'Studio associato'}
+                </div>
+              )}
             </div>
 
             <div className="space-y-3">
@@ -415,7 +437,7 @@ export function ExportDatiPage() {
           <div className="flex justify-end">
             <button
               onClick={() => setConfirmBackup(true)}
-              disabled={exporting || !selectedStudioId}
+              disabled={exporting || !effectiveStudioId}
               className="wow-button disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Database className="h-5 w-5" />
@@ -441,7 +463,7 @@ export function ExportDatiPage() {
       <ConfirmDialog
         isOpen={confirmBackup}
         title="Conferma Backup Studio"
-        message={`Sei sicuro di voler creare un backup completo dello studio${selectedStudioId ? ` "${studi.find(s => s.id === selectedStudioId)?.nome}"` : ''}? Il file includerà tutti i dati dello studio.`}
+        message={`Sei sicuro di voler creare un backup completo dello studio${effectiveStudioId ? ` "${studi.find(s => s.id === effectiveStudioId)?.nome}"` : ''}? Il file includerà tutti i dati dello studio.`}
         onConfirm={handleBackupStudio}
         onClose={() => setConfirmBackup(false)}
         confirmText="Crea Backup"

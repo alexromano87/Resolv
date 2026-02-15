@@ -11,7 +11,7 @@ async function bootstrap() {
     console.log('🔐 Test login admin...');
 
     const result = await authService.login({
-      email: 'admin@studio.it',
+      email: 'admin@resolv.legal',
       password: 'admin123',
     });
 

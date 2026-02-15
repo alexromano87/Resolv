@@ -8,8 +8,12 @@ export interface SelectOption {
   label: string;
   sublabel?: string;
   icon?: React.ReactNode;
+  dropdownMeta?: React.ReactNode;
   disabled?: boolean;
   status?: 'completed';
+  wrapLabel?: boolean;
+  wrapSublabel?: boolean;
+  title?: string;
 }
 
 export interface CustomSelectProps {
@@ -48,6 +52,9 @@ export function CustomSelect({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const selectedOption = options.find((o) => o.value === value);
+  const selectedTitle = selectedOption
+    ? selectedOption.title || [selectedOption.label, selectedOption.sublabel].filter(Boolean).join(' · ')
+    : undefined;
   const filteredOptions = searchable && searchTerm.trim()
     ? options.filter((option) => {
         const term = searchTerm.toLowerCase().trim();
@@ -157,6 +164,7 @@ export function CustomSelect({
         disabled={disabled || loading}
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
+        title={selectedTitle}
         className={[
           'flex w-full items-center justify-between gap-2 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-left text-xs shadow-[0_16px_40px_rgba(15,23,42,0.12)] outline-none transition hover:border-indigo-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/60 disabled:cursor-not-allowed disabled:bg-white/60 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:border-indigo-500 dark:focus:border-indigo-400 dark:focus:ring-indigo-500/30 dark:disabled:bg-slate-800 dark:disabled:text-slate-400',
           triggerClassName,
@@ -223,6 +231,7 @@ export function CustomSelect({
                       type="button"
                       disabled={option.disabled}
                       onClick={() => handleSelect(option)}
+                      title={option.title || [option.label, option.sublabel].filter(Boolean).join(' · ')}
                       className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs transition ${
                         option.disabled
                           ? 'cursor-not-allowed opacity-50'
@@ -247,7 +256,7 @@ export function CustomSelect({
 
                       <div className="min-w-0 flex-1">
                         <p
-                          className={`truncate font-medium ${
+                          className={`${option.wrapLabel ? 'whitespace-normal' : 'truncate'} font-medium ${
                             isSelected
                               ? 'text-indigo-700 dark:text-indigo-300'
                               : isCompletedStatus
@@ -259,7 +268,7 @@ export function CustomSelect({
                         </p>
                         {option.sublabel && (
                           <p
-                            className={`truncate text-[10px] ${
+                            className={`${option.wrapSublabel ? 'whitespace-normal' : 'truncate'} text-[10px] ${
                               isCompletedStatus
                                 ? 'text-emerald-700/80 dark:text-emerald-200/80'
                                 : 'text-slate-500 dark:text-slate-400'
@@ -270,8 +279,12 @@ export function CustomSelect({
                         )}
                       </div>
 
-                      {option.icon && (
-                        <div className="shrink-0">{option.icon}</div>
+                      {option.dropdownMeta ? (
+                        <div className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400">
+                          {option.dropdownMeta}
+                        </div>
+                      ) : (
+                        option.icon && <div className="shrink-0">{option.icon}</div>
                       )}
                     </button>
                   );

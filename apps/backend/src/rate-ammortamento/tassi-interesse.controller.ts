@@ -16,7 +16,7 @@ import { CreateTassoInteresseDto } from './dto/create-tasso-interesse.dto';
 import { UpdateTassoInteresseDto } from './dto/update-tasso-interesse.dto';
 import { ApproveFetchedRateDto, FetchTassiResultDto, OverwriteFetchedRateDto } from './dto/fetch-tassi-result.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '../auth/admin.guard';
+import { SuperuserGuard } from '../auth/superuser.guard';
 
 @Controller('tassi-interesse')
 @UseGuards(JwtAuthGuard)
@@ -27,7 +27,7 @@ export class TassiInteresseController {
   ) {}
 
   @Post()
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   create(@Body() createTassoDto: CreateTassoInteresseDto) {
     return this.tassiInteresseService.create(createTassoDto);
   }
@@ -53,13 +53,13 @@ export class TassiInteresseController {
   }
 
   @Patch(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   update(@Param('id') id: string, @Body() updateTassoDto: UpdateTassoInteresseDto) {
     return this.tassiInteresseService.update(id, updateTassoDto);
   }
 
   @Delete(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   remove(@Param('id') id: string) {
     return this.tassiInteresseService.remove(id);
   }
@@ -69,7 +69,7 @@ export class TassiInteresseController {
    * Trigger manuale (admin only)
    */
   @Post('fetch')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   async fetchCurrentRates(): Promise<FetchTassiResultDto> {
     return await this.tassiMonitoraggioService.triggerManualFetch();
   }
@@ -79,7 +79,7 @@ export class TassiInteresseController {
    * Admin only
    */
   @Post('approve')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   async approveFetchedRate(@Body() dto: ApproveFetchedRateDto) {
     const dataInizio = dto.rate.dataInizioValidita instanceof Date
       ? dto.rate.dataInizioValidita
@@ -115,7 +115,7 @@ export class TassiInteresseController {
    * Admin only
    */
   @Post('overwrite')
-  @UseGuards(AdminGuard)
+  @UseGuards(SuperuserGuard)
   async overwriteFetchedRate(@Body() dto: OverwriteFetchedRateDto) {
     const dataInizio = dto.rate.dataInizioValidita instanceof Date
       ? dto.rate.dataInizioValidita

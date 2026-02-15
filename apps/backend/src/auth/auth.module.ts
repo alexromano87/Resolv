@@ -21,7 +21,13 @@ import { RateLimitGuard } from '../common/rate-limit.guard';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET', 'your-secret-key-change-in-production-12345678'),
+        secret: (() => {
+          const secret = configService.get<string>('JWT_SECRET');
+          if (!secret) {
+            throw new Error('FATAL: JWT_SECRET environment variable is not set. Server cannot start without it.');
+          }
+          return secret;
+        })(),
         signOptions: { expiresIn: '7d' },
       }),
     }),

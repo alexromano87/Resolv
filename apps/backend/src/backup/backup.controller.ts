@@ -17,14 +17,14 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { BackupService } from './backup.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '../auth/admin.guard';
+import { SuperuserGuard } from '../auth/superuser.guard';
 import { AuditLogService } from '../audit/audit-log.service';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { CurrentUserData } from '../auth/current-user.decorator';
 import { RateLimit } from '../common/rate-limit.decorator';
 
 @Controller('backup')
-@UseGuards(JwtAuthGuard, AdminGuard)
+@UseGuards(JwtAuthGuard, SuperuserGuard)
 export class BackupController {
   private readonly logger = new Logger(BackupController.name);
 

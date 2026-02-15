@@ -1,6 +1,6 @@
 // apps/frontend/src/pages/AdminUsersPage.tsx
 import { useState, useEffect } from 'react';
-import { Shield, Plus, Edit2, Trash2, Power, PowerOff, Key, X, Save, EyeOff, Eye, Building2 } from 'lucide-react';
+import { Shield, Plus, Edit2, Trash2, Power, PowerOff, Key, X, Save, EyeOff, Eye } from 'lucide-react';
 import { usersApi, type CreateUserDto, type UpdateUserDto } from '../api/users';
 import type { User, UserRole } from '../api/auth';
 import { studiApi, type Studio } from '../api/studi';
@@ -10,7 +10,6 @@ import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { Pagination } from '../components/Pagination';
 import { useAuth } from '../contexts/AuthContext';
-import { ManageStudiModal } from '../components/ManageStudiModal';
 
 export function AdminUsersPage() {
   const { user: currentUser } = useAuth();
@@ -21,12 +20,12 @@ export function AdminUsersPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
-  const [showManageStudiModal, setShowManageStudiModal] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [hideInactive, setHideInactive] = useState(false);
   const ITEMS_PER_PAGE = 10;
+  const isSuperuser = currentUser?.ruolo === 'superuser';
 
   const [formData, setFormData] = useState<CreateUserDto>({
     email: '',
@@ -36,16 +35,19 @@ export function AdminUsersPage() {
     ruolo: 'collaboratore',
     clienteId: null,
     studioId: null,
+    isAdmin: false,
   });
-  const isStudioRequired = formData.ruolo === 'titolare_studio';
+  const isStudioRequired = isSuperuser && formData.ruolo === 'titolare_studio';
 
   const { success, error: toastError } = useToast();
   const { confirm, ConfirmDialog } = useConfirmDialog();
 
   useEffect(() => {
     loadUsers();
-    loadStudi();
-  }, []);
+    if (isSuperuser) {
+      loadStudi();
+    }
+  }, [isSuperuser]);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -79,7 +81,8 @@ export function AdminUsersPage() {
       cognome: '',
       ruolo: 'collaboratore',
       clienteId: null,
-      studioId: null,
+      studioId: isSuperuser ? null : (currentUser?.studioId ?? null),
+      isAdmin: false,
     });
     setShowModal(true);
   };
@@ -95,7 +98,8 @@ export function AdminUsersPage() {
       cognome: user.cognome,
       ruolo: user.ruolo,
       clienteId: user.clienteId || null,
-      studioId: user.studioId || user.studio?.id || null,
+      studioId: isSuperuser ? (user.studioId || user.studio?.id || null) : (currentUser?.studioId ?? null),
+      isAdmin: Boolean(user.isAdmin),
     });
     setShowModal(true);
   };
@@ -142,7 +146,9 @@ export function AdminUsersPage() {
           cognome: formData.cognome,
           ruolo: formData.ruolo,
           clienteId: formData.clienteId,
-          studioId: formData.studioId || selectedUser?.studioId || selectedUser?.studio?.id || null,
+          studioId: isSuperuser
+            ? (formData.studioId || selectedUser?.studioId || selectedUser?.studio?.id || null)
+            : (currentUser?.studioId ?? null),
         };
 
         // Solo se è stata inserita una nuova password
@@ -153,7 +159,10 @@ export function AdminUsersPage() {
         await usersApi.update(selectedUser.id, updateDto);
         success('Utente aggiornato con successo');
       } else {
-        await usersApi.create(formData);
+        const payload = isSuperuser
+          ? formData
+          : { ...formData, studioId: currentUser?.studioId ?? null };
+        await usersApi.create(payload);
         success('Utente creato con successo');
       }
       loadUsers();
@@ -218,10 +227,6 @@ export function AdminUsersPage() {
     setShowResetPasswordModal(true);
   };
 
-  const handleOpenManageStudi = (user: User) => {
-    setSelectedUser(user);
-    setShowManageStudiModal(true);
-  };
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -240,7 +245,7 @@ export function AdminUsersPage() {
 
   const getRuoloBadge = (ruolo: UserRole) => {
     const colors: Record<UserRole, string> = {
-      admin: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400',
+      superuser: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-400',
       titolare_studio: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-400',
       avvocato: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400',
       collaboratore: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-400',
@@ -249,7 +254,7 @@ export function AdminUsersPage() {
     };
 
     const labels: Record<UserRole, string> = {
-      admin: 'Admin',
+      superuser: 'Superuser',
       titolare_studio: 'Titolare Studio',
       avvocato: 'Avvocato',
       collaboratore: 'Collaboratore',
@@ -264,7 +269,13 @@ export function AdminUsersPage() {
     );
   };
 
-  if (currentUser?.ruolo !== 'admin') {
+  const getAdminBadge = () => (
+    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400">
+      Admin
+    </span>
+  );
+
+  if (!currentUser || (!currentUser.isAdmin && currentUser.ruolo !== 'superuser')) {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
         <Shield className="mx-auto h-12 w-12 text-slate-400" />
@@ -385,7 +396,10 @@ export function AdminUsersPage() {
                     <div className="text-sm text-slate-900 dark:text-slate-100">{user.email}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    {getRuoloBadge(user.ruolo)}
+                    <div className="flex items-center gap-2">
+                      {getRuoloBadge(user.ruolo)}
+                      {user.isAdmin && user.ruolo !== 'superuser' ? getAdminBadge() : null}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span
@@ -414,18 +428,8 @@ export function AdminUsersPage() {
                       >
                         <Key size={16} />
                       </button>
-                      {/* Pulsante gestione studi per avvocati/collaboratori */}
-                      {(user.ruolo === 'avvocato' || user.ruolo === 'collaboratore') && (
-                        <button
-                          onClick={() => handleOpenManageStudi(user)}
-                          className="text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300"
-                          title="Gestisci studi"
-                        >
-                          <Building2 size={16} />
-                        </button>
-                      )}
-                      {/* Nascondi pulsanti Disattiva ed Elimina per admin@resolv.it */}
-                      {user.email !== 'admin@resolv.it' && (
+                      {/* Nascondi pulsanti Disattiva ed Elimina per admin@resolv.legal */}
+                      {user.email !== 'admin@resolv.legal' && (
                         <>
                           <button
                             onClick={() => handleToggleActive(user)}
@@ -550,7 +554,6 @@ export function AdminUsersPage() {
                 <div className="mt-1">
                   <CustomSelect
                     options={[
-                      { value: 'admin', label: 'Admin' },
                       { value: 'titolare_studio', label: 'Titolare Studio' },
                       { value: 'avvocato', label: 'Avvocato' },
                       { value: 'collaboratore', label: 'Collaboratore' },
@@ -558,16 +561,20 @@ export function AdminUsersPage() {
                       { value: 'cliente', label: 'Cliente' },
                     ]}
                     value={formData.ruolo}
-                    onChange={(value) => setFormData({ ...formData, ruolo: value as UserRole })}
+                    onChange={(value) => {
+                      const nextRuolo = value as UserRole;
+                      setFormData({
+                        ...formData,
+                        ruolo: nextRuolo,
+                        isAdmin: nextRuolo === 'cliente' ? false : formData.isAdmin,
+                      });
+                    }}
                   />
                 </div>
               </div>
 
               {/* Mostra il campo Studio solo se il ruolo richiede uno studio singolo */}
-              {formData.ruolo !== 'admin' &&
-                formData.ruolo !== 'cliente' &&
-                formData.ruolo !== 'avvocato' &&
-                formData.ruolo !== 'collaboratore' && (
+              {isSuperuser && formData.ruolo !== 'cliente' && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                     Studio legale {isStudioRequired && '*'}
@@ -592,6 +599,26 @@ export function AdminUsersPage() {
                   </div>
                 </div>
               )}
+
+              <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/40">
+                <div>
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                    Admin
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Abilita l’accesso all’area amministrativa
+                  </p>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    checked={Boolean(formData.isAdmin)}
+                    onChange={(e) => setFormData({ ...formData, isAdmin: e.target.checked })}
+                    disabled={formData.ruolo === 'cliente'}
+                  />
+                </label>
+              </div>
 
               <div className="flex justify-end gap-2">
                 <button
@@ -672,19 +699,6 @@ export function AdminUsersPage() {
             </div>
           </div>
         </BodyPortal>
-      )}
-
-      {showManageStudiModal && selectedUser && (
-        <ManageStudiModal
-          user={selectedUser}
-          onClose={() => {
-            setShowManageStudiModal(false);
-            setSelectedUser(null);
-          }}
-          onSuccess={() => {
-            loadUsers();
-          }}
-        />
       )}
 
       <ConfirmDialog />

@@ -24,7 +24,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  TrendingUp,
+  KeyRound,
 } from 'lucide-react';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -95,6 +95,25 @@ const studioNav: NavItem[] = [
   { path: '/report/fatturazione', label: 'Fatturazione', icon: FileText },
 ];
 
+const adminResolvNav: NavItem[] = [
+  { path: '/admin/dashboard', label: 'Dashboard Admin', icon: BarChart3 },
+  { path: '/admin/users', label: 'Gestione utenti', icon: Shield },
+  { path: '/admin/studi', label: 'Gestione studi', icon: Building2 },
+  { path: '/admin/tassi-interesse', label: 'Tassi di Interesse', icon: CalendarClock },
+  { path: '/admin/audit-logs', label: 'Log di Audit', icon: ScrollText },
+  { path: '/admin/maintenance', label: 'Manutenzione', icon: Wrench },
+  { path: '/admin/export-dati', label: 'Esportazione Dati', icon: Download },
+  { path: '/admin/import-dati', label: 'Importazione Dati', icon: UploadCloud },
+  { path: '/admin/backup', label: 'Backup & Ripristino', icon: RefreshCw },
+];
+
+const adminCheckupNav: NavItem[] = [
+  { path: '/admin/checkup-users', label: 'Gestione utenti', icon: Users },
+  { path: '/admin/checkup-licenses', label: 'Gestione licenze', icon: KeyRound },
+  { path: '/admin/checkup-sublicenses', label: 'Gestione sottolicenze', icon: KeyRound },
+  { path: '/admin/checkup-studios', label: 'Gestione studi', icon: Building2 },
+];
+
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
@@ -148,6 +167,16 @@ export function AppLayout({ children }: AppLayoutProps) {
     pageTitle = 'Report Fatturazione';
   } else if (location.pathname === '/admin/users') {
     pageTitle = 'Gestione utenti';
+  } else if (location.pathname === '/admin/checkup-users') {
+    pageTitle = 'Gestione utenti';
+  } else if (location.pathname === '/admin/checkup-licenses') {
+    pageTitle = 'Gestione licenze checkup';
+  } else if (location.pathname === '/admin/checkup-sublicenses') {
+    pageTitle = 'Gestione sottolicenze checkup';
+  } else if (location.pathname === '/admin/checkup-studios') {
+    pageTitle = 'Gestione studi checkup';
+  } else if (location.pathname === '/admin/impostazioni') {
+    pageTitle = 'Impostazioni superadmin';
   } else if (location.pathname === '/admin/studi') {
     pageTitle = 'Gestione studi';
   } else if (location.pathname === '/admin/dashboard') {
@@ -284,7 +313,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const getRelevantPratiche = (pratiche: Pratica[]) => {
     if (!user) return [];
 
-    if (user.ruolo === 'admin') return pratiche;
+    if (user.ruolo === 'superuser') return pratiche;
 
     if (user.ruolo === 'avvocato' || user.ruolo === 'collaboratore') {
       return pratiche;
@@ -392,7 +421,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   }, [user]);
 
   useEffect(() => {
-    if (!user || user.ruolo === 'admin') {
+    if (!user || user.ruolo === 'superuser') {
       setChatNotifications([]);
       setPracticeNotifications([]);
       return;
@@ -588,7 +617,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   }, [user?.ruolo, user?.studioId, user?.currentStudioId, user?.clienteId]);
 
   useEffect(() => {
-    if (!user || user.ruolo === 'admin') return;
+    if (!user || user.ruolo === 'superuser') return;
     let cancelled = false;
 
     const checkAlerts = async () => {
@@ -660,9 +689,10 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const getRuoloLabel = () => {
     if (!user) return 'Utente';
+    if (user.isAdmin && user.ruolo !== 'superuser') return 'Admin';
     switch (user.ruolo) {
-      case 'admin':
-        return 'Admin';
+      case 'superuser':
+        return 'Superuser';
       case 'titolare_studio':
         return 'Titolare Studio';
       case 'avvocato':
@@ -678,7 +708,13 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   };
 
-  const isAdmin = user?.ruolo === 'admin';
+  const isSuperuser = user?.ruolo === 'superuser';
+  const [isAdminView, setIsAdminView] = useState(() => {
+    if (!user) return false;
+    if (user.ruolo === 'superuser') return true;
+    if (!user.isAdmin) return false;
+    return localStorage.getItem('admin_view') !== 'user';
+  });
   const isCliente = user?.ruolo === 'cliente';
   const isAvvocatoOrCollaboratore =
     user?.ruolo === 'avvocato' || user?.ruolo === 'collaboratore';
@@ -689,7 +725,48 @@ export function AppLayout({ children }: AppLayoutProps) {
     user?.ruolo === 'avvocato' ||
     user?.ruolo === 'collaboratore' ||
     user?.ruolo === 'segreteria';
-  const showNotificationsBell = user?.ruolo !== 'admin';
+  const showNotificationsBell = !isAdminView;
+
+  const [adminArea, setAdminArea] = useState<'resolv' | 'checkup'>(() => {
+    const stored = localStorage.getItem('admin_area');
+    if (stored === 'resolv' || stored === 'checkup') return stored;
+    return location.pathname.startsWith('/admin/checkup') ? 'checkup' : 'resolv';
+  });
+
+  useEffect(() => {
+    if (!isAdminView || !isSuperuser) return;
+    const next = location.pathname.startsWith('/admin/checkup') ? 'checkup' : 'resolv';
+    setAdminArea(next);
+    localStorage.setItem('admin_area', next);
+  }, [location.pathname, isAdminView, isSuperuser]);
+
+  useEffect(() => {
+    if (!isAdminView || isSuperuser) return;
+    setAdminArea('resolv');
+    localStorage.setItem('admin_area', 'resolv');
+  }, [isAdminView, isSuperuser]);
+
+  const adminNavItems = adminArea === 'checkup' ? adminCheckupNav : adminResolvNav;
+
+  const handleAdminAreaChange = (next: 'resolv' | 'checkup') => {
+    setAdminArea(next);
+    localStorage.setItem('admin_area', next);
+    navigate(next === 'checkup' ? '/admin/checkup-users' : '/admin/dashboard');
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    if (user.ruolo === 'superuser') {
+      setIsAdminView(true);
+      localStorage.setItem('admin_view', 'admin');
+      return;
+    }
+    if (!user.isAdmin) {
+      setIsAdminView(false);
+      return;
+    }
+    setIsAdminView(localStorage.getItem('admin_view') !== 'user');
+  }, [user]);
 
   const visibleMainNav = mainNav.filter((item) => {
     if (!user) return false;
@@ -706,6 +783,15 @@ export function AppLayout({ children }: AppLayoutProps) {
   });
 
   const visibleStudioNav = isStudioManagement ? studioNav : [];
+
+  const canSwitchArea = Boolean(user && user.isAdmin && user.ruolo !== 'superuser');
+  const handleSwitchArea = () => {
+    if (!canSwitchArea) return;
+    const nextIsAdminView = !isAdminView;
+    setIsAdminView(nextIsAdminView);
+    localStorage.setItem('admin_view', nextIsAdminView ? 'admin' : 'user');
+    navigate(nextIsAdminView ? '/admin/users' : '/');
+  };
 
   // Chiudi sidebar quando cambia route (mobile)
   useEffect(() => {
@@ -772,7 +858,17 @@ export function AppLayout({ children }: AppLayoutProps) {
 
           {/* Navigazione */}
           <nav className="flex-1 space-y-6 px-4 py-5 overflow-y-auto overflow-x-hidden">
-            {!isAdmin && (
+            {canSwitchArea && (
+              <button
+                type="button"
+                onClick={handleSwitchArea}
+                className="w-full rounded-lg border border-blue-800/40 bg-blue-900/40 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.2em] text-blue-100 hover:bg-blue-900/60 transition-colors"
+                title={isAdminView ? 'Vai all’area operativa' : 'Vai all’area amministrativa'}
+              >
+                {isAdminView ? 'Area Operativa' : 'Area Admin'}
+              </button>
+            )}
+            {!isAdminView && (
               <div>
               {!sidebarCollapsed && (
                 <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
@@ -848,7 +944,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               </div>
             )}
 
-            {!isAdmin && visibleStudioNav.length > 0 && (
+            {!isAdminView && visibleStudioNav.length > 0 && (
               <div>
               {!sidebarCollapsed && (
                 <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
@@ -896,361 +992,93 @@ export function AppLayout({ children }: AppLayoutProps) {
               </div>
             )}
 
-            {isAdmin && (
+            {isAdminView && (
               <div>
+                {isSuperuser && (
+                  <div className={`flex ${sidebarCollapsed ? 'flex-col' : 'flex-row'} gap-2`}>
+                    <button
+                      type="button"
+                      onClick={() => handleAdminAreaChange('resolv')}
+                      className={[
+                        'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition-colors',
+                        adminArea === 'resolv'
+                          ? 'border-cyan-400/60 bg-cyan-500/20 text-cyan-100'
+                          : 'border-blue-800/40 bg-blue-900/40 text-blue-100 hover:bg-blue-900/60',
+                      ].join(' ')}
+                      title="Resolv"
+                    >
+                      {sidebarCollapsed ? 'R' : 'Resolv'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAdminAreaChange('checkup')}
+                      className={[
+                        'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition-colors',
+                        adminArea === 'checkup'
+                          ? 'border-cyan-400/60 bg-cyan-500/20 text-cyan-100'
+                          : 'border-blue-800/40 bg-blue-900/40 text-blue-100 hover:bg-blue-900/60',
+                      ].join(' ')}
+                      title="Checkup"
+                    >
+                      {sidebarCollapsed ? 'C' : 'Checkup'}
+                    </button>
+                  </div>
+                )}
+
                 {!sidebarCollapsed && (
                   <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
-                    Amministrazione
+                    {adminArea === 'checkup' ? 'Checkup' : 'Amministrazione'}
                   </p>
                 )}
                 <ul className="space-y-1">
-                  <li>
-                    <NavLink
-                      to="/admin/dashboard"
-                      title={sidebarCollapsed ? "Dashboard Admin" : undefined}
-                      className={({ isActive }) =>
-                        [
-                          'group flex items-center rounded-2xl transition-colors',
-                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                          'text-sm font-medium',
-                          isActive
-                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                        ].join(' ')
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          {!sidebarCollapsed && (
-                            <span
-                              className={[
-                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                                isActive
-                                  ? 'opacity-100 translate-x-0'
-                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                              ].join(' ')}
-                            />
+                  {adminNavItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <li key={item.path}>
+                        <NavLink
+                          to={item.path}
+                          title={sidebarCollapsed ? item.label : undefined}
+                          className={({ isActive }) =>
+                            [
+                              'group flex items-center rounded-2xl transition-colors',
+                              sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                              'text-sm font-medium',
+                              isActive
+                                ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                                : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                            ].join(' ')
+                          }
+                        >
+                          {({ isActive }) => (
+                            <>
+                              {!sidebarCollapsed && (
+                                <span
+                                  className={[
+                                    'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                                    isActive
+                                      ? 'opacity-100 translate-x-0'
+                                      : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                                  ].join(' ')}
+                                />
+                              )}
+                              <Icon
+                                size={18}
+                                className="text-slate-400 group-hover:text-white transition-all duration-200"
+                              />
+                              <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                                {item.label}
+                              </span>
+                            </>
                           )}
-                          <BarChart3
-                            size={18}
-                            className="text-slate-400 group-hover:text-white transition-all duration-200"
-                          />
-                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                            Dashboard Admin
-                          </span>
-                        </>
-                      )}
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink
-                      to="/admin/users"
-                      title={sidebarCollapsed ? "Gestione utenti" : undefined}
-                      className={({ isActive }) =>
-                        [
-                          'group flex items-center rounded-2xl transition-colors',
-                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                          'text-sm font-medium',
-                          isActive
-                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                        ].join(' ')
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          {!sidebarCollapsed && (
-                            <span
-                              className={[
-                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                                isActive
-                                  ? 'opacity-100 translate-x-0'
-                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                              ].join(' ')}
-                            />
-                          )}
-                          <Shield
-                            size={18}
-                            className="text-slate-400 group-hover:text-white transition-all duration-200"
-                          />
-                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                            Gestione utenti
-                          </span>
-                        </>
-                      )}
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink
-                      to="/admin/studi"
-                      title={sidebarCollapsed ? "Gestione studi" : undefined}
-                      className={({ isActive }) =>
-                        [
-                          'group flex items-center rounded-2xl transition-colors',
-                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                          'text-sm font-medium',
-                          isActive
-                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                        ].join(' ')
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          {!sidebarCollapsed && (
-                            <span
-                              className={[
-                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                                isActive
-                                  ? 'opacity-100 translate-x-0'
-                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                              ].join(' ')}
-                            />
-                          )}
-                          <Building2
-                            size={18}
-                            className="text-slate-400 group-hover:text-white transition-all duration-200"
-                          />
-                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                            Gestione studi
-                          </span>
-                        </>
-                      )}
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink
-                      to="/admin/tassi-interesse"
-                      title={sidebarCollapsed ? "Tassi di Interesse" : undefined}
-                      className={({ isActive }) =>
-                        [
-                          'group flex items-center rounded-2xl transition-colors',
-                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                          'text-sm font-medium',
-                          isActive
-                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                        ].join(' ')
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          {!sidebarCollapsed && (
-                            <span
-                              className={[
-                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                                isActive
-                                  ? 'opacity-100 translate-x-0'
-                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                              ].join(' ')}
-                            />
-                          )}
-                          <TrendingUp
-                            size={18}
-                            className="text-slate-400 group-hover:text-white transition-all duration-200"
-                          />
-                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                            Tassi di Interesse
-                          </span>
-                        </>
-                      )}
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink
-                      to="/admin/audit-logs"
-                      title={sidebarCollapsed ? "Log di Audit" : undefined}
-                      className={({ isActive }) =>
-                        [
-                          'group flex items-center rounded-2xl transition-colors',
-                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                          'text-sm font-medium',
-                          isActive
-                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                        ].join(' ')
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          {!sidebarCollapsed && (
-                            <span
-                              className={[
-                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                                isActive
-                                  ? 'opacity-100 translate-x-0'
-                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                              ].join(' ')}
-                            />
-                          )}
-                          <ScrollText
-                            size={18}
-                            className="text-slate-400 group-hover:text-white transition-all duration-200"
-                          />
-                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                            Log di Audit
-                          </span>
-                        </>
-                      )}
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink
-                      to="/admin/maintenance"
-                      title={sidebarCollapsed ? "Manutenzione" : undefined}
-                      className={({ isActive }) =>
-                        [
-                          'group flex items-center rounded-2xl transition-colors',
-                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                          'text-sm font-medium',
-                          isActive
-                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                        ].join(' ')
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          {!sidebarCollapsed && (
-                            <span
-                              className={[
-                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                                isActive
-                                  ? 'opacity-100 translate-x-0'
-                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                              ].join(' ')}
-                            />
-                          )}
-                          <Wrench
-                            size={18}
-                            className="text-slate-400 group-hover:text-white transition-all duration-200"
-                          />
-                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                            Manutenzione
-                          </span>
-                        </>
-                      )}
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink
-                      to="/admin/export-dati"
-                      title={sidebarCollapsed ? "Esportazione Dati" : undefined}
-                      className={({ isActive }) =>
-                        [
-                          'group flex items-center rounded-2xl transition-colors',
-                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                          'text-sm font-medium',
-                          isActive
-                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                        ].join(' ')
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          {!sidebarCollapsed && (
-                            <span
-                              className={[
-                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                                isActive
-                                  ? 'opacity-100 translate-x-0'
-                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                              ].join(' ')}
-                            />
-                          )}
-                          <Download
-                            size={18}
-                            className="text-slate-400 group-hover:text-white transition-all duration-200"
-                          />
-                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                            Esportazione Dati
-                          </span>
-                        </>
-                      )}
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink
-                      to="/admin/import-dati"
-                      title={sidebarCollapsed ? "Importazione Dati" : undefined}
-                      className={({ isActive }) =>
-                        [
-                          'group flex items-center rounded-2xl transition-colors',
-                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                          'text-sm font-medium',
-                          isActive
-                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                        ].join(' ')
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          {!sidebarCollapsed && (
-                            <span
-                              className={[
-                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                                isActive
-                                  ? 'opacity-100 translate-x-0'
-                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                              ].join(' ')}
-                            />
-                          )}
-                          <UploadCloud
-                            size={18}
-                            className="text-slate-400 group-hover:text-white transition-all duration-200"
-                          />
-                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                            Importazione Dati
-                          </span>
-                        </>
-                      )}
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink
-                      to="/admin/backup"
-                      title={sidebarCollapsed ? "Backup & Ripristino" : undefined}
-                      className={({ isActive }) =>
-                        [
-                          'group flex items-center rounded-2xl transition-colors',
-                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                          'text-sm font-medium',
-                          isActive
-                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                        ].join(' ')
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          {!sidebarCollapsed && (
-                            <span
-                              className={[
-                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                                isActive
-                                  ? 'opacity-100 translate-x-0'
-                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                              ].join(' ')}
-                            />
-                          )}
-                          <RefreshCw
-                            size={18}
-                            className="text-slate-400 group-hover:text-white transition-all duration-200"
-                          />
-                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                            Backup & Ripristino
-                          </span>
-                        </>
-                      )}
-                    </NavLink>
-                  </li>
+                        </NavLink>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
 
-            {!isAdmin && (
+            {!isAdminView && (
               <div>
               {!sidebarCollapsed && (
                 <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
@@ -1365,17 +1193,6 @@ export function AppLayout({ children }: AppLayoutProps) {
                   </div>
                 </div>
               )}
-
-              <button
-                type="button"
-                onClick={loadHeaderStats}
-                className="hidden md:inline-flex items-center gap-2 rounded-full border border-indigo-200/60 bg-white/85 px-3 py-2 text-[11px] font-semibold text-slate-700 shadow-[0_12px_30px_rgba(10,16,32,0.16)] transition hover:border-indigo-300 hover:text-indigo-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${headerLoading ? 'animate-spin' : ''}`} />
-                {headerUpdatedAt
-                  ? `Aggiornato ${headerUpdatedAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`
-                  : 'Aggiorna'}
-              </button>
 
               {/* Notifiche */}
               {showNotificationsBell && (
@@ -1501,6 +1318,34 @@ export function AppLayout({ children }: AppLayoutProps) {
                   document.body,
                 )}
                 </div>
+              )}
+
+              <button
+                type="button"
+                onClick={loadHeaderStats}
+                className="hidden md:inline-flex items-center gap-2 rounded-full border border-indigo-200/60 bg-white/85 px-3 py-2 text-[11px] font-semibold text-slate-700 shadow-[0_12px_30px_rgba(10,16,32,0.16)] transition hover:border-indigo-300 hover:text-indigo-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${headerLoading ? 'animate-spin' : ''}`} />
+                {headerUpdatedAt
+                  ? `Aggiornato ${headerUpdatedAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`
+                  : 'Aggiorna'}
+              </button>
+
+              {isSuperuser && (
+                <NavLink
+                  to="/admin/impostazioni"
+                  className={({ isActive }) =>
+                    [
+                      'inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold shadow-[0_12px_30px_rgba(10,16,32,0.16)] transition',
+                      isActive
+                        ? 'border-indigo-500 bg-indigo-600 text-white'
+                        : 'border-indigo-200/60 bg-white/85 text-slate-700 hover:border-indigo-300 hover:text-indigo-700',
+                      'dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300',
+                    ].join(' ')
+                  }
+                >
+                  Impostazioni
+                </NavLink>
               )}
 
               {/* Profilo */}

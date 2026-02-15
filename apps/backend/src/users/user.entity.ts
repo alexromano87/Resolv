@@ -13,7 +13,7 @@ import {
 import { Studio } from '../studi/studio.entity';
 
 export type UserRole =
-  | 'admin'
+  | 'superuser'
   | 'titolare_studio'
   | 'avvocato'
   | 'collaboratore'
@@ -28,7 +28,7 @@ export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column()
   email: string;
 
   @Column({ select: false })
@@ -57,10 +57,13 @@ export class User {
 
   @Column({
     type: 'enum',
-    enum: ['admin', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'],
+    enum: ['superuser', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'],
     default: 'collaboratore',
   })
   ruolo: UserRole;
+
+  @Column({ type: 'boolean', default: false })
+  isAdmin: boolean;
 
   @Column({ type: 'uuid', nullable: true })
   clienteId: string | null; // Per utenti di tipo 'cliente'

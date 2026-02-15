@@ -8,6 +8,7 @@ import { CustomSelect } from '../components/ui/CustomSelect';
 import { DateField } from '../components/ui/DateField';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
+import { useAuth } from '../contexts/AuthContext';
 
 interface TassoFormData {
   tipo: 'legale' | 'moratorio';
@@ -19,6 +20,7 @@ interface TassoFormData {
 }
 
 export default function TassiInteressePage() {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const { success } = useToast();
   const [tassi, setTassi] = useState<TassoInteresse[]>([]);
@@ -48,18 +50,34 @@ export default function TassiInteressePage() {
     note: '',
   });
 
-  useEffect(() => {
-    loadTassi();
-  }, [showOnlyCurrent, filterTipo]);
+  if (user?.ruolo !== 'superuser') {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+        <AlertCircle className="mx-auto h-12 w-12 text-slate-400" />
+        <h3 className="mt-4 text-lg font-medium text-slate-900 dark:text-slate-100">
+          Accesso negato
+        </h3>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+          Solo i superuser possono accedere a questa pagina.
+        </p>
+      </div>
+    );
+  }
 
   useEffect(() => {
+    if (user?.ruolo !== 'superuser') return;
+    loadTassi();
+  }, [showOnlyCurrent, filterTipo, user?.ruolo]);
+
+  useEffect(() => {
+    if (user?.ruolo !== 'superuser') return;
     const shouldFetch = searchParams.get('fetch') === '1';
     if (!shouldFetch || isFetching) return;
     handleFetchRates().finally(() => {
       searchParams.delete('fetch');
       setSearchParams(searchParams, { replace: true });
     });
-  }, [searchParams, setSearchParams, isFetching]);
+  }, [searchParams, setSearchParams, isFetching, user?.ruolo]);
 
   const loadTassi = async () => {
     try {

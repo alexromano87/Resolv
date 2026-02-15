@@ -45,7 +45,7 @@ export class MovimentiFinanziariController {
   @Post()
   async create(@CurrentUser() user: CurrentUserData, @Body() createMovimentoDto: CreateMovimentoFinanziarioDto) {
     // Se l'utente non è admin e ha uno studio, assegna automaticamente il suo studioId
-    if (user.ruolo !== 'admin' && user.studioId) {
+    if (user.ruolo !== 'superuser' && user.studioId) {
       createMovimentoDto.studioId = user.studioId;
     }
 
@@ -73,13 +73,13 @@ export class MovimentiFinanziariController {
 
   @Get('pratica/:praticaId')
   findAllByPratica(@CurrentUser() user: CurrentUserData, @Param('praticaId') praticaId: string) {
-    const studioId = user.ruolo === 'admin' ? undefined : user.studioId || undefined;
+    const studioId = user.ruolo === 'superuser' ? undefined : user.studioId || undefined;
     return this.movimentiService.findAllByPratica(praticaId, studioId);
   }
 
   @Get('pratica/:praticaId/totali')
   getTotaliByPratica(@CurrentUser() user: CurrentUserData, @Param('praticaId') praticaId: string) {
-    const studioId = user.ruolo === 'admin' ? undefined : user.studioId || undefined;
+    const studioId = user.ruolo === 'superuser' ? undefined : user.studioId || undefined;
     return this.movimentiService.getTotaliByPratica(praticaId, studioId);
   }
 
@@ -134,7 +134,7 @@ export class MovimentiFinanziariController {
     @Query('tipoMovimento') tipoMovimento?: string,
   ) {
     const filters: any = {
-      studioId: user.ruolo === 'admin' ? undefined : user.studioId || undefined,
+      studioId: user.ruolo === 'superuser' ? undefined : user.studioId || undefined,
       statoFatturazione,
     };
 
@@ -176,7 +176,7 @@ export class MovimentiFinanziariController {
    */
   @Get('statistiche/fatturazione')
   async getStatisticheFatturazione(@CurrentUser() user: CurrentUserData) {
-    const studioId = user.ruolo === 'admin' ? undefined : user.studioId || undefined;
+    const studioId = user.ruolo === 'superuser' ? undefined : user.studioId || undefined;
     return this.movimentiService.getStatisticheFatturazione(studioId);
   }
 
@@ -196,7 +196,7 @@ export class MovimentiFinanziariController {
   ) {
     // Costruisci filtri
     const filters: any = {
-      studioId: user.ruolo === 'admin' ? undefined : user.studioId || undefined,
+      studioId: user.ruolo === 'superuser' ? undefined : user.studioId || undefined,
       statoFatturazione,
     };
 

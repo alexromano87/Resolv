@@ -45,5 +45,14 @@ COPY --from=builder /usr/src/app/scripts/start-with-migrations.sh ./start-with-m
 
 RUN chmod +x ./start-with-migrations.sh
 
+# Create non-root user for security
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Ensure appuser owns the work directory and backup/log dirs
+RUN mkdir -p /usr/src/app/logs /usr/src/app/backups && \
+    chown -R appuser:appgroup /usr/src/app
+
+USER appuser
+
 EXPOSE 3000
 CMD ["./start-with-migrations.sh"]

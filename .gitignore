@@ -12,6 +12,9 @@ coverage/
 .cache/
 .nx/
 out/
+**/build/
+**/dist/
+**/coverage/
 
 # Logs
 *.log
@@ -43,6 +46,12 @@ website/
 
 # Misc
 .claude/
+.github/
 
 # Documenti
 guide/
+relazioni/
+
+# Test
+test-resutls/
+apps/frontend/playwright-report/
