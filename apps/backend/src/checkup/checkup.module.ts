@@ -61,6 +61,14 @@ import { CheckupStudiosService } from './studios/checkup-studios.service';
 import { CheckupStudiosController } from './studios/checkup-studios.controller';
 import { CheckupClient } from './clients/checkup-client.entity';
 
+// Question Management
+import { QuestionMacroArea } from './entities/question-macro-area.entity';
+import { QuestionSection } from './entities/question-section.entity';
+import { QuestionField } from './entities/question-field.entity';
+import { QuestionManagementService } from './services/question-management.service';
+import { QuestionManagementController } from './controllers/question-management.controller';
+import { QuestionSeedService } from './services/question-seed.service';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -81,6 +89,9 @@ import { CheckupClient } from './clients/checkup-client.entity';
       CheckupClient,
       CheckupLicense,
       CheckupSublicense,
+      QuestionMacroArea,
+      QuestionSection,
+      QuestionField,
     ]),
     PassportModule.register({ defaultStrategy: 'checkup-jwt' }),
     JwtModule.registerAsync({
@@ -111,6 +122,7 @@ import { CheckupClient } from './clients/checkup-client.entity';
     CheckupPreassessmentChatController,
     CheckupPreassessmentThreadsController,
     CheckupStudiosController,
+    QuestionManagementController,
   ],
   providers: [
     CheckupJwtStrategy,
@@ -125,6 +137,8 @@ import { CheckupClient } from './clients/checkup-client.entity';
     CheckupPreassessmentChatService,
     CheckupPreassessmentThreadsService,
     CheckupStudiosService,
+    QuestionManagementService,
+    QuestionSeedService,
   ],
 })
 export class CheckupModule {}

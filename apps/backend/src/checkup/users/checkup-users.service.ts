@@ -68,6 +68,41 @@ export class CheckupUsersService {
     return sublicense ? sublicense.numeroUtenze : null;
   }
 
+  private async resolveClientSublicense(
+    studioId: string,
+    clientId: string,
+    sublicenseId?: string | null,
+  ): Promise<CheckupSublicense> {
+    if (sublicenseId) {
+      const sublicense = await this.sublicenseRepository.findOne({
+        where: { id: sublicenseId, clientId },
+        relations: ['license'],
+      });
+      if (!sublicense) {
+        throw new ConflictException('Sottolicenza non trovata per il cliente');
+      }
+      if (sublicense.license?.studioId !== studioId) {
+        throw new ForbiddenException('Sottolicenza non autorizzata');
+      }
+      return sublicense;
+    }
+
+    const license = await this.licenseRepository.findOne({ where: { studioId } });
+    if (!license) {
+      throw new ForbiddenException('Licenza non trovata');
+    }
+    const sublicenses = await this.sublicenseRepository.find({
+      where: { licenseId: license.id, clientId, attiva: true },
+    });
+    if (!sublicenses.length) {
+      throw new ForbiddenException('Sottolicenza non trovata');
+    }
+    if (sublicenses.length > 1) {
+      throw new ConflictException('Seleziona la sottolicenza da assegnare');
+    }
+    return sublicenses[0];
+  }
+
   async create(dto: CreateCheckupUserDto, currentUser: CheckupCurrentUserData): Promise<CheckupUser> {
     const email = dto.email.toLowerCase().trim();
 
@@ -81,6 +116,7 @@ export class CheckupUsersService {
     const targetStudioId = currentUser.studioId || null;
     let maxUsers: number | null = null;
 
+    let resolvedSublicenseId: string | null = null;
     if (isClient) {
       if (!clientId) {
         throw new BadRequestException('Seleziona il cliente per l\'utente');
@@ -88,23 +124,22 @@ export class CheckupUsersService {
       if (currentUser.ruolo !== 'admin_studio' || !currentUser.studioId) {
         throw new ForbiddenException('Non autorizzato');
       }
-      const license = await this.licenseRepository.findOne({ where: { studioId: currentUser.studioId } });
-      if (!license) {
-        throw new ForbiddenException('Licenza non trovata');
-      }
-      const sublicense = await this.sublicenseRepository.findOne({
-        where: { licenseId: license.id, clientId, attiva: true },
-        relations: ['client'],
-      });
-      if (!sublicense || !sublicense.client) {
+      const sublicense = await this.resolveClientSublicense(
+        currentUser.studioId,
+        clientId,
+        dto.sublicenseId,
+      );
+      resolvedSublicenseId = sublicense.id;
+      const client = await this.clientRepository.findOne({ where: { id: clientId } });
+      if (!sublicense) {
         throw new ForbiddenException('Cliente non associato alla licenza');
       }
-      if (!sublicense.client.attivo) {
+      if (client && !client.attivo) {
         throw new ForbiddenException('Cliente non attivo');
       }
       maxUsers = sublicense.numeroUtenze;
       const activeCount = await this.userRepository.count({
-        where: { clientId, attivo: true },
+        where: { sublicenseId: sublicense.id, attivo: true },
       });
       if (maxUsers !== null && activeCount >= maxUsers) {
         throw new ConflictException('Limite utenti raggiunto per questo cliente');
@@ -139,6 +174,7 @@ export class CheckupUsersService {
       ruolo: dto.ruolo,
       studioId: isClient ? null : targetStudioId,
       clientId: isClient ? clientId : null,
+      sublicenseId: isClient ? resolvedSublicenseId : null,
       azienda: dto.azienda || null,
       mustChangePassword: true,
     });
@@ -153,6 +189,7 @@ export class CheckupUsersService {
       .createQueryBuilder('u')
       .leftJoinAndSelect('u.studio', 'studio')
       .leftJoinAndSelect('u.client', 'client')
+      .leftJoinAndSelect('u.sublicense', 'sublicense')
       .where('u.studioId = :studioId', { studioId: currentUser.studioId });
 
     if (clientIds.length) {
@@ -188,7 +225,7 @@ export class CheckupUsersService {
   async findOne(id: string, currentUser: CheckupCurrentUserData, includeInactive = false): Promise<CheckupUser> {
     const user = await this.userRepository.findOne({
       where: includeInactive ? { id } : { id, attivo: true },
-      relations: ['studio', 'client'],
+      relations: ['studio', 'client', 'sublicense'],
     });
     if (!user) {
       throw new NotFoundException('Utente non trovato');
@@ -222,23 +259,34 @@ export class CheckupUsersService {
     const nextRole = dto.ruolo ?? user.ruolo;
     const nextClientId = dto.clientId !== undefined ? dto.clientId?.trim() || null : user.clientId;
     const nextStudioId = dto.studioId !== undefined ? dto.studioId?.trim() || null : user.studioId;
+    const nextSublicenseId = dto.sublicenseId !== undefined ? dto.sublicenseId?.trim() || null : user.sublicenseId;
 
     if (nextRole === 'cliente') {
       if (!nextClientId) {
         throw new BadRequestException('Seleziona il cliente per l\'utente');
       }
       await this.ensureClientAccess(currentUser, nextClientId);
+      if (!currentUser.studioId) {
+        throw new ForbiddenException('Studio non associato');
+      }
+      const nextSublicense = await this.resolveClientSublicense(
+        currentUser.studioId,
+        nextClientId,
+        nextSublicenseId,
+      );
       updates.clientId = nextClientId;
       updates.studioId = null;
+      updates.sublicenseId = nextSublicense.id;
 
       const activating = dto.attivo === true && user.attivo === false;
       const movingClient = nextClientId !== user.clientId;
       const becomingClient = nextRole !== user.ruolo;
-      if (activating || movingClient || becomingClient) {
-        const maxUsers = await this.getClientMaxUsers(nextClientId);
+      const movingSublicense = nextSublicense.id !== user.sublicenseId;
+      if (activating || movingClient || becomingClient || movingSublicense) {
+        const maxUsers = nextSublicense.numeroUtenze;
         if (maxUsers !== null) {
           const activeCount = await this.userRepository.count({
-            where: { clientId: nextClientId, attivo: true, id: Not(user.id) },
+            where: { sublicenseId: nextSublicense.id, attivo: true, id: Not(user.id) },
           });
           if (activeCount >= maxUsers) {
             throw new ConflictException('Limite utenti raggiunto per questo cliente');
@@ -255,6 +303,7 @@ export class CheckupUsersService {
       }
       updates.studioId = targetStudioId;
       updates.clientId = null;
+      updates.sublicenseId = null;
 
       const activating = dto.attivo === true && user.attivo === false;
       const becomingStaff = nextRole !== user.ruolo;

@@ -47,12 +47,18 @@ const AlertsPage = lazyNamed(() => import('./pages/AlertsPage'), 'AlertsPage');
 const TicketsPage = lazyNamed(() => import('./pages/TicketsPage'), 'TicketsPage');
 const AdminUsersPage = lazyNamed(() => import('./pages/AdminUsersPage'), 'AdminUsersPage');
 const AdminCheckupUsersPage = lazyNamed(() => import('./pages/AdminCheckupUsersPage'), 'default');
+const AdminCheckupClientsPage = lazyNamed(() => import('./pages/AdminCheckupClientsPage'), 'default');
 const AdminCheckupLicensesPage = lazyNamed(() => import('./pages/AdminCheckupLicensesPage'), 'default');
 const AdminCheckupSublicensesPage = lazyNamed(
   () => import('./pages/AdminCheckupSublicensesPage'),
   'default',
 );
 const AdminCheckupStudiosPage = lazyNamed(() => import('./pages/AdminCheckupStudiosPage'), 'default');
+const AdminCheckupQuestionsPage = lazyNamed(() => import('./pages/AdminCheckupQuestionsPage'), 'default');
+const AdminCheckupDashboardPage = lazyNamed(
+  () => import('./pages/AdminCheckupDashboardPage'),
+  'default',
+);
 const AdminSuperSettingsPage = lazyNamed(
   () => import('./pages/AdminSuperSettingsPage'),
   'default',
@@ -161,9 +167,12 @@ function App() {
                     <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
                     <Route path="/admin/users" element={<AdminUsersPage />} />
                     <Route path="/admin/checkup-users" element={<AdminCheckupUsersPage />} />
+                    <Route path="/admin/checkup-clients" element={<AdminCheckupClientsPage />} />
                     <Route path="/admin/checkup-licenses" element={<AdminCheckupLicensesPage />} />
                     <Route path="/admin/checkup-sublicenses" element={<AdminCheckupSublicensesPage />} />
                     <Route path="/admin/checkup-studios" element={<AdminCheckupStudiosPage />} />
+                    <Route path="/admin/checkup-questions" element={<AdminCheckupQuestionsPage />} />
+                    <Route path="/admin/checkup-dashboard" element={<AdminCheckupDashboardPage />} />
                     <Route path="/admin/impostazioni" element={<AdminSuperSettingsPage />} />
                     <Route path="/admin/studi" element={<StudiPage />} />
                     <Route path="/admin/maintenance" element={<AdminMaintenancePage />} />

@@ -116,6 +116,7 @@ export default function StudioUsersPage({ embedded = false }: { embedded?: boole
   };
 
   const handleOpenEdit = (user: CheckupUser) => {
+    const safeRole = user.ruolo === 'superadmin' ? 'admin_studio' : user.ruolo;
     setIsEditing(true);
     setSelectedUser(user);
     setError('');
@@ -125,7 +126,7 @@ export default function StudioUsersPage({ embedded = false }: { embedded?: boole
       nome: user.nome,
       cognome: user.cognome,
       telefono: user.telefono || '',
-      ruolo: user.ruolo,
+      ruolo: safeRole,
       clientId: user.clientId || '',
       azienda: user.azienda || '',
     });

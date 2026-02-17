@@ -1,22 +1,18 @@
 import { useEffect, useState } from 'react';
 import { KeyRound, X, Pencil } from 'lucide-react';
-import { checkupAdminApi, type CheckupLicense, type CheckupStudio } from '../api/checkupAdmin';
-import { CustomSelect } from '../components/ui/CustomSelect';
+import { checkupAdminApi, type CheckupLicense } from '../api/checkupAdmin';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
 
 export default function AdminCheckupLicensesPage() {
   const { success, error: toastError } = useToast();
   const [licenses, setLicenses] = useState<CheckupLicense[]>([]);
-  const [studios, setStudios] = useState<CheckupStudio[]>([]);
   const [loading, setLoading] = useState(false);
   const [showLicenseModal, setShowLicenseModal] = useState(false);
-  const [selectedStudioId, setSelectedStudioId] = useState('');
+  const [editingLicenseId, setEditingLicenseId] = useState<string | null>(null);
   const [licenseForm, setLicenseForm] = useState({
-    studioId: '',
     tipo: '',
     numeroUtenze: 1,
-    numeroSottolicenze: 0,
     dataInizioValidita: '',
     dataScadenza: '',
   });
@@ -26,12 +22,8 @@ export default function AdminCheckupLicensesPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [licensesData, studiosData] = await Promise.all([
-        checkupAdminApi.getLicenses(),
-        checkupAdminApi.getStudios(),
-      ]);
+      const licensesData = await checkupAdminApi.getLicenses();
       setLicenses(licensesData);
-      setStudios(studiosData);
     } catch (err: any) {
       toastError(err.message || 'Errore durante il caricamento');
     } finally {
@@ -45,30 +37,27 @@ export default function AdminCheckupLicensesPage() {
 
   const handleUpsertLicense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!licenseForm.studioId || !licenseForm.tipo || !licenseForm.dataInizioValidita || !licenseForm.dataScadenza) {
+    if (!licenseForm.tipo || !licenseForm.dataInizioValidita || !licenseForm.dataScadenza) {
       toastError('Compila tutti i campi obbligatori');
       return;
     }
     try {
       await checkupAdminApi.upsertLicense({
-        studioId: licenseForm.studioId,
+        id: editingLicenseId ?? undefined,
         tipo: licenseForm.tipo.trim(),
         numeroUtenze: Number(licenseForm.numeroUtenze),
-        numeroSottolicenze: Number(licenseForm.numeroSottolicenze ?? 0),
         dataInizioValidita: licenseForm.dataInizioValidita,
         dataScadenza: licenseForm.dataScadenza,
       });
       success('Licenza aggiornata');
       setShowLicenseModal(false);
+      setEditingLicenseId(null);
       setLicenseForm({
-        studioId: '',
         tipo: '',
         numeroUtenze: 1,
-        numeroSottolicenze: 0,
         dataInizioValidita: '',
         dataScadenza: '',
       });
-      setSelectedStudioId('');
       loadData();
     } catch (err: any) {
       toastError(err.message || 'Errore durante la creazione');
@@ -77,19 +66,16 @@ export default function AdminCheckupLicensesPage() {
 
   const handleEditLicense = (license: CheckupLicense) => {
     setLicenseForm({
-      studioId: license.studioId,
       tipo: license.tipo,
       numeroUtenze: license.numeroUtenze,
-      numeroSottolicenze: license.numeroSottolicenze,
       dataInizioValidita: license.dataInizioValidita || '',
       dataScadenza: license.dataScadenza || '',
     });
+    setEditingLicenseId(license.id);
     setShowLicenseModal(true);
   };
 
-  const editingLicense = licenses.find((license) => license.studioId === licenseForm.studioId);
-  const licenziatariStudios = studios.filter((s) => s.tipo === 'licenziatario');
-  const selectedStudio = studios.find((s) => s.id === licenseForm.studioId) || null;
+  const editingLicense = editingLicenseId ? licenses.find((license) => license.id === editingLicenseId) : null;
 
   return (
     <div className="space-y-6 wow-stagger">
@@ -100,31 +86,15 @@ export default function AdminCheckupLicensesPage() {
           <p className="text-sm text-slate-600 mt-1">Configura le licenze per gli studi licenziatari.</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="min-w-[240px]">
-            <CustomSelect
-              value={selectedStudioId}
-              onChange={setSelectedStudioId}
-              options={licenziatariStudios.map((s) => ({ value: s.id, label: s.nome }))}
-              placeholder="Seleziona studio"
-              searchable
-              searchPlaceholder="Cerca studio..."
-            />
-          </div>
           <button
             onClick={() => {
-              if (!selectedStudioId) {
-                toastError('Seleziona uno studio licenziatario');
-                return;
-              }
-              const existing = licenses.find((l) => l.studioId === selectedStudioId);
               setLicenseForm({
-                studioId: selectedStudioId,
-                tipo: existing?.tipo || '',
-                numeroUtenze: existing?.numeroUtenze || 1,
-                numeroSottolicenze: existing?.numeroSottolicenze || 0,
-                dataInizioValidita: existing?.dataInizioValidita || '',
-                dataScadenza: existing?.dataScadenza || '',
+                tipo: '',
+                numeroUtenze: 1,
+                dataInizioValidita: '',
+                dataScadenza: '',
               });
+              setEditingLicenseId(null);
               setShowLicenseModal(true);
             }}
             className="wow-button"
@@ -150,7 +120,6 @@ export default function AdminCheckupLicensesPage() {
                   <th className="px-4 py-3 text-left">Tipo</th>
                   <th className="px-4 py-3 text-left">Utenze</th>
                   <th className="px-4 py-3 text-left">Validità</th>
-                  <th className="px-4 py-3 text-left">Sottolicenze</th>
                   <th className="px-4 py-3 text-left">Azioni</th>
                 </tr>
               </thead>
@@ -168,7 +137,6 @@ export default function AdminCheckupLicensesPage() {
                     <td className="px-4 py-3 text-sm text-slate-600">
                       {license.dataInizioValidita || '—'} → {license.dataScadenza || '—'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">{license.numeroSottolicenze}</td>
                     <td className="px-4 py-3 text-sm">
                       <div className="flex flex-wrap items-center gap-2">
                         <button
@@ -196,13 +164,19 @@ export default function AdminCheckupLicensesPage() {
                 <h2 className="text-lg font-semibold text-slate-900">
                   {editingLicense ? 'Modifica licenza checkup' : 'Nuova licenza checkup'}
                 </h2>
-                <button onClick={() => setShowLicenseModal(false)} className="text-slate-400 hover:text-slate-600">
+                <button
+                  onClick={() => {
+                    setShowLicenseModal(false);
+                    setEditingLicenseId(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600"
+                >
                   <X className="h-5 w-5" />
                 </button>
               </div>
               <form onSubmit={handleUpsertLicense} className="space-y-4 p-6">
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  <span className="font-semibold">Studio:</span> {selectedStudio?.nome || '—'}
+                  <span className="font-semibold">Studio:</span> {editingLicense?.studio?.nome || 'Non assegnata'}
                   {editingLicense?.numeroLicenza ? (
                     <span className="ml-3 text-xs text-slate-500">Licenza #{editingLicense.numeroLicenza}</span>
                   ) : null}
@@ -224,18 +198,6 @@ export default function AdminCheckupLicensesPage() {
                       min={1}
                       value={licenseForm.numeroUtenze}
                       onChange={(e) => setLicenseForm((p) => ({ ...p, numeroUtenze: Number(e.target.value) }))}
-                      className={inputClassName}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Numero sottolicenze</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={licenseForm.numeroSottolicenze}
-                      onChange={(e) =>
-                        setLicenseForm((p) => ({ ...p, numeroSottolicenze: Number(e.target.value) }))
-                      }
                       className={inputClassName}
                     />
                   </div>
@@ -262,7 +224,14 @@ export default function AdminCheckupLicensesPage() {
                 </div>
                 <p className="text-xs text-slate-500">Se la licenza esiste, verrà aggiornata con i nuovi dati.</p>
                 <div className="flex justify-end gap-3 pt-2">
-                  <button type="button" onClick={() => setShowLicenseModal(false)} className="wow-button-ghost">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowLicenseModal(false);
+                      setEditingLicenseId(null);
+                    }}
+                    className="wow-button-ghost"
+                  >
                     Annulla
                   </button>
                   <button type="submit" className="wow-button">

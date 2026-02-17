@@ -60,4 +60,41 @@ export class CheckupPreassessmentController {
     res.setHeader('Content-Disposition', 'attachment; filename="pre_assessment.pdf"');
     res.send(pdf);
   }
+
+  @Get(':preassessmentId/presence')
+  getPresence(
+    @Param('preassessmentId') preassessmentId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.preassessmentService.getPresence(preassessmentId, user);
+  }
+
+  @Get('online')
+  getOnline(@CheckupCurrentUser() user: CheckupCurrentUserData) {
+    return this.preassessmentService.getOnline(user);
+  }
+
+  @Post(':preassessmentId/presence/active')
+  setPresenceActive(
+    @Param('preassessmentId') preassessmentId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+    @Body('fieldId') fieldId: string,
+  ) {
+    if (!fieldId) {
+      throw new BadRequestException('Campo mancante');
+    }
+    return this.preassessmentService.setPresenceActive(preassessmentId, fieldId, user);
+  }
+
+  @Post(':preassessmentId/presence/inactive')
+  setPresenceInactive(
+    @Param('preassessmentId') preassessmentId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+    @Body('fieldId') fieldId: string,
+  ) {
+    if (!fieldId) {
+      throw new BadRequestException('Campo mancante');
+    }
+    return this.preassessmentService.setPresenceInactive(preassessmentId, fieldId, user);
+  }
 }

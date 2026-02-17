@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -17,6 +17,7 @@ import {
   Send,
   Eye,
   Users,
+  Loader2,
 } from 'lucide-react';
 import { CustomSelect } from '../components/CustomSelect';
 import {
@@ -160,15 +161,7 @@ function getAssettiOptionLabel(field: FieldSpec, value: string) {
 
 function getOptions(field: FieldSpec) {
   if (field.type !== 'select') return [];
-  const opts = [...(field.options || [])];
-  if (DOC_ICON_FIELDS.has(field.id)) return opts;
-  if (!opts.some((o) => o.toLowerCase().includes('non applicabile') || o === 'N/A')) {
-    opts.push('Non applicabile');
-  }
-  if (!opts.some((o) => o.toLowerCase().includes('non disponibile') || o === 'N/D')) {
-    opts.push('Non disponibile');
-  }
-  return opts;
+  return [...(field.options || [])];
 }
 
 function getInitialData() {
@@ -177,7 +170,34 @@ function getInitialData() {
   return init;
 }
 
+function getInitialNaFields() {
+  const init: Record<string, boolean> = {};
+  SECTIONS.forEach((s) => s.fields.forEach((f) => { init[f.id] = false; }));
+  return init;
+}
+
+const OWNER_EMAIL_BY_MACRO: Record<string, string> = {
+  a: 'owner_a_email',
+  b: 'owner_b_email',
+  c: 'owner_c_email',
+  d: 'owner_d_email',
+  e: 'owner_e_email',
+  f: 'owner_f_email',
+  g: 'owner_g_email',
+  h: 'owner_h_email',
+  i: 'owner_i_email',
+  j: 'owner_j_email',
+};
+
 const CHAT_SECTION_ID = 'general';
+const getInitials = (name: string) => {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase())
+    .join('');
+};
 
 export default function PreassessmentPage() {
   const { clientId } = useParams<{ clientId: string }>();
@@ -185,7 +205,10 @@ export default function PreassessmentPage() {
   const { user } = useAuth();
   const isClient = user?.ruolo === 'cliente';
   const isStaff = !!user && user.ruolo !== 'cliente';
-  const canChat = user?.ruolo === 'cliente' || user?.ruolo === 'collaboratore';
+  const canChat = user?.ruolo === 'cliente'
+    || user?.ruolo === 'collaboratore'
+    || user?.ruolo === 'admin_studio'
+    || user?.ruolo === 'segreteria';
   const canCreateAlert = user?.ruolo === 'admin_studio';
 
   const [clients, setClients] = useState<PreassessmentClientEntry[]>([]);
@@ -198,14 +221,21 @@ export default function PreassessmentPage() {
   const [data, setData] = useState<Record<string, string>>(getInitialData);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [fieldNotes, setFieldNotes] = useState<Record<string, string>>({});
+  const [fieldMeta, setFieldMeta] = useState<Record<string, { updatedAt: string; updatedBy: { id: string; name: string; ruolo: string } }>>({});
+  const [naFields, setNaFields] = useState<Record<string, boolean>>(getInitialNaFields);
+  const [macroValidations, setMacroValidations] = useState<Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>>({});
   const [studioCanEdit, setStudioCanEdit] = useState(false);
   const [preassessmentId, setPreassessmentId] = useState<string | null>(null);
+  const [isPreassessmentOnline, setIsPreassessmentOnline] = useState(false);
   const [clientInfo, setClientInfo] = useState<PreassessmentClientRecord['client'] | null>(null);
   const [view, setView] = useState<'dashboard' | number>('dashboard');
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [showExport, setShowExport] = useState(false);
+  const [exportMode, setExportMode] = useState<'excludeNA' | 'includeNA'>('excludeNA');
+  const [exportIncludeConsultantNotes, setExportIncludeConsultantNotes] = useState(true);
   const [panel, setPanel] = useState<'chat' | 'tickets' | 'alerts' | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -213,18 +243,62 @@ export default function PreassessmentPage() {
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
   const [chatMessages, setChatMessages] = useState<PreassessmentChatMessage[]>([]);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
+  const [typingUsers, setTypingUsers] = useState<Array<{ userId: string; name: string; ruolo: string }>>([]);
+  const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [ticketNotice, setTicketNotice] = useState<{ count: number; at: number } | null>(null);
+  const lastTicketIdsRef = useRef<Set<string>>(new Set());
   const [tickets, setTickets] = useState<PreassessmentTicket[]>([]);
   const [alerts, setAlerts] = useState<PreassessmentAlert[]>([]);
+  const [activeEditors, setActiveEditors] = useState<Record<string, { userId: string; name: string }>>({});
+  const [dashFilter, setDashFilter] = useState<'all' | 'completed' | 'todo' | 'na'>('all');
 
   const didInitRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logoDataUrlRef = useRef<string | null>(null);
+  const presenceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sidebarTarget = typeof document !== 'undefined' ? document.getElementById('checkup-subnav') : null;
 
-  const activeClientId = isClient ? user?.id ?? null : selectedClientId;
+  const activeClientId = isClient ? user?.clientId ?? null : selectedClientId;
   const canEdit = isClient || (isStaff && studioCanEdit);
   const readOnly = !canEdit;
   const showAssessment = !!activeClientId && !!preassessmentId;
+  const lastRemoteUpdatedAtRef = useRef<string | null>(null);
+  const lastLocalChangeRef = useRef<number>(0);
+  const onlineUsers = useMemo(() => {
+    const map = new Map<string, { userId: string; name: string }>();
+    Object.values(activeEditors).forEach((entry) => {
+      if (!entry) return;
+      if (!map.has(entry.userId)) map.set(entry.userId, entry);
+    });
+    return Array.from(map.values());
+  }, [activeEditors]);
+
+  useEffect(() => {
+    if (!preassessmentId) {
+      setIsPreassessmentOnline(false);
+      return;
+    }
+    let alive = true;
+
+    const fetchOnline = async () => {
+      try {
+        const res = await preassessmentApi.getOnline();
+        if (!alive) return;
+        setIsPreassessmentOnline(res.preassessmentIds.includes(preassessmentId));
+      } catch {
+        if (!alive) return;
+        setIsPreassessmentOnline(false);
+      }
+    };
+
+    fetchOnline();
+    const interval = setInterval(fetchOnline, 5000);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+    };
+  }, [preassessmentId]);
 
   useEffect(() => {
     if (!activeClientId) setShowExport(false);
@@ -270,6 +344,9 @@ export default function PreassessmentPage() {
           setData(getInitialData());
           setNotes({});
           setFieldNotes({});
+          setFieldMeta({});
+          setNaFields(getInitialNaFields());
+          setMacroValidations({});
           setStudioCanEdit(false);
           setLastSavedAt(null);
           return;
@@ -285,6 +362,10 @@ export default function PreassessmentPage() {
           setData({ ...base, ...(res.preassessment.data || {}) });
           setNotes(res.preassessment.notes || {});
           setFieldNotes(res.preassessment.fieldNotes || {});
+          setFieldMeta(res.preassessment.fieldMeta || {});
+          setNaFields(res.preassessment.naFields || getInitialNaFields());
+          setMacroValidations(res.preassessment.macroValidations || {});
+          lastRemoteUpdatedAtRef.current = res.preassessment.updatedAt;
           setLastSavedAt(new Date(res.preassessment.updatedAt).toLocaleTimeString('it-IT'));
           didInitRef.current = true;
           return;
@@ -299,6 +380,10 @@ export default function PreassessmentPage() {
         setData({ ...base, ...(res.data || {}) });
         setNotes(res.notes || {});
         setFieldNotes(res.fieldNotes || {});
+        setFieldMeta(res.fieldMeta || {});
+        setNaFields(res.naFields || getInitialNaFields());
+        setMacroValidations(res.macroValidations || {});
+        lastRemoteUpdatedAtRef.current = res.updatedAt;
         setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
         didInitRef.current = true;
       } catch (err) {
@@ -316,9 +401,123 @@ export default function PreassessmentPage() {
   }, [activeClientId, isStaff]);
 
   useEffect(() => {
+    if (!activeClientId) return;
+    const key = `checkup_preassessment_view_${activeClientId}`;
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as { view: 'dashboard' | number; panel: 'chat' | 'tickets' | 'alerts' | null };
+        if (parsed.view === 'dashboard' || typeof parsed.view === 'number') {
+          setView(parsed.view);
+        } else {
+          setView('dashboard');
+        }
+        if (parsed.panel === 'chat' || parsed.panel === 'tickets' || parsed.panel === 'alerts' || parsed.panel === null) {
+          setPanel(parsed.panel);
+        } else {
+          setPanel(null);
+        }
+        return;
+      } catch {
+        // fallthrough
+      }
+    }
     setView('dashboard');
     setPanel(null);
   }, [activeClientId]);
+
+  useEffect(() => {
+    if (!activeClientId) return;
+    const key = `checkup_preassessment_view_${activeClientId}`;
+    localStorage.setItem(key, JSON.stringify({ view, panel }));
+  }, [activeClientId, view, panel]);
+
+  useEffect(() => {
+    if (!preassessmentId) return;
+
+    const fetchPresence = () => {
+      preassessmentApi.getPresence(preassessmentId)
+        .then((res) => {
+          const next: Record<string, { userId: string; name: string }> = {};
+          res.fields.forEach((f) => {
+            next[f.fieldId] = { userId: f.userId, name: f.name };
+          });
+          setActiveEditors(next);
+        })
+        .catch(() => {
+          setActiveEditors({});
+        });
+    };
+
+    fetchPresence();
+    presenceTimerRef.current = setInterval(fetchPresence, 2000);
+
+    return () => {
+      if (presenceTimerRef.current) clearInterval(presenceTimerRef.current);
+      presenceTimerRef.current = null;
+    };
+  }, [preassessmentId]);
+
+  useEffect(() => {
+    if (!showAssessment || !preassessmentId) return;
+    const fetchRemote = async () => {
+      try {
+        if (isStaff && activeClientId) {
+          const res = await preassessmentApi.getClient(activeClientId);
+          const updatedAt = res.preassessment.updatedAt;
+          if (!updatedAt) return;
+          const lastRemote = lastRemoteUpdatedAtRef.current ? new Date(lastRemoteUpdatedAtRef.current).getTime() : 0;
+          const nextRemote = new Date(updatedAt).getTime();
+          if (nextRemote <= lastRemote) return;
+          if (Date.now() - lastLocalChangeRef.current < 1200) return;
+          const base = getInitialData();
+          setClientInfo(res.client);
+          setPreassessmentId(res.preassessment.id);
+          setStudioCanEdit(res.preassessment.studioCanEdit);
+          setData({ ...base, ...(res.preassessment.data || {}) });
+          setNotes(res.preassessment.notes || {});
+          setFieldNotes(res.preassessment.fieldNotes || {});
+          setFieldMeta(res.preassessment.fieldMeta || {});
+          setNaFields(res.preassessment.naFields || getInitialNaFields());
+          setMacroValidations(res.preassessment.macroValidations || {});
+          setLastSavedAt(new Date(res.preassessment.updatedAt).toLocaleTimeString('it-IT'));
+          lastRemoteUpdatedAtRef.current = res.preassessment.updatedAt;
+          return;
+        }
+
+        const res = await preassessmentApi.get();
+        const updatedAt = res.updatedAt;
+        if (!updatedAt) return;
+        const lastRemote = lastRemoteUpdatedAtRef.current ? new Date(lastRemoteUpdatedAtRef.current).getTime() : 0;
+        const nextRemote = new Date(updatedAt).getTime();
+        if (nextRemote <= lastRemote) return;
+        if (Date.now() - lastLocalChangeRef.current < 1200) return;
+        const base = getInitialData();
+        setClientInfo(null);
+        setPreassessmentId(res.id);
+        setStudioCanEdit(res.studioCanEdit);
+        setData({ ...base, ...(res.data || {}) });
+        setNotes(res.notes || {});
+        setFieldNotes(res.fieldNotes || {});
+        setFieldMeta(res.fieldMeta || {});
+        setNaFields(res.naFields || getInitialNaFields());
+        setMacroValidations(res.macroValidations || {});
+        setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
+        lastRemoteUpdatedAtRef.current = res.updatedAt;
+      } catch {
+        // ignore polling errors
+      }
+    };
+
+    fetchRemote();
+    const timer = setInterval(fetchRemote, 4000);
+    return () => clearInterval(timer);
+  }, [showAssessment, preassessmentId, isStaff, activeClientId]);
+
+  useEffect(() => {
+    if (!didInitRef.current) return;
+    lastLocalChangeRef.current = Date.now();
+  }, [data, notes, fieldNotes, naFields, macroValidations, studioCanEdit]);
 
   useEffect(() => {
     if (!didInitRef.current) return;
@@ -327,52 +526,122 @@ export default function PreassessmentPage() {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       setSaving(true);
-      const payload = { data, notes, fieldNotes, studioCanEdit: isClient ? studioCanEdit : undefined };
+      const payload = {
+        data,
+        notes,
+        fieldNotes,
+        naFields,
+        macroValidations,
+        studioCanEdit: isClient ? studioCanEdit : undefined,
+      };
       const promise = isStaff && activeClientId
         ? preassessmentApi.updateClient(activeClientId, payload)
         : preassessmentApi.update(payload);
       promise
         .then((res) => {
           setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
+          if (res.fieldMeta) {
+            setFieldMeta(res.fieldMeta);
+          }
         })
         .catch(() => {
           setError('Errore durante il salvataggio');
         })
         .finally(() => setSaving(false));
     }, 700);
-  }, [data, notes, fieldNotes, studioCanEdit, canEdit, isClient, isStaff, activeClientId, preassessmentId]);
+  }, [data, notes, fieldNotes, naFields, macroValidations, studioCanEdit, canEdit, isClient, isStaff, activeClientId, preassessmentId]);
+
+  const emitFieldActive = useCallback((fieldId: string) => {
+    if (!preassessmentId || !canEdit) return;
+    preassessmentApi.setPresenceActive(preassessmentId, fieldId)
+      .catch(() => preassessmentApi.getPresence(preassessmentId).then((res) => {
+        const next: Record<string, { userId: string; name: string }> = {};
+        res.fields.forEach((f) => {
+          next[f.fieldId] = { userId: f.userId, name: f.name };
+        });
+        setActiveEditors(next);
+      }).catch(() => {}));
+  }, [preassessmentId, canEdit]);
+
+  const emitFieldInactive = useCallback((fieldId: string) => {
+    if (!preassessmentId || !canEdit) return;
+    preassessmentApi.setPresenceInactive(preassessmentId, fieldId).catch(() => {});
+  }, [preassessmentId, canEdit]);
 
   const handleChange = useCallback((id: string, val: string) => {
     if (!canEdit) return;
     setData((p) => ({ ...p, [id]: val }));
-  }, [canEdit]);
+    emitFieldActive(id);
+  }, [canEdit, emitFieldActive]);
 
   const handleFieldNote = useCallback((id: string, val: string) => {
-    if (!canEdit) return;
+    if (!canEdit || isClient) return;
     setFieldNotes((p) => ({ ...p, [id]: val }));
-  }, [canEdit]);
+  }, [canEdit, isClient]);
 
   const handleSectionNote = useCallback((id: string, val: string) => {
     if (!canEdit) return;
     setNotes((p) => ({ ...p, [id]: val }));
   }, [canEdit]);
 
+  const handleNaChange = useCallback((id: string, checked: boolean) => {
+    if (!canEdit) return;
+    setNaFields((p) => ({ ...p, [id]: checked }));
+    if (checked) {
+      setData((p) => ({ ...p, [id]: '' }));
+    }
+  }, [canEdit]);
+
+  const handleValidateMacro = useCallback((macroId: string) => {
+    if (!activeClientId || !user) return;
+    const name = `${user.nome} ${user.cognome}`.trim() || user.email;
+    setMacroValidations((p) => ({
+      ...p,
+      [macroId]: {
+        by: { id: user.id, name, ruolo: user.ruolo },
+        at: new Date().toISOString(),
+      },
+    }));
+  }, [activeClientId, user]);
+
+  const handleRevokeValidation = useCallback((macroId: string) => {
+    if (!activeClientId) return;
+    setMacroValidations((p) => {
+      const next = { ...p };
+      delete next[macroId];
+      return next;
+    });
+  }, [activeClientId]);
+
   const totalReq = useMemo(
-    () => SECTIONS.reduce((a, s) => a + s.fields.filter((f) => f.required).length, 0),
-    [],
+    () => SECTIONS.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id]).length, 0),
+    [naFields],
   );
   const totalFilled = useMemo(
-    () => SECTIONS.reduce((a, s) => a + s.fields.filter((f) => f.required && data[f.id]?.trim()).length, 0),
-    [data],
+    () => SECTIONS.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id] && data[f.id]?.trim()).length, 0),
+    [data, naFields],
   );
   const totalFields = useMemo(
     () => SECTIONS.reduce((a, s) => a + s.fields.length, 0),
     [],
   );
+  const totalNA = useMemo(
+    () => Object.values(naFields).filter(Boolean).length,
+    [naFields],
+  );
   const pct = totalReq > 0 ? Math.round((totalFilled / totalReq) * 100) : 0;
 
-  const sDone = (s: SectionSpec) => s.fields.filter((f) => f.required && data[f.id]?.trim()).length;
-  const sTotal = (s: SectionSpec) => s.fields.filter((f) => f.required).length;
+  const sDone = (s: SectionSpec) => s.fields.filter((f) => f.required && !naFields[f.id] && data[f.id]?.trim()).length;
+  const sTotal = (s: SectionSpec) => s.fields.filter((f) => f.required && !naFields[f.id]).length;
+  const sNA = (s: SectionSpec) => s.fields.filter((f) => naFields[f.id]).length;
+
+  const fieldMatchesFilter = (f: FieldSpec) => {
+    if (dashFilter === 'all') return true;
+    if (dashFilter === 'completed') return !naFields[f.id] && !!data[f.id]?.trim();
+    if (dashFilter === 'todo') return !naFields[f.id] && !data[f.id]?.trim();
+    if (dashFilter === 'na') return !!naFields[f.id];
+    return true;
+  };
 
   const filtered = useMemo(() => {
     if (!search.trim()) return SECTIONS;
@@ -391,22 +660,48 @@ export default function PreassessmentPage() {
     [filtered],
   );
 
+  const isOwnerForMacro = (macroId: string) => {
+    if (!isClient || !user?.email) return false;
+    const ownerField = OWNER_EMAIL_BY_MACRO[macroId];
+    if (!ownerField) return false;
+    const ownerEmail = (data[ownerField] || '').trim().toLowerCase();
+    return ownerEmail !== '' && ownerEmail === user.email.toLowerCase();
+  };
+
   const activeSection = typeof view === 'number' ? SECTIONS[view] : null;
   const activeMacro = activeSection ? MACRO_AREAS.find((m) => m.id === activeSection.macro) : null;
+  const dashFilterLabel = dashFilter === 'completed'
+    ? 'Completati'
+    : dashFilter === 'todo'
+      ? 'Da completare'
+      : dashFilter === 'na'
+        ? 'N/A'
+        : 'Tutti';
 
   const exportJSON = () => {
+    const excludeNA = exportMode === 'excludeNA';
+    const includeNotes = exportIncludeConsultantNotes;
     const exp = {
-      tool: 'Governance Pre-Assessment Tool v6.0',
+      tool: 'Governance Pre-Assessment Tool v13',
       data_compilazione: new Date().toISOString(),
+      modalita: excludeNA ? 'Escludi N/A' : 'Completo',
+      note_consulente: includeNotes ? 'incluse' : 'escluse',
       sezioni: SECTIONS.map((s) => ({
         id: s.id,
         titolo: s.title,
         macro_area: MACRO_AREAS.find((m) => m.id === s.macro)?.label,
         risposte: Object.fromEntries(
-          s.fields.map((f) => [
-            f.id,
-            { label: f.label, valore: data[f.id] || '', nota_campo: fieldNotes[f.id] || '' },
-          ]),
+          s.fields
+            .filter((f) => !(excludeNA && naFields[f.id]))
+            .map((f) => {
+              const isNA = !!naFields[f.id];
+              const value = isNA ? 'N/A' : (data[f.id] || '');
+              const entry: Record<string, string> = { label: f.label, valore: value };
+              if (includeNotes && fieldNotes[f.id] && !isNA) {
+                entry.nota_consulente = fieldNotes[f.id] || '';
+              }
+              return [f.id, entry];
+            }),
         ),
         note_sezione: notes[s.id] || '',
       })),
@@ -421,11 +716,24 @@ export default function PreassessmentPage() {
   };
 
   const exportCSV = () => {
-    let csv = 'Macro Area;Sezione;Campo;Obbligatorio;Valore;Nota Campo;Note Sezione\n';
+    const excludeNA = exportMode === 'excludeNA';
+    const includeNotes = exportIncludeConsultantNotes;
+    let csv = 'Macro Area;Sezione;Campo;Obbligatorio;Valore';
+    if (includeNotes) csv += ';Nota consulente';
+    csv += ';Note sezione\n';
     SECTIONS.forEach((s) => {
       const m = MACRO_AREAS.find((x) => x.id === s.macro)?.label || '';
-      s.fields.forEach((f, i) => {
-        csv += `"${m}";"${s.title}";"${f.label}";"${f.required ? 'Sì' : 'No'}";"${(data[f.id] || '').replace(/"/g, '""').replace(/\n/g, ' ')}";"${(fieldNotes[f.id] || '').replace(/"/g, '""')}";"${i === 0 ? (notes[s.id] || '').replace(/"/g, '""') : ''}"\n`;
+      const rows = s.fields.filter((f) => !(excludeNA && naFields[f.id]));
+      rows.forEach((f, i) => {
+        const isNA = !!naFields[f.id];
+        const rawValue = isNA ? 'N/A' : (data[f.id] || '');
+        const value = rawValue.includes('||') ? rawValue.split('||').join(', ') : rawValue;
+        let row = `"${m}";"${s.title}";"${f.label}";"${f.required ? 'Sì' : 'No'}";"${value.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+        if (includeNotes) {
+          row += `;"${(isNA ? '' : (fieldNotes[f.id] || '')).replace(/"/g, '""')}"`;
+        }
+        row += `;"${i === 0 ? (notes[s.id] || '').replace(/"/g, '""') : ''}"\n`;
+        csv += row;
       });
     });
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
@@ -464,6 +772,8 @@ export default function PreassessmentPage() {
     const ragione = data.ragione_sociale || 'Società non specificata';
     const logoUrl = await getLogoDataUrl();
     const sanitize = (value?: string) => (value || '').replace(/[✅✔️✔🟢🟩]/g, '').trim();
+    const excludeNA = exportMode === 'excludeNA';
+    const includeNotes = exportIncludeConsultantNotes;
 
     let html = `<!doctype html><html lang="it"><head><meta charset="utf-8">
     <title>Report Pre-Assessment — ${ragione}</title>
@@ -779,9 +1089,8 @@ export default function PreassessmentPage() {
             <h3>Cliente</h3>
             <div class="client-grid">
               <div class="client-item"><div class="label">Ragione sociale</div><div class="value">${ragione}</div></div>
-              <div class="client-item"><div class="label">Email</div><div class="value">${data.email || '-'}</div></div>
-              <div class="client-item"><div class="label">Partita IVA</div><div class="value">${data.partita_iva || '-'}</div></div>
-              <div class="client-item"><div class="label">Codice Fiscale</div><div class="value">${data.codice_fiscale || '-'}</div></div>
+              <div class="client-item"><div class="label">Codice fiscale / Partita IVA</div><div class="value">${data.cf_piva || '-'}</div></div>
+              <div class="client-item"><div class="label">Sede legale</div><div class="value">${data.sede_legale || '-'}</div></div>
             </div>
           </div>
 
@@ -820,7 +1129,9 @@ export default function PreassessmentPage() {
     };
 
     const sectionPages = SECTIONS.flatMap((s) => {
-      const chunks = chunkFields(s.fields, FIELDS_PER_PAGE);
+      const fields = excludeNA ? s.fields.filter((f) => !naFields[f.id]) : s.fields;
+      if (fields.length === 0) return [];
+      const chunks = chunkFields(fields, FIELDS_PER_PAGE);
       return chunks.map((chunk, idx) => ({
         section: s,
         chunk,
@@ -837,10 +1148,12 @@ export default function PreassessmentPage() {
       html += `<div class="pdf-page section-page ${isLastPage ? 'last' : ''}"><div class="section-body"><div class="section">`;
       html += `<div class="macro-label">${macroLabel}</div><h3>${title}</h3>`;
       chunk.forEach((f) => {
-        const v = sanitize(data[f.id]);
-        const fn = sanitize(fieldNotes[f.id]);
+        const isNA = !!naFields[f.id];
+        const rawValue = isNA ? 'N/A' : sanitize(data[f.id]);
+        const v = rawValue.includes('||') ? rawValue.split('||').join(', ') : rawValue;
+        const fn = includeNotes && !isNA ? sanitize(fieldNotes[f.id]) : '';
         html += `<div class="field"><div class="field-label">${f.label}${f.required ? ' *' : ''}</div><div class="field-value">${v ? v.replace(/\n/g, '<br>') : '<span class="empty">—</span>'}`;
-        if (fn) html += `<div class="field-note"><span class="note-label">Nota risposta:</span>${fn.replace(/\n/g, '<br>')}</div>`;
+        if (fn) html += `<div class="field-note"><span class="note-label">Nota consulente:</span>${fn.replace(/\n/g, '<br>')}</div>`;
         html += `</div></div>`;
       });
       const sectionNote = sanitize(notes[section.id]);
@@ -867,29 +1180,34 @@ export default function PreassessmentPage() {
     html += `
     </body></html>`;
 
-    preassessmentApi.downloadPdf(html)
-      .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `pre_assessment_${new Date().toISOString().slice(0, 10)}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Errore durante la generazione del PDF');
-      });
+    setPdfLoading(true);
+    try {
+      const blob = await preassessmentApi.downloadPdf(html);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pre_assessment_${new Date().toISOString().slice(0, 10)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante la generazione del PDF');
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
-  const loadChat = useCallback(async () => {
+  const loadChat = useCallback(async (markRead = false) => {
     if (!preassessmentId) return;
     try {
       const msgs = await preassessmentChatApi.getMessages(preassessmentId, CHAT_SECTION_ID);
       setChatMessages(msgs);
-      for (const msg of msgs) {
-        if (!msg.letto && msg.userId !== user?.id) {
+      const unread = msgs.filter((msg) => !msg.letto && msg.userId !== user?.id);
+      setChatUnreadCount(unread.length);
+      if (markRead && unread.length > 0) {
+        for (const msg of unread) {
           preassessmentChatApi.markAsRead(msg.id).catch(() => {});
         }
+        setChatUnreadCount(0);
       }
     } catch {
       // ignore
@@ -900,6 +1218,29 @@ export default function PreassessmentPage() {
     if (!preassessmentId) return;
     try {
       const res = await preassessmentTicketApi.list(preassessmentId);
+      const prevIds = lastTicketIdsRef.current;
+      const nextIds = new Set(res.map((t) => t.id));
+      if (prevIds.size > 0 && isStaff) {
+        const newTickets = res.filter((t) => !prevIds.has(t.id) && t.status === 'open');
+        if (newTickets.length > 0) {
+          setTicketNotice({ count: newTickets.length, at: Date.now() });
+          try {
+            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = 880;
+            gain.gain.value = 0.08;
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.12);
+          } catch {
+            // ignore audio errors
+          }
+        }
+      }
+      lastTicketIdsRef.current = nextIds;
       setTickets(res);
     } catch {
       setTickets([]);
@@ -923,11 +1264,47 @@ export default function PreassessmentPage() {
   }, [preassessmentId, loadTickets, loadAlerts]);
 
   useEffect(() => {
-    if (panel !== 'chat' || !preassessmentId) return;
-    loadChat();
-    const interval = setInterval(loadChat, 10000);
+    if (!preassessmentId) return;
+    const interval = setInterval(() => {
+      loadTickets();
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [preassessmentId, loadTickets]);
+
+  useEffect(() => {
+    if (!preassessmentId) return;
+    if (panel === 'chat') {
+      loadChat(true);
+      const interval = setInterval(() => loadChat(true), 5000);
+      return () => clearInterval(interval);
+    }
+    loadChat(false);
+    const interval = setInterval(() => loadChat(false), 5000);
     return () => clearInterval(interval);
   }, [panel, preassessmentId, loadChat]);
+
+  useEffect(() => {
+    if (panel !== 'chat' || !preassessmentId) {
+      setTypingUsers([]);
+      if (typingTimerRef.current) clearInterval(typingTimerRef.current);
+      typingTimerRef.current = null;
+      return;
+    }
+    const fetchTyping = () => {
+      preassessmentApi.getTyping(preassessmentId, CHAT_SECTION_ID)
+        .then((res) => {
+          const others = res.users.filter((u) => u.userId !== user?.id);
+          setTypingUsers(others);
+        })
+        .catch(() => setTypingUsers([]));
+    };
+    fetchTyping();
+    typingTimerRef.current = setInterval(fetchTyping, 2000);
+    return () => {
+      if (typingTimerRef.current) clearInterval(typingTimerRef.current);
+      typingTimerRef.current = null;
+    };
+  }, [panel, preassessmentId, user?.id]);
 
   useEffect(() => {
     if (panel !== 'tickets' || !preassessmentId) return;
@@ -972,23 +1349,28 @@ export default function PreassessmentPage() {
     const term = clientQuery.trim().toLowerCase();
     const results = term
       ? clients.filter((c) => {
-        const name = `${c.client.nome} ${c.client.cognome}`.trim().toLowerCase();
+        const name = `${c.client.nome || ''} ${c.client.cognome || ''}`.trim().toLowerCase();
         const email = c.client.email?.toLowerCase() || '';
         const azienda = c.client.azienda?.toLowerCase() || '';
-        return name.includes(term) || email.includes(term) || azienda.includes(term);
+        const ragione = c.client.ragioneSociale?.toLowerCase() || '';
+        return name.includes(term) || email.includes(term) || azienda.includes(term) || ragione.includes(term);
       })
       : clients;
     setClientResults(results);
     setClientSearched(true);
   };
 
-  const clientName = isClient
-    ? `${user?.nome || ''} ${user?.cognome || ''}`.trim()
-    : `${clientInfo?.nome || ''} ${clientInfo?.cognome || ''}`.trim();
+  const compilerName = `${user?.nome || ''} ${user?.cognome || ''}`.trim();
+  const clientDisplayName = `${clientInfo?.nome || ''} ${clientInfo?.cognome || ''}`.trim();
+  const companyName = isClient
+    ? (user?.azienda || user?.client?.ragioneSociale || user?.clientNome || clientInfo?.azienda || clientInfo?.ragioneSociale || clientDisplayName)
+    : (clientInfo?.azienda || clientInfo?.ragioneSociale || clientDisplayName);
 
-  const otherName = isClient ? 'Studio' : (clientName || 'Cliente');
+  const otherName = isClient ? 'Studio' : (companyName || 'Cliente');
 
-  const openTickets = tickets.filter((t) => t.status === 'open').length;
+  const openTickets = tickets.filter((t) =>
+    isStaff ? t.status === 'open' : t.status === 'pending_close',
+  ).length;
 
   const renderDashboard = () => {
     if (isStaff && !activeClientId) {
@@ -1086,27 +1468,69 @@ export default function PreassessmentPage() {
       return t > 0 && sDone(s) === t;
     }).length;
 
-    const macroRows = MACRO_AREAS.map((m) => {
+    const filteredMacros = MACRO_AREAS.filter((m) => m.id !== 'k');
+    const validatedCount = filteredMacros.filter((m) => macroValidations[m.id]).length;
+    const macroRows = filteredMacros.map((m) => {
       const sects = SECTIONS.filter((s) => s.macro === m.id);
       const total = sects.reduce((a, s) => a + sTotal(s), 0);
       const done = sects.reduce((a, s) => a + sDone(s), 0);
+      const naCount = sects.reduce((a, s) => a + sNA(s), 0);
       const pctMacro = total > 0 ? Math.round((done / total) * 100) : 0;
-      return { ...m, total, done, pctMacro, sections: sects.length };
+      return { ...m, total, done, naCount, pctMacro, sections: sects.length };
     });
+    const sectionCards = SECTIONS.filter((s) => s.fields.some(fieldMatchesFilter));
 
     return (
       <div className="space-y-6">
         <div className="wow-card p-6 md:p-8 bg-gradient-to-br from-indigo-700 via-blue-600 to-cyan-500 text-white">
           <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
             <div>
-              <h2 className="text-2xl font-semibold">{clientName || 'Cliente'}</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-2xl font-semibold">{companyName || 'Cliente'}</h2>
+                {isPreassessmentOnline && (
+                  <span className="group relative inline-flex items-center" aria-label="Online adesso">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                    <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white opacity-0 shadow-sm transition group-hover:opacity-100">
+                      Online adesso
+                    </span>
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-white/80">
                 {readOnly ? 'Modalità visualizzazione (sola lettura)' : 'Compilazione assessment'}
               </p>
+              {compilerName && (
+                <p className="text-xs text-white/70 mt-1">
+                  In compilazione: {compilerName}
+                </p>
+              )}
             </div>
             <div className="text-left md:text-right">
               <div className="text-4xl font-semibold">{pct}%</div>
               <div className="text-xs text-white/80">completamento</div>
+              {onlineUsers.length > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 md:justify-end">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">
+                    Online ora
+                  </span>
+                  <div className="flex -space-x-2">
+                    {onlineUsers.slice(0, 6).map((userOnline) => (
+                      <span
+                        key={userOnline.userId}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/60 bg-white/10 text-[10px] font-semibold text-white shadow-sm backdrop-blur"
+                        title={userOnline.name}
+                      >
+                        {getInitials(userOnline.name) || 'U'}
+                      </span>
+                    ))}
+                    {onlineUsers.length > 6 && (
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/50 bg-white/20 text-[10px] font-semibold text-white">
+                        +{onlineUsers.length - 6}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <div className="mt-6 h-2 rounded-full bg-white/30">
@@ -1117,12 +1541,35 @@ export default function PreassessmentPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="wow-panel p-3 flex flex-wrap items-center gap-2">
+          {[
+            { key: 'all', label: 'Tutti' },
+            { key: 'completed', label: 'Completati' },
+            { key: 'todo', label: 'Da completare' },
+            { key: 'na', label: 'N/A' },
+          ].map((item) => (
+            <button
+              key={item.key}
+              onClick={() => setDashFilter(item.key as 'all' | 'completed' | 'todo' | 'na')}
+              className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+                dashFilter === item.key
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+          <span className="ml-auto text-xs font-semibold text-slate-500">Filtro attivo: {dashFilterLabel}</span>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           {[
             { label: 'Macro Aree', value: MACRO_AREAS.length, detail: 'aree tematiche' },
             { label: 'Sezioni', value: SECTIONS.length, detail: `${completedSections} completate` },
             { label: 'Campi', value: totalFields, detail: `${totalReq} obbligatori` },
             { label: 'Compilati', value: totalFilled, detail: `su ${totalReq}` },
+            { label: 'N/A', value: totalNA, detail: 'campi esclusi' },
           ].map((item) => (
             <div key={item.label} className="wow-card p-4">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</div>
@@ -1135,6 +1582,11 @@ export default function PreassessmentPage() {
         <div className="wow-panel p-5">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-slate-900">Stato per Macro Area</h3>
+            {validatedCount > 0 && (
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                {validatedCount}/{filteredMacros.length} validate
+              </span>
+            )}
           </div>
           <div className="mt-4 overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -1144,8 +1596,10 @@ export default function PreassessmentPage() {
                   <th className="px-3 py-2">Sezioni</th>
                   <th className="px-3 py-2">Obb.</th>
                   <th className="px-3 py-2">Compilati</th>
+                  <th className="px-3 py-2">N/A</th>
                   <th className="px-3 py-2">Stato</th>
                   <th className="px-3 py-2">Progresso</th>
+                  <th className="px-3 py-2">Validazione</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -1155,6 +1609,11 @@ export default function PreassessmentPage() {
                     <td className="px-3 py-3">{row.sections}</td>
                     <td className="px-3 py-3">{row.total}</td>
                     <td className="px-3 py-3">{row.done}</td>
+                    <td className="px-3 py-3">
+                      <span className={row.naCount > 0 ? 'text-rose-600 font-semibold' : 'text-slate-400'}>
+                        {row.naCount > 0 ? row.naCount : '—'}
+                      </span>
+                    </td>
                     <td className="px-3 py-3">
                       <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${row.pctMacro === 0 ? 'bg-slate-100 text-slate-500' : row.pctMacro === 100 ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>
                         {row.pctMacro === 0 ? 'Da iniziare' : row.pctMacro === 100 ? 'Completo' : 'In corso'}
@@ -1171,6 +1630,39 @@ export default function PreassessmentPage() {
                         <span className="text-xs text-slate-500">{row.pctMacro}%</span>
                       </div>
                     </td>
+                    <td className="px-3 py-3">
+                      {macroValidations[row.id] ? (
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Validata</span>
+                          <span className="text-[10px] text-slate-400">
+                            {macroValidations[row.id].by.name} • {new Date(macroValidations[row.id].at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {isOwnerForMacro(row.id) && (
+                            <button
+                              onClick={() => handleRevokeValidation(row.id)}
+                              className="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600"
+                            >
+                              Revoca
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div>
+                          {isOwnerForMacro(row.id) && row.pctMacro === 100 ? (
+                            <button
+                              onClick={() => handleValidateMacro(row.id)}
+                              className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"
+                            >
+                              Valida
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">
+                              {row.pctMacro === 100 ? '—' : 'Completare'}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1178,36 +1670,53 @@ export default function PreassessmentPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {SECTIONS.map((s, idx) => {
+        {sectionCards.length === 0 ? (
+          <div className="wow-panel p-6 text-sm text-slate-500">
+            Nessuna sezione corrisponde al filtro selezionato.
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {sectionCards.map((s) => {
             const done = sDone(s);
             const total = sTotal(s);
+            const naCount = sNA(s);
             const sp = total > 0 ? Math.round((done / total) * 100) : 0;
             const macro = MACRO_AREAS.find((m) => m.id === s.macro);
+            const isValidated = !!macroValidations[s.macro];
+            const realIndex = SECTIONS.indexOf(s);
             return (
               <button
                 key={s.id}
-                onClick={() => setView(idx)}
-                className="wow-card p-4 text-left transition hover:border-blue-300"
+                onClick={() => setView(realIndex)}
+                className={`wow-card p-4 text-left transition hover:border-blue-300 ${isValidated ? 'border-emerald-200' : ''}`}
               >
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: macro?.color }}>{macro?.label}</span>
-                  <span className="text-xs font-semibold text-slate-500">{done}/{total}</span>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                    {isValidated && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
+                    <span>{done}/{total}</span>
+                  </div>
                 </div>
                 <div className="text-sm font-semibold text-slate-900">{s.title}</div>
+                {naCount > 0 && (
+                  <div className="mt-1 text-[11px] font-semibold text-rose-600">N/A: {naCount}</div>
+                )}
                 <div className="mt-3 h-2 rounded-full bg-slate-100">
                   <div className="h-full rounded-full" style={{ width: `${sp}%`, background: sp === 100 ? '#10b981' : macro?.color }} />
                 </div>
               </button>
             );
-          })}
-        </div>
+            })}
+          </div>
+        )}
       </div>
     );
   };
 
   const renderSection = () => {
     if (!activeSection) return null;
+    const visibleFields = activeSection.fields.filter(fieldMatchesFilter);
+    const macroValidation = macroValidations[activeSection.macro];
     return (
       <div className="space-y-4">
         {readOnly && (
@@ -1223,10 +1732,23 @@ export default function PreassessmentPage() {
             </span>
             <h2 className="mt-3 text-2xl font-semibold text-slate-900">{activeSection.title}</h2>
             <p className="text-sm text-slate-600">{activeSection.description}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500">
+              <span>Filtro: {dashFilter === 'completed' ? 'Completati' : dashFilter === 'todo' ? 'Da completare' : dashFilter === 'na' ? 'N/A' : 'Tutti'}</span>
+              {macroValidation && (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                  Macro validata • {macroValidation.by.name} • {new Date(macroValidation.at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="space-y-5 p-6">
-            {activeSection.fields.map((f) => (
+            {visibleFields.length === 0 && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                Nessun campo corrispondente al filtro selezionato.
+              </div>
+            )}
+            {visibleFields.map((f) => (
               <FormField
                 key={f.id}
                 field={f}
@@ -1235,6 +1757,14 @@ export default function PreassessmentPage() {
                 fieldNote={fieldNotes[f.id]}
                 onNoteChange={handleFieldNote}
                 readOnly={readOnly}
+                fieldMeta={fieldMeta[f.id]}
+                activeEditor={activeEditors[f.id]}
+                currentUserId={user?.id}
+                onFieldFocus={emitFieldActive}
+                onFieldBlur={emitFieldInactive}
+                naChecked={!!naFields[f.id]}
+                onNaChange={handleNaChange}
+                canEditNotes={!isClient && !readOnly}
               />
             ))}
           </div>
@@ -1319,8 +1849,21 @@ export default function PreassessmentPage() {
               {lastSavedAt && (
                 <div>Salvato alle {lastSavedAt}</div>
               )}
-              {clientName && (
-                <div>Cliente: {clientName}{clientInfo?.azienda ? ` • ${clientInfo.azienda}` : ''}</div>
+              {companyName && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>Cliente: {companyName}</span>
+                  {isPreassessmentOnline && (
+                    <span className="group relative inline-flex items-center" aria-label="Online adesso">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                      <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white opacity-0 shadow-sm transition group-hover:opacity-100">
+                        Online adesso
+                      </span>
+                    </span>
+                  )}
+                </div>
+              )}
+              {!panel && view === 'dashboard' && (
+                <div>Filtro dashboard: {dashFilterLabel}</div>
               )}
               {readOnly && (
                 <div className="text-amber-700 font-semibold">Sola lettura • Modifiche non autorizzate dal cliente</div>
@@ -1332,7 +1875,7 @@ export default function PreassessmentPage() {
           </div>
           <div className="flex flex-col items-start gap-2 md:items-end">
             <div className="flex flex-wrap gap-3">
-              {activeClientId && (
+              {activeClientId && !isClient && (
                 <button
                   onClick={() => setShowExport((p) => !p)}
                   className="wow-button-ghost"
@@ -1353,14 +1896,39 @@ export default function PreassessmentPage() {
                 <span className="text-xs font-semibold text-slate-500">Salvataggio…</span>
               )}
             </div>
-            {showExport && activeClientId && (
-              <div className="flex flex-wrap gap-2">
-                <button onClick={exportJSON} className="wow-button-ghost">JSON</button>
-                <button onClick={exportCSV} className="wow-button-ghost">CSV</button>
-                <button onClick={generatePDF} className="wow-button">
-                  <Printer className="h-4 w-4" />
-                  Report PDF
-                </button>
+            {showExport && activeClientId && !isClient && (
+              <div className="flex flex-col items-start gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setExportMode('excludeNA')}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${exportMode === 'excludeNA' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+                  >
+                    Escludi N/A
+                  </button>
+                  <button
+                    onClick={() => setExportMode('includeNA')}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${exportMode === 'includeNA' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+                  >
+                    Includi N/A
+                  </button>
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={exportIncludeConsultantNotes}
+                      onChange={(e) => setExportIncludeConsultantNotes(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                    />
+                    Note consulente
+                  </label>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={exportJSON} className="wow-button-ghost">JSON</button>
+                  <button onClick={exportCSV} className="wow-button-ghost">CSV</button>
+                  <button onClick={generatePDF} className="wow-button" disabled={pdfLoading}>
+                    {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                    {pdfLoading ? 'Preparazione PDF...' : 'Report PDF'}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1387,9 +1955,14 @@ export default function PreassessmentPage() {
                 await preassessmentChatApi.sendMessage(preassessmentId, CHAT_SECTION_ID, msg);
                 await loadChat();
               }}
+              onTyping={(active) => {
+                if (!preassessmentId) return;
+                preassessmentApi.setTyping(preassessmentId, CHAT_SECTION_ID, active).catch(() => {});
+              }}
               canSend={canChat}
               currentUserId={user?.id}
               otherName={otherName}
+              typingUsers={typingUsers}
             />
           )}
           {panel === 'tickets' && showAssessment && (
@@ -1397,8 +1970,25 @@ export default function PreassessmentPage() {
               tickets={tickets}
               onNew={createTicket}
               onReply={replyTicket}
+              onAssign={async (ticketId) => {
+                await preassessmentTicketApi.assign(ticketId);
+                await loadTickets();
+              }}
+              onRequestClose={async (ticketId) => {
+                await preassessmentTicketApi.requestClose(ticketId);
+                await loadTickets();
+              }}
+              onConfirmClose={async (ticketId) => {
+                await preassessmentTicketApi.confirmClose(ticketId);
+                await loadTickets();
+              }}
+              onReopen={async (ticketId) => {
+                await preassessmentTicketApi.reopen(ticketId);
+                await loadTickets();
+              }}
               currentUserId={user?.id}
               isAdmin={user?.ruolo !== 'cliente'}
+              ticketNotice={ticketNotice}
             />
           )}
           {panel === 'alerts' && showAssessment && (
@@ -1432,8 +2022,10 @@ export default function PreassessmentPage() {
           setCollapsed={setCollapsed}
           sDone={sDone}
           sTotal={sTotal}
+          sNA={sNA}
+          validations={macroValidations}
           hasAssessment={!!activeClientId}
-          chatCount={chatMessages.length}
+          chatCount={chatUnreadCount}
           openTickets={openTickets}
         />,
         sidebarTarget,
@@ -1456,6 +2048,8 @@ function PreassessmentSidebar({
   setCollapsed,
   sDone,
   sTotal,
+  sNA,
+  validations,
   hasAssessment,
   chatCount,
   openTickets,
@@ -1473,6 +2067,8 @@ function PreassessmentSidebar({
   setCollapsed: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   sDone: (s: SectionSpec) => number;
   sTotal: (s: SectionSpec) => number;
+  sNA: (s: SectionSpec) => number;
+  validations: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>;
   hasAssessment: boolean;
   chatCount: number;
   openTickets: number;
@@ -1562,6 +2158,8 @@ function PreassessmentSidebar({
                   const active = view === idx && !panel;
                   const done = sDone(s);
                   const total = sTotal(s);
+                  const na = sNA(s);
+                  const isValidated = !!validations[s.macro];
                   return (
                     <button
                       key={s.id}
@@ -1569,8 +2167,10 @@ function PreassessmentSidebar({
                       className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition ${active ? 'bg-blue-700/80 text-white' : 'text-slate-200 hover:bg-blue-900/40'}`}
                     >
                       <span className="truncate">{s.title}</span>
-                      <span className={`text-[10px] font-semibold ${total > 0 && done === total ? 'text-emerald-300' : done > 0 ? 'text-blue-200' : 'text-slate-500'}`}>
-                        {done}/{total}
+                      <span className={`flex items-center gap-2 text-[10px] font-semibold ${total > 0 && done === total ? 'text-emerald-300' : done > 0 ? 'text-blue-200' : 'text-slate-500'}`}>
+                        {isValidated && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
+                        {na > 0 && <span className="text-rose-300">N/A {na}</span>}
+                        <span>{done}/{total}</span>
                       </span>
                     </button>
                   );
@@ -1589,19 +2189,24 @@ function PreassessmentSidebar({
 function ChatPanel({
   messages,
   onSend,
+  onTyping,
   canSend,
   currentUserId,
   otherName,
+  typingUsers,
 }: {
   messages: PreassessmentChatMessage[];
   onSend: (msg: string) => Promise<void> | void;
+  onTyping: (active: boolean) => void;
   canSend: boolean;
   currentUserId?: string;
   otherName: string;
+  typingUsers: Array<{ userId: string; name: string; ruolo: string }>;
 }) {
   const [msg, setMsg] = useState('');
   const [sending, setSending] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1613,9 +2218,26 @@ function ChatPanel({
     try {
       await onSend(msg.trim());
       setMsg('');
+      onTyping(false);
     } finally {
       setSending(false);
     }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    };
+  }, []);
+
+  const handleTyping = (value: string) => {
+    setMsg(value);
+    if (!canSend) return;
+    onTyping(true);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      onTyping(false);
+    }, 2500);
   };
 
   return (
@@ -1638,8 +2260,20 @@ function ChatPanel({
                   </div>
                 )}
                 <div className="whitespace-pre-wrap">{m.messaggio}</div>
-                <div className={`mt-1 text-[10px] ${isOwn ? 'text-blue-200' : 'text-slate-400'} text-right`}>
-                  {new Date(m.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+                <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${isOwn ? 'text-blue-200' : 'text-slate-400'}`}>
+                  <span>{new Date(m.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
+                  {isOwn && (
+                    <span className={`inline-flex items-center ${m.letto ? 'text-emerald-200' : 'text-blue-200'}`}>
+                      <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      {m.letto && (
+                        <svg viewBox="0 0 24 24" className="h-3 w-3 -ml-1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1647,11 +2281,18 @@ function ChatPanel({
         })}
         <div ref={endRef} />
       </div>
+      {typingUsers.length > 0 && (
+        <div className="px-5 pb-2 text-[11px] text-slate-500">
+          {typingUsers.length === 1
+            ? `${typingUsers[0].name} sta scrivendo...`
+            : `${typingUsers.map((u) => u.name).join(', ')} stanno scrivendo...`}
+        </div>
+      )}
       <div className="border-t border-slate-200 px-5 py-3">
         <div className="flex items-center gap-2">
           <input
             value={msg}
-            onChange={(e) => setMsg(e.target.value)}
+            onChange={(e) => handleTyping(e.target.value)}
             placeholder={canSend ? 'Scrivi un messaggio...' : 'Solo lettura'}
             disabled={!canSend}
             className="flex-1 rounded-full border border-slate-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50"
@@ -1674,14 +2315,24 @@ function TicketPanel({
   tickets,
   onNew,
   onReply,
+  onAssign,
+  onRequestClose,
+  onConfirmClose,
+  onReopen,
   currentUserId,
   isAdmin,
+  ticketNotice,
 }: {
   tickets: PreassessmentTicket[];
   onNew: (subject: string, body: string) => Promise<void> | void;
   onReply: (ticketId: string, messaggio: string) => Promise<void> | void;
+  onAssign: (ticketId: string) => Promise<void> | void;
+  onRequestClose: (ticketId: string) => Promise<void> | void;
+  onConfirmClose: (ticketId: string) => Promise<void> | void;
+  onReopen: (ticketId: string) => Promise<void> | void;
   currentUserId?: string;
   isAdmin: boolean;
+  ticketNotice?: { count: number; at: number } | null;
 }) {
   const [showNew, setShowNew] = useState(false);
   const [subject, setSubject] = useState('');
@@ -1709,6 +2360,20 @@ function TicketPanel({
     setReply('');
   };
 
+  const statusLabel = (status: PreassessmentTicket['status']) => {
+    if (status === 'open') return 'Aperto';
+    if (status === 'in_progress') return 'In lavorazione';
+    if (status === 'pending_close') return 'In chiusura';
+    return 'Chiuso';
+  };
+
+  const statusClass = (status: PreassessmentTicket['status']) => {
+    if (status === 'open') return 'bg-amber-100 text-amber-700';
+    if (status === 'in_progress') return 'bg-blue-100 text-blue-700';
+    if (status === 'pending_close') return 'bg-purple-100 text-purple-700';
+    return 'bg-emerald-100 text-emerald-700';
+  };
+
   return (
     <div className="wow-panel flex h-[70vh] flex-col overflow-hidden">
       <div className="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
@@ -1720,6 +2385,11 @@ function TicketPanel({
           </button>
         )}
       </div>
+      {ticketNotice && isAdmin && (
+        <div className="border-b border-blue-200 bg-blue-50 px-5 py-3 text-xs text-blue-700">
+          {ticketNotice.count} nuovo ticket ricevuto
+        </div>
+      )}
       {showNew && (
         <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 space-y-2">
           <input
@@ -1752,8 +2422,8 @@ function TicketPanel({
             className="w-full border-b border-slate-100 px-5 py-4 text-left hover:bg-slate-50"
           >
             <div className="flex items-center gap-2">
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${t.status === 'open' ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                {t.status === 'open' ? 'Aperto' : 'Chiuso'}
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusClass(t.status)}`}>
+                {statusLabel(t.status)}
               </span>
               <span className="text-sm font-semibold text-slate-900">{t.subject}</span>
             </div>
@@ -1761,6 +2431,11 @@ function TicketPanel({
               {new Date(t.createdAt).toLocaleString('it-IT', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
               {' '}— {(t.messages || []).length} risposte
             </div>
+            {t.assignedTo && (
+              <div className="mt-1 text-[11px] text-slate-500">
+                In carico a {t.assignedTo.nome} {t.assignedTo.cognome}
+              </div>
+            )}
           </button>
         ))}
         {selected && (
@@ -1769,6 +2444,16 @@ function TicketPanel({
               <ChevronLeft className="h-4 w-4" /> Indietro
             </button>
             <h4 className="mt-4 text-lg font-semibold text-slate-900">{selected.subject}</h4>
+            <div className="mt-2 flex items-center gap-2">
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusClass(selected.status)}`}>
+                {statusLabel(selected.status)}
+              </span>
+              {selected.assignedTo && (
+                <span className="text-[11px] text-slate-500">
+                  In carico a {selected.assignedTo.nome} {selected.assignedTo.cognome}
+                </span>
+              )}
+            </div>
             <div className="mt-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-700">
               {selected.body}
               <div className="mt-2 text-[10px] text-slate-400">
@@ -1787,6 +2472,35 @@ function TicketPanel({
                   </div>
                 </div>
               ))}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {isAdmin && selected.status !== 'closed' && (
+                <>
+                  {selected.status === 'open' && (
+                    <button onClick={() => onAssign(selected.id)} className="wow-button-ghost text-xs">
+                      Prendi in carico
+                    </button>
+                  )}
+                  {selected.status === 'in_progress' && selected.assignedToId === currentUserId && (
+                    <button onClick={() => onRequestClose(selected.id)} className="wow-button text-xs">
+                      Richiedi chiusura
+                    </button>
+                  )}
+                  {selected.status === 'pending_close' && (
+                    <span className="text-[11px] text-slate-500">In attesa di conferma cliente</span>
+                  )}
+                </>
+              )}
+              {!isAdmin && selected.status === 'pending_close' && (
+                <button onClick={() => onConfirmClose(selected.id)} className="wow-button text-xs">
+                  Conferma chiusura
+                </button>
+              )}
+              {isAdmin && selected.status === 'closed' && (
+                <button onClick={() => onReopen(selected.id)} className="wow-button-ghost text-xs">
+                  Riapri ticket
+                </button>
+              )}
             </div>
             <div className="mt-4 flex gap-2">
               <input
@@ -1917,13 +2631,21 @@ function AlertPanel({
   );
 }
 
-function FormField({
+const FormField = memo(function FormField({
   field,
   value,
   onChange,
   fieldNote,
   onNoteChange,
   readOnly = false,
+  fieldMeta,
+  activeEditor,
+  currentUserId,
+  onFieldFocus,
+  onFieldBlur,
+  naChecked = false,
+  onNaChange,
+  canEditNotes = false,
 }: {
   field: FieldSpec;
   value: string;
@@ -1931,10 +2653,24 @@ function FormField({
   fieldNote?: string;
   onNoteChange: (id: string, val: string) => void;
   readOnly?: boolean;
+  fieldMeta?: { updatedAt: string; updatedBy: { id: string; name: string; ruolo: string } };
+  activeEditor?: { userId: string; name: string };
+  currentUserId?: string;
+  onFieldFocus?: (id: string) => void;
+  onFieldBlur?: (id: string) => void;
+  naChecked?: boolean;
+  onNaChange?: (id: string, checked: boolean) => void;
+  canEditNotes?: boolean;
 }) {
   const [showHelp, setShowHelp] = useState(false);
   const [showNote, setShowNote] = useState(Boolean(fieldNote));
   const helpRef = useRef<HTMLDivElement>(null);
+  const isEditingOther = activeEditor && activeEditor.userId !== currentUserId;
+  const showModified = !!fieldMeta;
+  const modifiedAt = fieldMeta
+    ? new Date(fieldMeta.updatedAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : null;
+  const disabled = readOnly || !!isEditingOther || naChecked;
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -1945,21 +2681,50 @@ function FormField({
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  const renderValue = (raw: string) => {
+    if (!raw) return '';
+    if (raw.includes('||')) return raw.split('||').join(', ');
+    return raw;
+  };
+
   return (
-    <div className="space-y-2">
+    <div className={`space-y-2 rounded-xl ${isEditingOther ? 'ring-2 ring-blue-200/70 bg-blue-50/40 p-3' : ''}`}>
       <div className="flex items-center justify-between gap-3">
-        <label className="text-sm font-medium text-slate-700">
+        <label className={`text-sm font-medium ${naChecked ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
           {field.label}
-          {field.required && <span className="text-rose-500 ml-1">*</span>}
+          {field.required && !naChecked && <span className="text-rose-500 ml-1">*</span>}
         </label>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowNote((p) => !p)}
-            className={`rounded-md border px-2 py-1 text-xs transition ${showNote || fieldNote ? 'border-blue-200 bg-blue-50 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-          >
-            <StickyNote className="h-3.5 w-3.5" />
-          </button>
+          {showModified && (
+            <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5">
+              Ultima modifica: {fieldMeta?.updatedBy.name} • {modifiedAt}
+            </span>
+          )}
+          {isEditingOther && (
+            <span className="text-[10px] font-semibold text-blue-700 bg-blue-100/80 border border-blue-200 rounded-full px-2 py-0.5">
+              In modifica da {activeEditor?.name}
+            </span>
+          )}
+          {!readOnly && !isEditingOther && (
+            <label className={`flex items-center gap-2 rounded-md border px-2 py-1 text-[10px] font-semibold ${naChecked ? 'border-rose-200 bg-rose-50 text-rose-600' : 'border-slate-200 text-slate-500'}`}>
+              <input
+                type="checkbox"
+                checked={naChecked}
+                onChange={(e) => onNaChange?.(field.id, e.target.checked)}
+                className="h-3 w-3 rounded border-slate-300 text-rose-600"
+              />
+              N/A
+            </label>
+          )}
+          {canEditNotes && !naChecked && (
+            <button
+              type="button"
+              onClick={() => setShowNote((p) => !p)}
+              className={`rounded-md border px-2 py-1 text-xs transition ${showNote || fieldNote ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+            >
+              <StickyNote className="h-3.5 w-3.5" />
+            </button>
+          )}
           {field.help && (
             <div className="relative" ref={helpRef}>
               <button
@@ -1979,12 +2744,20 @@ function FormField({
         </div>
       </div>
 
+      {naChecked && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600">
+          Campo contrassegnato come Non Applicabile
+        </div>
+      )}
+
       {field.type === 'textarea' && (
         <textarea
-          value={value}
+          value={renderValue(value)}
           onChange={(e) => onChange(field.id, e.target.value)}
+          onFocus={() => onFieldFocus?.(field.id)}
+          onBlur={() => onFieldBlur?.(field.id)}
           rows={3}
-          disabled={readOnly}
+          disabled={disabled}
           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
         />
       )}
@@ -2001,30 +2774,82 @@ function FormField({
           }))}
           placeholder="— Selezionare —"
           triggerClassName="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm"
-          disabled={readOnly}
+          disabled={disabled}
+          onOpen={() => onFieldFocus?.(field.id)}
+          onClose={() => onFieldBlur?.(field.id)}
+        />
+      )}
+
+      {field.type === 'multiselect' && (
+        <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          {(field.options || []).map((o) => {
+            const selected = (value || '').split('||').filter(Boolean).includes(o);
+            return (
+              <button
+                key={o}
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  if (disabled) return;
+                  const current = (value || '').split('||').filter(Boolean);
+                  const next = selected ? current.filter((x) => x !== o) : [...current, o];
+                  onFieldFocus?.(field.id);
+                  onChange(field.id, next.join('||'));
+                  onFieldBlur?.(field.id);
+                }}
+                className={`rounded-lg border px-3 py-1 text-xs font-semibold transition ${
+                  selected ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600'
+                }`}
+              >
+                {o}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {field.type === 'number' && (
+        <input
+          type="number"
+          value={value}
+          onChange={(e) => onChange(field.id, e.target.value)}
+          onFocus={() => onFieldFocus?.(field.id)}
+          onBlur={() => onFieldBlur?.(field.id)}
+          disabled={disabled}
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
         />
       )}
 
       {field.type === 'text' && (
         <input
           type="text"
-          value={value}
+          value={renderValue(value)}
           onChange={(e) => onChange(field.id, e.target.value)}
-          disabled={readOnly}
+          onFocus={() => onFieldFocus?.(field.id)}
+          onBlur={() => onFieldBlur?.(field.id)}
+          disabled={disabled}
           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
         />
       )}
 
-      {showNote && (
+      {showNote && canEditNotes && !naChecked && (
         <textarea
           value={fieldNote || ''}
           onChange={(e) => onNoteChange(field.id, e.target.value)}
+          onFocus={() => onFieldFocus?.(field.id)}
+          onBlur={() => onFieldBlur?.(field.id)}
           rows={2}
-          placeholder="Nota su questo campo..."
-          disabled={readOnly}
-          className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-slate-50 disabled:text-slate-400"
+          placeholder="Nota consulente..."
+          disabled={disabled}
+          className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 outline-none focus:ring-2 focus:ring-amber-300 disabled:bg-slate-50 disabled:text-slate-400"
         />
+      )}
+
+      {!canEditNotes && fieldNote && !naChecked && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <strong>Nota consulente:</strong> {fieldNote}
+        </div>
       )}
     </div>
   );
-}
+});

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, X, Edit2, Power, PowerOff, Eye, EyeOff } from 'lucide-react';
-import { checkupAdminApi, type CheckupStudio } from '../api/checkupAdmin';
+import { Plus, X, Edit2, Power, PowerOff, Eye, EyeOff, UserPlus, Key } from 'lucide-react';
+import { checkupAdminApi, type CheckupStudio, type CheckupLicense, type CheckupAdminUser } from '../api/checkupAdmin';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
@@ -8,9 +8,17 @@ import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { Pagination } from '../components/Pagination';
 
 export default function AdminCheckupStudiosPage() {
+  const formatDate = (value?: string | null) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toLocaleDateString('it-IT') : '—';
+  };
+
   const { success, error: toastError } = useToast();
   const { confirm, ConfirmDialog } = useConfirmDialog();
   const [studios, setStudios] = useState<CheckupStudio[]>([]);
+  const [licenses, setLicenses] = useState<CheckupLicense[]>([]);
+  const [users, setUsers] = useState<CheckupAdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -34,7 +42,21 @@ export default function AdminCheckupStudiosPage() {
     telefono: '',
     sitoWeb: '',
     note: '',
+    licenseId: '',
   });
+
+  const [showStaffForm, setShowStaffForm] = useState(false);
+  const [staffForm, setStaffForm] = useState({
+    nome: '',
+    cognome: '',
+    email: '',
+    password: '',
+    ruolo: 'admin_studio' as 'admin_studio' | 'segreteria' | 'collaboratore',
+    telefono: '',
+  });
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [selectedStaffUser, setSelectedStaffUser] = useState<CheckupAdminUser | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
 
   const inputClassName =
     'mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200';
@@ -42,8 +64,14 @@ export default function AdminCheckupStudiosPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const studiosData = await checkupAdminApi.getStudios();
+      const [studiosData, licensesData, usersData] = await Promise.all([
+        checkupAdminApi.getStudios(),
+        checkupAdminApi.getLicenses(),
+        checkupAdminApi.getAdminUsers(),
+      ]);
       setStudios(studiosData);
+      setLicenses(licensesData);
+      setUsers(usersData);
       setCurrentPage(1);
     } catch (err: any) {
       toastError(err.message || 'Errore durante il caricamento');
@@ -74,7 +102,9 @@ export default function AdminCheckupStudiosPage() {
       telefono: '',
       sitoWeb: '',
       note: '',
+      licenseId: '',
     });
+    setShowStaffForm(false);
     setShowModal(true);
   };
 
@@ -96,14 +126,17 @@ export default function AdminCheckupStudiosPage() {
       telefono: studio.telefono || '',
       sitoWeb: studio.sitoWeb || '',
       note: studio.note || '',
+      licenseId: licenses.find((l) => l.studioId === studio.id)?.id || '',
     });
 
+    setShowStaffForm(false);
     setShowModal(true);
   };
 
   const handleCloseModal = () => {
     setShowModal(false);
     setSelectedStudio(null);
+    setShowStaffForm(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -130,6 +163,7 @@ export default function AdminCheckupStudiosPage() {
           telefono: formData.telefono.trim(),
           sitoWeb: formData.sitoWeb.trim(),
           note: formData.note.trim(),
+          licenseId: formData.tipo === 'licenziatario' ? formData.licenseId || '' : '',
         });
         success('Studio aggiornato');
       } else {
@@ -182,6 +216,99 @@ export default function AdminCheckupStudiosPage() {
       toastError(err.message || 'Errore durante l\'operazione');
     }
   };
+
+  const handleCreateStaffUser = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!selectedStudio) return;
+    if (!staffForm.nome.trim() || !staffForm.cognome.trim() || !staffForm.email.trim() || !staffForm.password) {
+      toastError('Compila tutti i campi obbligatori');
+      return;
+    }
+    try {
+      await checkupAdminApi.createAdminUser({
+        nome: staffForm.nome.trim(),
+        cognome: staffForm.cognome.trim(),
+        email: staffForm.email.trim(),
+        password: staffForm.password,
+        ruolo: staffForm.ruolo,
+        studioId: selectedStudio.id,
+        telefono: staffForm.telefono || undefined,
+      });
+      success('Utente studio creato');
+      setStaffForm({
+        nome: '',
+        cognome: '',
+        email: '',
+        password: '',
+        ruolo: 'admin_studio',
+        telefono: '',
+      });
+      setShowStaffForm(false);
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante la creazione utente');
+    }
+  };
+
+  const handleToggleStaffActive = async (user: CheckupAdminUser) => {
+    const confirmed = await confirm({
+      title: user.attivo ? 'Disattivare utente?' : 'Attivare utente?',
+      message: `Sei sicuro di voler ${user.attivo ? 'disattivare' : 'attivare'} ${user.nome} ${user.cognome}?`,
+      confirmText: user.attivo ? 'Disattiva' : 'Attiva',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    try {
+      if (user.attivo) {
+        await checkupAdminApi.deactivateAdminUser(user.id);
+        success('Utente disattivato');
+      } else {
+        await checkupAdminApi.updateAdminUser(user.id, { attivo: true });
+        success('Utente attivato');
+      }
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante l\'operazione');
+    }
+  };
+
+  const handleOpenResetPassword = (user: CheckupAdminUser) => {
+    setSelectedStaffUser(user);
+    setResetPasswordValue('');
+    setShowResetPasswordModal(true);
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStaffUser || !resetPasswordValue) return;
+    try {
+      await checkupAdminApi.resetAdminPassword(selectedStaffUser.id, resetPasswordValue);
+      success('Password reimpostata');
+      setShowResetPasswordModal(false);
+      setSelectedStaffUser(null);
+      setResetPasswordValue('');
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante il reset password');
+    }
+  };
+
+  const staffRoleOptions = [
+    { value: 'admin_studio', label: 'Admin studio' },
+    { value: 'segreteria', label: 'Segreteria' },
+    { value: 'collaboratore', label: 'Collaboratore' },
+  ];
+  const staffRoleLabels: Record<'admin_studio' | 'segreteria' | 'collaboratore', string> = {
+    admin_studio: 'Admin studio',
+    segreteria: 'Segreteria',
+    collaboratore: 'Collaboratore',
+  };
+
+  const availableLicenses = licenses.filter(
+    (l) => !l.studioId || (selectedStudio && l.studioId === selectedStudio.id),
+  );
+  const staffUsersForStudio = selectedStudio
+    ? users.filter((u) => u.studioId === selectedStudio.id && u.ruolo !== 'cliente')
+    : [];
 
   const filteredStudios = hideInactive ? studios.filter((s) => s.attivo) : studios;
   const paginatedStudios = filteredStudios.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
@@ -283,7 +410,7 @@ export default function AdminCheckupStudiosPage() {
       {showModal && (
         <BodyPortal>
           <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
-            <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl">
+            <div className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">
                   {isEditing ? 'Modifica studio' : 'Nuovo studio'}
@@ -292,7 +419,7 @@ export default function AdminCheckupStudiosPage() {
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              <form onSubmit={handleSubmit} className="space-y-4 p-6">
+              <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto p-6">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-slate-700">Nome studio</label>
@@ -311,6 +438,7 @@ export default function AdminCheckupStudiosPage() {
                           setFormData((p) => ({
                             ...p,
                             tipo: val as 'licenziatario' | 'cliente',
+                            licenseId: val === 'cliente' ? '' : p.licenseId,
                           }))
                         }
                         options={[
@@ -321,6 +449,36 @@ export default function AdminCheckupStudiosPage() {
                     </div>
                   </div>
                 </div>
+
+                {formData.tipo === 'licenziatario' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Licenza assegnata</label>
+                    <div className="mt-1">
+                      <CustomSelect
+                        value={formData.licenseId}
+                        onChange={(val) => setFormData((p) => ({ ...p, licenseId: val }))}
+                        options={availableLicenses.map((license) => ({
+                          value: license.id,
+                          label: license.numeroLicenza
+                            ? `Licenza #${license.numeroLicenza} · ${license.intestatario}`
+                            : `Licenza senza numero · ${license.intestatario}`,
+                          sublabel: [
+                            license.studio?.nome || 'Non assegnata',
+                            license.tipo || 'Tipo n.d.',
+                            `${license.numeroUtenze} utenze`,
+                            `${formatDate(license.dataInizioValidita)} → ${formatDate(license.dataScadenza)}`,
+                          ].join(' · '),
+                        }))}
+                        placeholder="Seleziona licenza disponibile"
+                        searchable
+                        searchPlaceholder="Cerca licenza..."
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Sono disponibili solo le licenze non assegnate o già associate a questo studio.
+                    </p>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
@@ -435,12 +593,196 @@ export default function AdminCheckupStudiosPage() {
                   />
                 </div>
 
+                {isEditing && selectedStudio && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-800">Utenti dello studio</h3>
+                        <p className="text-xs text-slate-500">Crea e consulta gli utenti staff collegati allo studio.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowStaffForm((prev) => !prev)}
+                        className="wow-button-ghost"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                        {showStaffForm ? 'Chiudi' : 'Nuovo utente studio'}
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      {staffUsersForStudio.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500">
+                          Nessun utente staff associato.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {staffUsersForStudio.map((user) => (
+                            <div
+                              key={user.id}
+                              className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div>
+                                <div className="text-slate-900 font-medium">{user.nome} {user.cognome}</div>
+                                <div className="text-xs text-slate-500">{user.email}</div>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="rounded-full bg-indigo-50 px-2 py-0.5 font-semibold text-indigo-700">
+                                  {staffRoleLabels[user.ruolo as 'admin_studio' | 'segreteria' | 'collaboratore']}
+                                </span>
+                                <span className={`rounded-full px-2 py-0.5 ${user.attivo ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                                  {user.attivo ? 'Attivo' : 'Disattivo'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenResetPassword(user)}
+                                  className="rounded-full border border-blue-200 px-2 py-0.5 text-[10px] font-semibold text-blue-700 hover:border-blue-300"
+                                >
+                                  Reset
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleStaffActive(user)}
+                                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                    user.attivo
+                                      ? 'border-amber-200 text-amber-700 hover:border-amber-300'
+                                      : 'border-emerald-200 text-emerald-700 hover:border-emerald-300'
+                                  }`}
+                                >
+                                  {user.attivo ? 'Disattiva' : 'Attiva'}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {showStaffForm && (
+                      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Nome</label>
+                          <input
+                            value={staffForm.nome}
+                            onChange={(e) => setStaffForm((p) => ({ ...p, nome: e.target.value }))}
+                            className={inputClassName}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Cognome</label>
+                          <input
+                            value={staffForm.cognome}
+                            onChange={(e) => setStaffForm((p) => ({ ...p, cognome: e.target.value }))}
+                            className={inputClassName}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Email</label>
+                          <input
+                            type="email"
+                            value={staffForm.email}
+                            onChange={(e) => setStaffForm((p) => ({ ...p, email: e.target.value }))}
+                            className={inputClassName}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Password</label>
+                          <input
+                            type="password"
+                            value={staffForm.password}
+                            onChange={(e) => setStaffForm((p) => ({ ...p, password: e.target.value }))}
+                            className={inputClassName}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Ruolo</label>
+                          <div className="mt-1">
+                            <CustomSelect
+                              value={staffForm.ruolo}
+                              onChange={(val) =>
+                                setStaffForm((p) => ({
+                                  ...p,
+                                  ruolo: val as 'admin_studio' | 'segreteria' | 'collaboratore',
+                                }))
+                              }
+                              options={staffRoleOptions}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Telefono (opzionale)</label>
+                          <input
+                            value={staffForm.telefono}
+                            onChange={(e) => setStaffForm((p) => ({ ...p, telefono: e.target.value }))}
+                            className={inputClassName}
+                          />
+                        </div>
+                        <div className="md:col-span-2 flex justify-end gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setShowStaffForm(false)}
+                            className="wow-button-ghost"
+                          >
+                            Annulla
+                          </button>
+                          <button type="button" onClick={handleCreateStaffUser} className="wow-button">
+                            Crea utente studio
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-3 pt-2">
                   <button type="button" onClick={handleCloseModal} className="wow-button-ghost">
                     Annulla
                   </button>
                   <button type="submit" className="wow-button">
                     {isEditing ? 'Salva' : 'Crea studio'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </BodyPortal>
+      )}
+
+      {showResetPasswordModal && selectedStaffUser && (
+        <BodyPortal>
+          <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                <h2 className="text-lg font-semibold text-slate-900">Reimposta password</h2>
+                <button
+                  onClick={() => setShowResetPasswordModal(false)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <form onSubmit={handleResetPassword} className="space-y-4 p-6">
+                <p className="text-sm text-slate-600">
+                  Imposta una nuova password per {selectedStaffUser.nome} {selectedStaffUser.cognome}.
+                </p>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Nuova password</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={resetPasswordValue}
+                    onChange={(e) => setResetPasswordValue(e.target.value)}
+                    className={inputClassName}
+                  />
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={() => setShowResetPasswordModal(false)} className="wow-button-ghost">
+                    Annulla
+                  </button>
+                  <button type="submit" className="wow-button">
+                    <Key className="h-4 w-4" />
+                    Reimposta
                   </button>
                 </div>
               </form>

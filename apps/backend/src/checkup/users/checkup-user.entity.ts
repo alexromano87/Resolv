@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { CheckupStudio } from '../studios/checkup-studio.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
+import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 
 export type CheckupUserRole = 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
 
@@ -44,6 +45,9 @@ export class CheckupUser {
 
   @Column({ type: 'uuid', nullable: true })
   clientId: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  sublicenseId: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   azienda: string | null;
@@ -85,4 +89,8 @@ export class CheckupUser {
   @ManyToOne(() => CheckupClient, (client) => client.users, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'clientId' })
   client: CheckupClient | null;
+
+  @ManyToOne(() => CheckupSublicense, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'sublicenseId' })
+  sublicense: CheckupSublicense | null;
 }

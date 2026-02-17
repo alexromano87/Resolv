@@ -16,8 +16,8 @@ export class CheckupLicense {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid' })
-  studioId: string;
+  @Column({ type: 'uuid', nullable: true })
+  studioId: string | null;
 
   @Column({ length: 255 })
   intestatario: string;
@@ -48,7 +48,7 @@ export class CheckupLicense {
 
   @OneToOne(() => CheckupStudio, (studio) => studio.license, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'studioId' })
-  studio: CheckupStudio;
+  studio: CheckupStudio | null;
 
   @OneToMany(() => CheckupSublicense, (sublicense) => sublicense.license)
   sublicenses: CheckupSublicense[];

@@ -26,20 +26,25 @@ export interface CheckupAdminUser {
   nome: string;
   cognome: string;
   telefono?: string | null;
-  ruolo: 'admin_studio';
+  ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   studioId: string | null;
   studio?: CheckupStudio | null;
+  clientId?: string | null;
+  client?: CheckupClient | null;
+  sublicenseId?: string | null;
+  sublicense?: CheckupSublicense | null;
+  azienda?: string | null;
   attivo: boolean;
   createdAt: string;
 }
 
 export interface CheckupLicense {
   id: string;
-  studioId: string;
+  studioId: string | null;
   intestatario: string;
   tipo: string;
   numeroUtenze: number;
-  numeroSottolicenze: number;
+  numeroSottolicenze?: number;
   numeroLicenza?: string | null;
   dataInizioValidita?: string | null;
   dataScadenza?: string | null;
@@ -53,6 +58,7 @@ export interface CheckupSublicense {
   id: string;
   licenseId: string;
   clienteStudioId?: string | null;
+  clientId?: string | null;
   numeroSublicenza?: string | null;
   tipo?: string | null;
   numeroUtenze: number;
@@ -61,8 +67,28 @@ export interface CheckupSublicense {
   attiva: boolean;
   license?: CheckupLicense | null;
   clienteStudio?: CheckupStudio | null;
+  client?: CheckupClient | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CheckupClient {
+  id: string;
+  nome: string;
+  ragioneSociale?: string | null;
+  partitaIva?: string | null;
+  codiceFiscale?: string | null;
+  indirizzo?: string | null;
+  citta?: string | null;
+  provincia?: string | null;
+  cap?: string | null;
+  paese?: string | null;
+  email?: string | null;
+  telefono?: string | null;
+  sitoWeb?: string | null;
+  logoUrl?: string | null;
+  note?: string | null;
+  attivo: boolean;
 }
 
 export interface CreateCheckupStudioDto {
@@ -85,6 +111,29 @@ export interface CreateCheckupStudioDto {
 
 export interface UpdateCheckupStudioDto extends Partial<CreateCheckupStudioDto> {
   attivo?: boolean;
+  licenseId?: string;
+}
+
+export interface CreateCheckupClientDto {
+  nome: string;
+  sublicenseId: string;
+  ragioneSociale?: string;
+  partitaIva?: string;
+  codiceFiscale?: string;
+  indirizzo?: string;
+  citta?: string;
+  provincia?: string;
+  cap?: string;
+  paese?: string;
+  email?: string;
+  telefono?: string;
+  sitoWeb?: string;
+  logoUrl?: string;
+  note?: string;
+}
+
+export interface UpdateCheckupClientDto extends Partial<Omit<CreateCheckupClientDto, 'sublicenseId'>> {
+  attivo?: boolean;
 }
 
 export interface CreateCheckupAdminUserDto {
@@ -92,7 +141,11 @@ export interface CreateCheckupAdminUserDto {
   password: string;
   nome: string;
   cognome: string;
-  studioId: string;
+  studioId?: string;
+  clientId?: string;
+  sublicenseId?: string;
+  azienda?: string;
+  ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   telefono?: string;
 }
 
@@ -102,14 +155,18 @@ export interface UpdateCheckupAdminUserDto {
   cognome?: string;
   telefono?: string;
   studioId?: string;
+  clientId?: string;
+  sublicenseId?: string;
+  azienda?: string;
+  ruolo?: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   attivo?: boolean;
 }
 
 export interface UpsertCheckupLicenseDto {
-  studioId: string;
+  id?: string;
+  studioId?: string;
   tipo: string;
   numeroUtenze: number;
-  numeroSottolicenze?: number;
   dataInizioValidita: string;
   dataScadenza: string;
 }
@@ -122,6 +179,7 @@ export interface UpsertCheckupSublicenseDto {
   dataInizioValidita: string;
   dataScadenza: string;
   clienteStudioId?: string;
+  clientId?: string;
   attiva?: boolean;
 }
 
@@ -160,6 +218,22 @@ export const checkupAdminApi = {
 
   resetAdminPassword: async (id: string, newPassword: string): Promise<CheckupAdminUser> => {
     return api.put<CheckupAdminUser>(`/admin/checkup/users/${id}/reset-password`, { newPassword });
+  },
+
+  getClients: async (): Promise<CheckupClient[]> => {
+    return api.get<CheckupClient[]>('/admin/checkup/clients');
+  },
+
+  createClient: async (dto: CreateCheckupClientDto): Promise<CheckupClient> => {
+    return api.post<CheckupClient>('/admin/checkup/clients', dto);
+  },
+
+  updateClient: async (id: string, dto: UpdateCheckupClientDto): Promise<CheckupClient> => {
+    return api.put<CheckupClient>(`/admin/checkup/clients/${id}`, dto);
+  },
+
+  deactivateClient: async (id: string): Promise<CheckupClient> => {
+    return api.patch<CheckupClient>(`/admin/checkup/clients/${id}/deactivate`);
   },
 
   getLicenses: async (): Promise<CheckupLicense[]> => {

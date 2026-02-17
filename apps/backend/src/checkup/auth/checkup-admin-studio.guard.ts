@@ -6,8 +6,13 @@ export class CheckupAdminStudioGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    if (!user || user.ruolo !== 'admin_studio') {
-      throw new ForbiddenException('Accesso riservato agli amministratori dello studio');
+    if (!user) {
+      throw new ForbiddenException('User not authenticated');
+    }
+
+    // Check if user is admin_studio or superadmin
+    if (user.ruolo !== 'admin_studio' && user.ruolo !== 'superadmin') {
+      throw new ForbiddenException('Only studio administrators can access this resource');
     }
 
     return true;

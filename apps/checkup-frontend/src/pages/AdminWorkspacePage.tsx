@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
+import { Settings, List } from 'lucide-react';
 import { studiosApi, type CheckupStudioProfile, type UpdateCheckupStudioPayload, type CheckupSublicenseOption } from '../api/studios';
 import { usersApi } from '../api/users';
 import type { CheckupUser } from '../api/auth';
 import { useAuth } from '../contexts/AuthContext';
-import StudioUsersPage from './StudioUsersPage';
-import StudioClientsPage from './StudioClientsPage';
 import { ModalPortal } from '../components/ModalPortal';
+import StudioDashboardPage from './StudioDashboardPage';
 
-type AdminTab = 'studio' | 'licenza' | 'sottolicenze' | 'clienti' | 'utenti';
+type AdminTab = 'dashboard' | 'studio' | 'licenza' | 'sottolicenze' | 'utenti';
 
-export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialTab?: AdminTab }) {
-  const { refreshProfile } = useAuth();
+export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initialTab?: AdminTab }) {
+  const { user, refreshProfile } = useAuth();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<CheckupStudioProfile | null>(null);
+  const sidebarTarget = typeof document !== 'undefined' ? document.getElementById('checkup-subnav') : null;
   const [formData, setFormData] = useState<UpdateCheckupStudioPayload>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -90,7 +93,7 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
   }, [initialTab]);
 
   useEffect(() => {
-    if (activeTab !== 'sottolicenze') return;
+    if (activeTab !== 'sottolicenze' && activeTab !== 'utenti') return;
     setSublicensesLoading(true);
     setUsageLoading(true);
     setUsersLoading(true);
@@ -113,6 +116,26 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
         setUsersLoading(false);
       });
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'licenza') return;
+    if (sublicenses.length > 0) return;
+    setSublicensesLoading(true);
+    studiosApi
+      .listSublicenses()
+      .then((data) => setSublicenses(data))
+      .catch((err: any) => {
+        setError(err.message || 'Errore durante il caricamento delle sottolicenze');
+      })
+      .finally(() => {
+        setSublicensesLoading(false);
+      });
+  }, [activeTab, sublicenses.length]);
+
+  const sublicensesCount =
+    sublicenses.length > 0
+      ? sublicenses.length
+      : (profile?.sublicenses?.length ?? profile?.license?.numeroSottolicenze ?? 0);
 
   const isDirty = useMemo(() => {
     if (!snapshot) return false;
@@ -228,7 +251,7 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
         <span className="wow-chip">Amministrazione</span>
         <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Amministrazione</h1>
         <p className="text-sm text-slate-600 mt-1">
-          Gestisci studio, licenze, sottolicenze, clienti e utenti del tuo ambiente.
+          Panoramica studio, licenze, sottolicenze e utenti assegnati.
         </p>
       </div>
 
@@ -244,7 +267,7 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
       )}
 
       <div className="wow-panel p-3 flex flex-wrap items-center gap-2">
-        {(['studio', 'licenza', 'sottolicenze', 'clienti', 'utenti'] as const).map((tab) => (
+        {(['dashboard', 'studio', 'licenza', 'sottolicenze', 'utenti'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => handleTabChange(tab)}
@@ -252,18 +275,24 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
               activeTab === tab ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-600'
             }`}
           >
-            {tab === 'studio'
+            {tab === 'dashboard'
+              ? 'Dashboard'
+              : tab === 'studio'
               ? 'Studio'
               : tab === 'licenza'
                 ? 'Licenza'
                 : tab === 'sottolicenze'
                   ? 'Sottolicenze'
-                  : tab === 'clienti'
-                    ? 'Clienti'
-                    : 'Utenti'}
+                  : 'Utenti'}
           </button>
         ))}
       </div>
+
+      {activeTab === 'dashboard' && (
+        <div className="wow-panel p-6">
+          <StudioDashboardPage />
+        </div>
+      )}
 
       {activeTab === 'studio' && (
         <form ref={formRef} onSubmit={handleSave} className="space-y-6">
@@ -472,7 +501,7 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
             <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
               <div className="text-xs text-slate-500">Sottolicenze</div>
               <div className="text-sm font-semibold text-slate-900">
-                {profile?.license?.numeroSottolicenze ?? '—'}
+                {sublicensesLoading ? '...' : sublicensesCount}
               </div>
             </div>
           </div>
@@ -540,14 +569,48 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
       )}
 
       {activeTab === 'utenti' && (
-        <div className="space-y-6">
-          <StudioUsersPage embedded />
-        </div>
-      )}
-
-      {activeTab === 'clienti' && (
-        <div className="space-y-6">
-          <StudioClientsPage embedded />
+        <div className="wow-panel p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-900">Utenti assegnati</h2>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-semibold text-slate-600">
+              Solo lettura
+            </span>
+          </div>
+          <p className="text-sm text-slate-500 mt-1">Elenco utenti associati al tuo studio e ai tuoi clienti.</p>
+          <div className="mt-4">
+            {usersLoading ? (
+              <div className="text-sm text-slate-500">Caricamento utenti...</div>
+            ) : users.length === 0 ? (
+              <div className="text-sm text-slate-500">Nessun utente disponibile.</div>
+            ) : (
+              <table className="w-full">
+                <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Utente</th>
+                    <th className="px-4 py-3 text-left">Email</th>
+                    <th className="px-4 py-3 text-left">Ruolo</th>
+                    <th className="px-4 py-3 text-left">Stato</th>
+                    <th className="px-4 py-3 text-left">Cliente</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {users.map((u) => (
+                    <tr key={u.id}>
+                      <td className="px-4 py-3 text-sm text-slate-900">{u.nome} {u.cognome}</td>
+                      <td className="px-4 py-3 text-sm text-slate-500">{u.email}</td>
+                      <td className="px-4 py-3 text-sm text-slate-500">{u.ruolo}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${u.attivo ? 'bg-success-50 text-success-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {u.attivo ? 'Attivo' : 'Disattivo'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-500">{u.clientNome || u.azienda || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       )}
 
@@ -691,6 +754,36 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
           </div>
         </ModalPortal>
       )}
+
+      {sidebarTarget &&
+        createPortal(
+          <div className="space-y-2">
+            <button
+              onClick={() => navigate('/checkup/amministrazione')}
+              className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium bg-blue-900/60 text-white"
+            >
+              <Settings className="h-5 w-5" />
+              <span>Amministrazione</span>
+            </button>
+            {user?.ruolo === 'superadmin' && (
+              <button
+                onClick={() => navigate('/checkup/gestione-domande')}
+                className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-blue-900/40 hover:text-white"
+              >
+                <List className="h-5 w-5" />
+                <span>Gestione Domande</span>
+              </button>
+            )}
+            <button
+              onClick={() => navigate('/checkup/impostazioni')}
+              className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-blue-900/40 hover:text-white"
+            >
+              <Settings className="h-5 w-5" />
+              <span>Impostazioni</span>
+            </button>
+          </div>,
+          sidebarTarget,
+        )}
     </div>
   );
 }

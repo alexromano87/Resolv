@@ -31,6 +31,10 @@ export class UpdateCheckupUserDto {
   clientId?: string;
 
   @IsOptional()
+  @IsUUID()
+  sublicenseId?: string;
+
+  @IsOptional()
   @IsString()
   azienda?: string;
 

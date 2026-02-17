@@ -62,7 +62,11 @@ export class CheckupQuestionnairesService {
       .where('q.attivo = :attivo', { attivo: true });
 
     if (user.ruolo === 'cliente') {
-      qb.andWhere('q.clienteUserId = :userId', { userId: user.id });
+      if (user.clientId) {
+        qb.andWhere('cliente.clientId = :clientId', { clientId: user.clientId });
+      } else {
+        qb.andWhere('q.clienteUserId = :userId', { userId: user.id });
+      }
     }
 
     qb.orderBy('q.createdAt', 'DESC');
@@ -81,6 +85,7 @@ export class CheckupQuestionnairesService {
         'assegnatoDa',
         'answers',
         'answers.question',
+        'answers.updatedByUser',
       ],
     });
 
@@ -89,7 +94,10 @@ export class CheckupQuestionnairesService {
     }
 
     if (user.ruolo === 'cliente' && questionnaire.clienteUserId !== user.id) {
-      throw new ForbiddenException('Non autorizzato');
+      const sameClient = !!user.clientId && questionnaire.cliente?.clientId === user.clientId;
+      if (!sameClient) {
+        throw new ForbiddenException('Non autorizzato');
+      }
     }
 
     // Sort sections and questions by ordine
@@ -114,6 +122,7 @@ export class CheckupQuestionnairesService {
   ): Promise<CheckupQuestionnaire> {
     const questionnaire = await this.questionnaireRepository.findOne({
       where: { id, attivo: true },
+      relations: ['cliente'],
     });
 
     if (!questionnaire) {
@@ -126,7 +135,9 @@ export class CheckupQuestionnairesService {
         throw new ForbiddenException("L'amministratore può solo impostare lo stato 'revisionato'");
       }
     } else if (user.ruolo === 'cliente') {
-      if (questionnaire.clienteUserId !== user.id) {
+      const sameClient = questionnaire.clienteUserId === user.id
+        || (!!user.clientId && questionnaire.cliente?.clientId === user.clientId);
+      if (!sameClient) {
         throw new ForbiddenException('Non autorizzato');
       }
     }

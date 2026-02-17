@@ -44,28 +44,6 @@ h4,
   font-variation-settings: 'wght' 650, 'opsz' 32;
 }
 
-@keyframes wow-rise {
-  0% {
-    transform: translateY(16px) scale(0.98);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes wow-fade {
-  0% {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 input,
 select,
 button,
@@ -119,11 +97,11 @@ textarea:disabled {
 
 @layer components {
   .wow-card {
-    @apply rounded-2xl border border-blue-200/40 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur-sm transition duration-300 hover:shadow-[0_30px_80px_rgba(15,23,42,0.15)] hover:border-blue-300/50 dark:border-slate-700 dark:bg-slate-900/80 dark:shadow-none;
+    @apply rounded-2xl border border-blue-200/40 bg-white shadow-[0_16px_48px_rgba(15,23,42,0.1)] transition duration-200 hover:shadow-[0_24px_64px_rgba(15,23,42,0.14)] hover:border-blue-300/50 dark:border-slate-700 dark:bg-slate-900/80 dark:shadow-none;
   }
 
   .wow-panel {
-    @apply rounded-xl border border-slate-200/60 bg-white shadow-[0_12px_40px_rgba(15,23,42,0.08)] backdrop-blur-sm transition duration-300 hover:shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:border-slate-700 dark:bg-slate-900/80 dark:shadow-none;
+    @apply rounded-xl border border-slate-200/60 bg-white shadow-[0_10px_32px_rgba(15,23,42,0.08)] transition duration-200 hover:shadow-[0_16px_48px_rgba(15,23,42,0.12)] dark:border-slate-700 dark:bg-slate-900/80 dark:shadow-none;
   }
 
   .wow-chip {
@@ -138,27 +116,8 @@ textarea:disabled {
     @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:border-slate-400;
   }
 
-  .wow-stagger > * {
-    animation: wow-rise 600ms ease both;
-  }
-
-  .wow-stagger > *:nth-child(1) { animation-delay: 40ms; }
-  .wow-stagger > *:nth-child(2) { animation-delay: 90ms; }
-  .wow-stagger > *:nth-child(3) { animation-delay: 140ms; }
-  .wow-stagger > *:nth-child(4) { animation-delay: 190ms; }
-  .wow-stagger > *:nth-child(5) { animation-delay: 240ms; }
-  .wow-stagger > *:nth-child(6) { animation-delay: 290ms; }
-  .wow-stagger > *:nth-child(7) { animation-delay: 340ms; }
-  .wow-stagger > *:nth-child(8) { animation-delay: 390ms; }
-
+  .wow-stagger > *,
   .wow-stagger-rows tbody tr {
-    animation: wow-fade 420ms ease both;
+    animation: none;
   }
-
-  .wow-stagger-rows tbody tr:nth-child(1) { animation-delay: 40ms; }
-  .wow-stagger-rows tbody tr:nth-child(2) { animation-delay: 90ms; }
-  .wow-stagger-rows tbody tr:nth-child(3) { animation-delay: 140ms; }
-  .wow-stagger-rows tbody tr:nth-child(4) { animation-delay: 190ms; }
-  .wow-stagger-rows tbody tr:nth-child(5) { animation-delay: 240ms; }
-  .wow-stagger-rows tbody tr:nth-child(6) { animation-delay: 290ms; }
 }

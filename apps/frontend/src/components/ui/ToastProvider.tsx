@@ -166,7 +166,6 @@ export const ToastProvider: React.FC<{
                 borderClass,
                 'ring-1',
                 ringClass,
-                'animate-[toast-pop_200ms_ease-out]',
               ].join(' ')}
             >
               <div

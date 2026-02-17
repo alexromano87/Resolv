@@ -9,6 +9,11 @@ import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 
 @Injectable()
 export class CheckupAnswersService {
+  private presenceByQuestionnaire = new Map<
+    string,
+    Map<string, Map<string, { name: string; expiresAt: number }>>
+  >();
+
   constructor(
     @InjectRepository(CheckupAnswer)
     private answerRepository: Repository<CheckupAnswer>,
@@ -18,21 +23,75 @@ export class CheckupAnswersService {
     private questionRepository: Repository<CheckupQuestion>,
   ) {}
 
-  async saveAnswers(
-    questionnaireId: string,
-    dto: BulkSaveAnswersDto,
-    user: CheckupCurrentUserData,
-  ) {
+  private async loadQuestionnaire(questionnaireId: string) {
     const questionnaire = await this.questionnaireRepository.findOne({
       where: { id: questionnaireId, attivo: true },
+      relations: ['cliente'],
     });
 
     if (!questionnaire) {
       throw new NotFoundException('Questionario non trovato');
     }
 
-    // Solo il cliente assegnato può compilare le risposte
-    if (user.ruolo !== 'cliente' || questionnaire.clienteUserId !== user.id) {
+    return questionnaire;
+  }
+
+  private canAccess(questionnaire: CheckupQuestionnaire, user: CheckupCurrentUserData) {
+    if (user.ruolo !== 'cliente') return true;
+    if (questionnaire.clienteUserId === user.id) return true;
+    if (user.clientId && questionnaire.cliente?.clientId === user.clientId) return true;
+    return false;
+  }
+
+  private canEdit(questionnaire: CheckupQuestionnaire, user: CheckupCurrentUserData) {
+    if (user.ruolo !== 'cliente') return false;
+    if (questionnaire.clienteUserId === user.id) return true;
+    if (user.clientId && questionnaire.cliente?.clientId === user.clientId) return true;
+    return false;
+  }
+
+  private cleanupPresence(questionnaireId: string) {
+    const map = this.presenceByQuestionnaire.get(questionnaireId);
+    if (!map) return;
+    const now = Date.now();
+    for (const [fieldId, users] of map.entries()) {
+      for (const [userId, entry] of users.entries()) {
+        if (entry.expiresAt < now) {
+          users.delete(userId);
+        }
+      }
+      if (users.size === 0) {
+        map.delete(fieldId);
+      }
+    }
+    if (map.size === 0) {
+      this.presenceByQuestionnaire.delete(questionnaireId);
+    }
+  }
+
+  private removeUserFromOtherFields(
+    questionnaireId: string,
+    userId: string,
+    keepFieldId: string,
+  ) {
+    const map = this.presenceByQuestionnaire.get(questionnaireId);
+    if (!map) return;
+    for (const [fieldId, users] of map.entries()) {
+      if (fieldId === keepFieldId) continue;
+      if (users.delete(userId) && users.size === 0) {
+        map.delete(fieldId);
+      }
+    }
+  }
+
+  async saveAnswers(
+    questionnaireId: string,
+    dto: BulkSaveAnswersDto,
+    user: CheckupCurrentUserData,
+  ) {
+    const questionnaire = await this.loadQuestionnaire(questionnaireId);
+
+    if (!this.canEdit(questionnaire, user)) {
       throw new ForbiddenException('Solo il cliente assegnato può compilare le risposte');
     }
 
@@ -97,15 +156,9 @@ export class CheckupAnswersService {
     user: CheckupCurrentUserData,
     sectionId?: string,
   ) {
-    const questionnaire = await this.questionnaireRepository.findOne({
-      where: { id: questionnaireId, attivo: true },
-    });
+    const questionnaire = await this.loadQuestionnaire(questionnaireId);
 
-    if (!questionnaire) {
-      throw new NotFoundException('Questionario non trovato');
-    }
-
-    if (user.ruolo === 'cliente' && questionnaire.clienteUserId !== user.id) {
+    if (!this.canAccess(questionnaire, user)) {
       throw new ForbiddenException('Non autorizzato');
     }
 
@@ -113,6 +166,7 @@ export class CheckupAnswersService {
       .createQueryBuilder('a')
       .leftJoinAndSelect('a.question', 'question')
       .leftJoinAndSelect('a.documents', 'documents', 'documents.attivo = :docAttivo', { docAttivo: true })
+      .leftJoinAndSelect('a.updatedByUser', 'updatedByUser')
       .where('a.questionnaireId = :qId', { qId: questionnaireId });
 
     if (sectionId) {
@@ -122,5 +176,60 @@ export class CheckupAnswersService {
     qb.orderBy('question.ordine', 'ASC');
 
     return qb.getMany();
+  }
+
+  async getPresence(questionnaireId: string, user: CheckupCurrentUserData) {
+    const questionnaire = await this.loadQuestionnaire(questionnaireId);
+    if (!this.canAccess(questionnaire, user)) {
+      throw new ForbiddenException('Non autorizzato');
+    }
+    this.cleanupPresence(questionnaireId);
+    const map = this.presenceByQuestionnaire.get(questionnaireId);
+    const fields = map
+      ? Array.from(map.entries()).map(([fieldId, users]) => ({
+        fieldId,
+        users: Array.from(users.entries()).map(([userId, entry]) => ({
+          userId,
+          name: entry.name,
+        })),
+      }))
+      : [];
+    return { fields };
+  }
+
+  async setPresenceActive(questionnaireId: string, fieldId: string, user: CheckupCurrentUserData) {
+    const questionnaire = await this.loadQuestionnaire(questionnaireId);
+    if (!this.canAccess(questionnaire, user)) {
+      throw new ForbiddenException('Non autorizzato');
+    }
+
+    this.cleanupPresence(questionnaireId);
+    this.removeUserFromOtherFields(questionnaireId, user.id, fieldId);
+
+    const map = this.presenceByQuestionnaire.get(questionnaireId) || new Map();
+    const users = map.get(fieldId) || new Map();
+    const now = Date.now();
+    users.set(user.id, {
+      name: `${user.nome} ${user.cognome}`.trim() || user.email,
+      expiresAt: now + 10000,
+    });
+    map.set(fieldId, users);
+    this.presenceByQuestionnaire.set(questionnaireId, map);
+    return { ok: true };
+  }
+
+  async setPresenceInactive(questionnaireId: string, fieldId: string, user: CheckupCurrentUserData) {
+    const questionnaire = await this.loadQuestionnaire(questionnaireId);
+    if (!this.canAccess(questionnaire, user)) {
+      throw new ForbiddenException('Non autorizzato');
+    }
+
+    const map = this.presenceByQuestionnaire.get(questionnaireId);
+    const users = map?.get(fieldId);
+    if (users?.delete(user.id) && users.size === 0) {
+      map?.delete(fieldId);
+    }
+    this.cleanupPresence(questionnaireId);
+    return { ok: true };
   }
 }

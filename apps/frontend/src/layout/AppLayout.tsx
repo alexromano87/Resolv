@@ -108,10 +108,13 @@ const adminResolvNav: NavItem[] = [
 ];
 
 const adminCheckupNav: NavItem[] = [
-  { path: '/admin/checkup-users', label: 'Gestione utenti', icon: Users },
+  { path: '/admin/checkup-dashboard', label: 'Dashboard checkup', icon: BarChart3 },
+  { path: '/admin/checkup-studios', label: 'Gestione studi', icon: Building2 },
+  { path: '/admin/checkup-users', label: 'Utenti checkup', icon: Users },
+  { path: '/admin/checkup-clients', label: 'Clienti checkup', icon: Building2 },
   { path: '/admin/checkup-licenses', label: 'Gestione licenze', icon: KeyRound },
   { path: '/admin/checkup-sublicenses', label: 'Gestione sottolicenze', icon: KeyRound },
-  { path: '/admin/checkup-studios', label: 'Gestione studi', icon: Building2 },
+  { path: '/admin/checkup-questions', label: 'Gestione domande', icon: FileText },
 ];
 
 
@@ -168,13 +171,19 @@ export function AppLayout({ children }: AppLayoutProps) {
   } else if (location.pathname === '/admin/users') {
     pageTitle = 'Gestione utenti';
   } else if (location.pathname === '/admin/checkup-users') {
-    pageTitle = 'Gestione utenti';
+    pageTitle = 'Utenti checkup';
+  } else if (location.pathname === '/admin/checkup-clients') {
+    pageTitle = 'Clienti checkup';
   } else if (location.pathname === '/admin/checkup-licenses') {
     pageTitle = 'Gestione licenze checkup';
   } else if (location.pathname === '/admin/checkup-sublicenses') {
     pageTitle = 'Gestione sottolicenze checkup';
   } else if (location.pathname === '/admin/checkup-studios') {
     pageTitle = 'Gestione studi checkup';
+  } else if (location.pathname === '/admin/checkup-questions') {
+    pageTitle = 'Gestione domande checkup';
+  } else if (location.pathname === '/admin/checkup-dashboard') {
+    pageTitle = 'Dashboard checkup';
   } else if (location.pathname === '/admin/impostazioni') {
     pageTitle = 'Impostazioni superadmin';
   } else if (location.pathname === '/admin/studi') {
@@ -751,7 +760,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const handleAdminAreaChange = (next: 'resolv' | 'checkup') => {
     setAdminArea(next);
     localStorage.setItem('admin_area', next);
-    navigate(next === 'checkup' ? '/admin/checkup-users' : '/admin/dashboard');
+    navigate(next === 'checkup' ? '/admin/checkup-dashboard' : '/admin/dashboard');
   };
 
   useEffect(() => {
