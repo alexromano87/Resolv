@@ -19,6 +19,7 @@ import { CheckupPreassessmentMessage } from './preassessment/checkup-preassessme
 import { CheckupPreassessmentTicket } from './preassessment/checkup-preassessment-ticket.entity';
 import { CheckupPreassessmentTicketMessage } from './preassessment/checkup-preassessment-ticket-message.entity';
 import { CheckupPreassessmentAlert } from './preassessment/checkup-preassessment-alert.entity';
+import { CheckupPreassessmentDocument } from './preassessment/checkup-preassessment-document.entity';
 import { CheckupStudio } from './studios/checkup-studio.entity';
 import { CheckupLicense } from './licenses/checkup-license.entity';
 import { CheckupSublicense } from './licenses/checkup-sublicense.entity';
@@ -57,6 +58,8 @@ import { CheckupPreassessmentChatService } from './preassessment/checkup-preasse
 import { CheckupPreassessmentChatController } from './preassessment/checkup-preassessment-chat.controller';
 import { CheckupPreassessmentThreadsService } from './preassessment/checkup-preassessment-threads.service';
 import { CheckupPreassessmentThreadsController } from './preassessment/checkup-preassessment-threads.controller';
+import { CheckupPreassessmentDocumentsService } from './preassessment/checkup-preassessment-documents.service';
+import { CheckupPreassessmentDocumentsController } from './preassessment/checkup-preassessment-documents.controller';
 import { CheckupStudiosService } from './studios/checkup-studios.service';
 import { CheckupStudiosController } from './studios/checkup-studios.controller';
 import { CheckupClient } from './clients/checkup-client.entity';
@@ -85,6 +88,7 @@ import { QuestionSeedService } from './services/question-seed.service';
       CheckupPreassessmentTicket,
       CheckupPreassessmentTicketMessage,
       CheckupPreassessmentAlert,
+      CheckupPreassessmentDocument,
       CheckupStudio,
       CheckupClient,
       CheckupLicense,
@@ -121,6 +125,7 @@ import { QuestionSeedService } from './services/question-seed.service';
     CheckupPreassessmentController,
     CheckupPreassessmentChatController,
     CheckupPreassessmentThreadsController,
+    CheckupPreassessmentDocumentsController,
     CheckupStudiosController,
     QuestionManagementController,
   ],
@@ -136,6 +141,7 @@ import { QuestionSeedService } from './services/question-seed.service';
     CheckupPreassessmentService,
     CheckupPreassessmentChatService,
     CheckupPreassessmentThreadsService,
+    CheckupPreassessmentDocumentsService,
     CheckupStudiosService,
     QuestionManagementService,
     QuestionSeedService,

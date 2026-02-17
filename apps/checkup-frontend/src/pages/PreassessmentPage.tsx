@@ -11,6 +11,9 @@ import {
   HelpCircle,
   Download,
   Printer,
+  Upload,
+  FileText,
+  Trash2,
   MessageCircle,
   Ticket,
   Bell,
@@ -31,11 +34,13 @@ import {
   preassessmentChatApi,
   preassessmentTicketApi,
   preassessmentAlertApi,
+  preassessmentDocumentsApi,
   PreassessmentClientEntry,
   PreassessmentClientRecord,
   PreassessmentChatMessage,
   PreassessmentTicket,
   PreassessmentAlert,
+  PreassessmentDocument,
 } from '../api/preassessment';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -252,6 +257,8 @@ export default function PreassessmentPage() {
   const [alerts, setAlerts] = useState<PreassessmentAlert[]>([]);
   const [activeEditors, setActiveEditors] = useState<Record<string, { userId: string; name: string }>>({});
   const [dashFilter, setDashFilter] = useState<'all' | 'completed' | 'todo' | 'na'>('all');
+  const [documentsByField, setDocumentsByField] = useState<Record<string, PreassessmentDocument[]>>({});
+  const [documentsLoading, setDocumentsLoading] = useState(false);
 
   const didInitRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -273,6 +280,50 @@ export default function PreassessmentPage() {
     });
     return Array.from(map.values());
   }, [activeEditors]);
+
+  const loadDocuments = useCallback(async () => {
+    if (!preassessmentId || !activeSection) return;
+    setDocumentsLoading(true);
+    setDocumentsByField({});
+    try {
+      const docs = await preassessmentDocumentsApi.list(preassessmentId, activeSection.id);
+      const grouped: Record<string, PreassessmentDocument[]> = {};
+      docs.forEach((doc) => {
+        const key = doc.fieldId;
+        grouped[key] = grouped[key] ? [...grouped[key], doc] : [doc];
+      });
+      setDocumentsByField(grouped);
+    } catch {
+      setDocumentsByField({});
+    } finally {
+      setDocumentsLoading(false);
+    }
+  }, [preassessmentId, activeSection]);
+
+  useEffect(() => {
+    loadDocuments();
+  }, [loadDocuments]);
+
+  const handleUploadDocument = useCallback(async (fieldId: string, sectionId: string, file: File) => {
+    if (!preassessmentId) return;
+    await preassessmentDocumentsApi.upload(preassessmentId, file, fieldId, sectionId);
+    await loadDocuments();
+  }, [preassessmentId, loadDocuments]);
+
+  const handleDeleteDocument = useCallback(async (docId: string) => {
+    await preassessmentDocumentsApi.delete(docId);
+    await loadDocuments();
+  }, [loadDocuments]);
+
+  const handleDownloadDocument = useCallback(async (doc: PreassessmentDocument) => {
+    const blob = await preassessmentDocumentsApi.download(doc.id);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = doc.nomeOriginale || 'documento';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
 
   useEffect(() => {
     if (!preassessmentId) {
@@ -1765,6 +1816,12 @@ export default function PreassessmentPage() {
                 naChecked={!!naFields[f.id]}
                 onNaChange={handleNaChange}
                 canEditNotes={!isClient && !readOnly}
+                documents={documentsByField[f.id] || []}
+                documentsLoading={documentsLoading}
+                onUploadDocument={handleUploadDocument}
+                onDeleteDocument={handleDeleteDocument}
+                onDownloadDocument={handleDownloadDocument}
+                sectionId={activeSection.id}
               />
             ))}
           </div>
@@ -2646,6 +2703,12 @@ const FormField = memo(function FormField({
   naChecked = false,
   onNaChange,
   canEditNotes = false,
+  documents = [],
+  documentsLoading = false,
+  onUploadDocument,
+  onDeleteDocument,
+  onDownloadDocument,
+  sectionId,
 }: {
   field: FieldSpec;
   value: string;
@@ -2661,9 +2724,17 @@ const FormField = memo(function FormField({
   naChecked?: boolean;
   onNaChange?: (id: string, checked: boolean) => void;
   canEditNotes?: boolean;
+  documents?: PreassessmentDocument[];
+  documentsLoading?: boolean;
+  onUploadDocument?: (fieldId: string, sectionId: string, file: File) => Promise<void> | void;
+  onDeleteDocument?: (docId: string) => Promise<void> | void;
+  onDownloadDocument?: (doc: PreassessmentDocument) => Promise<void> | void;
+  sectionId: string;
 }) {
   const [showHelp, setShowHelp] = useState(false);
   const [showNote, setShowNote] = useState(Boolean(fieldNote));
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const helpRef = useRef<HTMLDivElement>(null);
   const isEditingOther = activeEditor && activeEditor.userId !== currentUserId;
   const showModified = !!fieldMeta;
@@ -2671,6 +2742,18 @@ const FormField = memo(function FormField({
     ? new Date(fieldMeta.updatedAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : null;
   const disabled = readOnly || !!isEditingOther || naChecked;
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !onUploadDocument) return;
+    setUploading(true);
+    try {
+      await onUploadDocument(field.id, sectionId, file);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -2831,6 +2914,61 @@ const FormField = memo(function FormField({
           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
         />
       )}
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-slate-400" />
+          <span className="text-xs font-semibold text-slate-500">Documenti allegati</span>
+          {documentsLoading && (
+            <span className="text-[10px] text-slate-400">Caricamento...</span>
+          )}
+        </div>
+        {documents.length > 0 ? (
+          <div className="mt-2 space-y-1">
+            {documents.map((doc) => (
+              <div key={doc.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                <button
+                  type="button"
+                  onClick={() => onDownloadDocument?.(doc)}
+                  className="truncate text-left text-slate-700 hover:text-blue-700"
+                >
+                  {doc.nomeOriginale}
+                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteDocument?.(doc.id)}
+                    className="ml-2 text-slate-400 hover:text-rose-600"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-2 text-[11px] text-slate-400">Nessun documento caricato.</div>
+        )}
+        {!readOnly && (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 hover:border-blue-200 hover:text-blue-700 disabled:opacity-50"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              {uploading ? 'Caricamento...' : 'Carica documento'}
+            </button>
+          </>
+        )}
+      </div>
 
       {showNote && canEditNotes && !naChecked && (
         <textarea

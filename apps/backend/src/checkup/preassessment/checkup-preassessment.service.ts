@@ -146,6 +146,10 @@ export class CheckupPreassessmentService {
     return { preassessment, client };
   }
 
+  async getPreassessmentForDocuments(preassessmentId: string, currentUser: CheckupCurrentUserData) {
+    return this.ensureAccessByPreassessment(currentUser, preassessmentId);
+  }
+
   private cleanupPresence(preassessmentId: string) {
     const map = this.presenceByPreassessment.get(preassessmentId);
     if (!map) return;

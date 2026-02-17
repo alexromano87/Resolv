@@ -187,3 +187,50 @@ export const preassessmentAlertApi = {
   create: (preassessmentId: string, payload: { targetUserId?: string; priority?: string; messaggio: string }) =>
     api.post<PreassessmentAlert>(`/checkup/preassessment/${preassessmentId}/alerts`, payload),
 };
+
+export interface PreassessmentDocument {
+  id: string;
+  preassessmentId: string;
+  fieldId: string;
+  sectionId: string | null;
+  nomeOriginale: string;
+  createdAt: string;
+}
+
+export const preassessmentDocumentsApi = {
+  list: (preassessmentId: string, sectionId?: string, fieldId?: string) =>
+    api.get<PreassessmentDocument[]>(`/checkup/preassessment/${preassessmentId}/documents`, {
+      params: { sectionId, fieldId },
+    }),
+  upload: (preassessmentId: string, file: File, fieldId: string, sectionId?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('fieldId', fieldId);
+    if (sectionId) formData.append('sectionId', sectionId);
+    return api.post<PreassessmentDocument>(
+      `/checkup/preassessment/${preassessmentId}/documents/upload`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+  },
+  download: async (id: string) => {
+    const token = localStorage.getItem('checkup_token');
+    const response = await fetch(`${apiBase}/checkup/preassessment/documents/${id}/download`, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (response.status === 401) {
+      localStorage.removeItem('checkup_token');
+      localStorage.removeItem('checkup_user');
+      window.location.href = '/checkup/login';
+      throw new Error('Non autorizzato');
+    }
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Errore di rete' }));
+      throw new Error(error.message || `Errore ${response.status}`);
+    }
+    return response.blob();
+  },
+  delete: (id: string) => api.delete(`/checkup/preassessment/documents/${id}`),
+};
