@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Plus, X, Edit2, Key, Power, PowerOff, Eye, EyeOff } from 'lucide-react';
-import { checkupAdminApi, type CheckupAdminUser, type CheckupLicense, type CheckupStudio } from '../api/checkupAdmin';
+import { checkupAdminApi, type CheckupAdminUser, type CheckupStudio, type CheckupClient, type CheckupSublicense } from '../api/checkupAdmin';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
@@ -11,7 +11,8 @@ export default function AdminCheckupUsersPage() {
   const { success, error: toastError } = useToast();
   const [users, setUsers] = useState<CheckupAdminUser[]>([]);
   const [studios, setStudios] = useState<CheckupStudio[]>([]);
-  const [licenses, setLicenses] = useState<CheckupLicense[]>([]);
+  const [clients, setClients] = useState<CheckupClient[]>([]);
+  const [sublicenses, setSublicenses] = useState<CheckupSublicense[]>([]);
   const [loading, setLoading] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -27,25 +28,36 @@ export default function AdminCheckupUsersPage() {
     email: '',
     password: '',
     studioId: '',
+    clientId: '',
+    sublicenseId: '',
+    azienda: '',
     telefono: '',
   });
   const inputClassName =
     'mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100';
+  const roleBadges: Record<CheckupAdminUser['ruolo'], { label: string; className: string }> = {
+    admin_studio: { label: 'Admin studio', className: 'bg-indigo-100 text-indigo-700' },
+    segreteria: { label: 'Segreteria', className: 'bg-cyan-100 text-cyan-700' },
+    collaboratore: { label: 'Collaboratore', className: 'bg-blue-100 text-blue-700' },
+    cliente: { label: 'Cliente', className: 'bg-orange-100 text-orange-700' },
+  };
 
   const { confirm, ConfirmDialog } = useConfirmDialog();
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [usersData, studiosData, licensesData] = await Promise.all([
+      const [usersData, studiosData, clientsData, sublicensesData] = await Promise.all([
         checkupAdminApi.getAdminUsers(),
         checkupAdminApi.getStudios(),
-        checkupAdminApi.getLicenses(),
+        checkupAdminApi.getClients(),
+        checkupAdminApi.getSublicenses(),
       ]);
       setUsers(usersData);
       setCurrentPage(1);
       setStudios(studiosData);
-      setLicenses(licensesData);
+      setClients(clientsData);
+      setSublicenses(sublicensesData);
     } catch (err: any) {
       toastError(err.message || 'Errore durante il caricamento');
     } finally {
@@ -58,7 +70,7 @@ export default function AdminCheckupUsersPage() {
   }, []);
 
   const resetUserForm = () => {
-    setFormData({ nome: '', cognome: '', email: '', password: '', studioId: '', telefono: '' });
+    setFormData({ nome: '', cognome: '', email: '', password: '', studioId: '', clientId: '', sublicenseId: '', azienda: '', telefono: '' });
   };
 
   const handleOpenCreateUser = () => {
@@ -71,12 +83,19 @@ export default function AdminCheckupUsersPage() {
   const handleOpenEditUser = (user: CheckupAdminUser) => {
     setIsEditing(true);
     setSelectedUser(user);
+    const userSublicense =
+      sublicenses.find((s) => s.id === user.sublicenseId) ||
+      (user.clientId ? sublicenses.find((s) => s.clientId === user.clientId) : undefined);
+    const studioId = userSublicense?.license?.studioId || '';
     setFormData({
       nome: user.nome,
       cognome: user.cognome,
       email: user.email,
       password: '',
-      studioId: user.studioId || '',
+      studioId,
+      clientId: user.clientId || '',
+      sublicenseId: userSublicense?.id || '',
+      azienda: user.azienda || '',
       telefono: user.telefono || '',
     });
     setShowUserModal(true);
@@ -91,16 +110,28 @@ export default function AdminCheckupUsersPage() {
 
   const handleSubmitUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.nome || !formData.cognome || !formData.email || !formData.studioId) {
+    if (!formData.nome || !formData.cognome || !formData.email) {
       toastError('Compila tutti i campi obbligatori');
+      return;
+    }
+    if (!formData.studioId) {
+      toastError('Seleziona lo studio per l\'utente');
+      return;
+    }
+    if (!formData.clientId) {
+      toastError('Seleziona il cliente per l\'utente');
+      return;
+    }
+    if (!formData.sublicenseId) {
+      toastError('Seleziona la sottolicenza per l\'utente');
       return;
     }
     if (!isEditing && !formData.password) {
       toastError('La password è obbligatoria');
       return;
     }
-    if (!isEditing && selectedLicense && selectedActiveCount >= selectedLicense.numeroUtenze) {
-      toastError('Limite utenti licenza raggiunto');
+    if (!isEditing && selectedClientLimitReached) {
+      toastError('Limite utenti sottolicenza raggiunto');
       return;
     }
     try {
@@ -109,7 +140,11 @@ export default function AdminCheckupUsersPage() {
           nome: formData.nome.trim(),
           cognome: formData.cognome.trim(),
           email: formData.email.trim(),
-          studioId: formData.studioId,
+          studioId: undefined,
+          clientId: formData.clientId,
+          sublicenseId: formData.sublicenseId,
+          ruolo: 'cliente',
+          azienda: formData.azienda || undefined,
           telefono: formData.telefono || undefined,
         });
         success('Utente aggiornato');
@@ -119,7 +154,11 @@ export default function AdminCheckupUsersPage() {
           cognome: formData.cognome.trim(),
           email: formData.email.trim(),
           password: formData.password,
-          studioId: formData.studioId,
+          studioId: undefined,
+          clientId: formData.clientId,
+          sublicenseId: formData.sublicenseId,
+          ruolo: 'cliente',
+          azienda: formData.azienda || undefined,
           telefono: formData.telefono || undefined,
         });
         success('Utente creato');
@@ -179,25 +218,45 @@ export default function AdminCheckupUsersPage() {
   };
 
   const licenziatariStudios = studios.filter((s) => s.tipo === 'licenziatario');
-  const licensesByStudio = new Map(licenses.map((license) => [license.studioId, license]));
-  const activeUsersByStudio = users.reduce<Record<string, number>>((acc, user) => {
-    if (user.attivo && user.studioId) {
-      acc[user.studioId] = (acc[user.studioId] || 0) + 1;
+  const clientUsers = users.filter((u) => u.ruolo === 'cliente');
+  const activeUsersBySublicense = clientUsers.reduce<Record<string, number>>((acc, user) => {
+    if (user.attivo && user.sublicenseId) {
+      acc[user.sublicenseId] = (acc[user.sublicenseId] || 0) + 1;
     }
     return acc;
   }, {});
-  const limitReachedByStudio = new Map<string, boolean>();
-  licenses.forEach((license) => {
-    const activeCount = activeUsersByStudio[license.studioId] || 0;
-    if (activeCount >= license.numeroUtenze) {
-      limitReachedByStudio.set(license.studioId, true);
+  const sublicensesByStudio = sublicenses.filter(
+    (s) => s.license?.studioId && s.license?.studioId === formData.studioId,
+  );
+  const clientIdsForStudio = new Set(
+    sublicensesByStudio.filter((s) => s.clientId).map((s) => s.clientId as string),
+  );
+  const clientsForStudio = clients.filter((c) => clientIdsForStudio.has(c.id));
+  const sublicensesForClient = sublicensesByStudio.filter((s) => s.clientId === formData.clientId);
+  const selectedSublicense = formData.sublicenseId
+    ? sublicensesForClient.find((s) => s.id === formData.sublicenseId) || null
+    : null;
+
+  useEffect(() => {
+    if (!formData.clientId) return;
+    if (sublicensesForClient.length === 1 && !formData.sublicenseId) {
+      setFormData((p) => ({ ...p, sublicenseId: sublicensesForClient[0].id }));
+    }
+  }, [formData.clientId, formData.sublicenseId, sublicensesForClient]);
+  const selectedClientActiveCount = formData.sublicenseId
+    ? activeUsersBySublicense[formData.sublicenseId] || 0
+    : 0;
+  const selectedClientLimitReached =
+    !isEditing && Boolean(selectedSublicense && selectedClientActiveCount >= selectedSublicense.numeroUtenze);
+  const limitReachedBySublicense = new Map<string, boolean>();
+  sublicenses.forEach((s) => {
+    const activeCount = activeUsersBySublicense[s.id] || 0;
+    if (activeCount >= s.numeroUtenze) {
+      limitReachedBySublicense.set(s.id, true);
     }
   });
-  const selectedLicense = formData.studioId ? licensesByStudio.get(formData.studioId) || null : null;
-  const selectedActiveCount = formData.studioId ? activeUsersByStudio[formData.studioId] || 0 : 0;
-  const limitReached =
-    !isEditing && Boolean(selectedLicense && selectedActiveCount >= selectedLicense.numeroUtenze);
-  const filteredUsers = hideInactive ? users.filter((u) => u.attivo) : users;
+  const submitLimitReached = selectedClientLimitReached;
+  const filteredUsers = hideInactive ? clientUsers.filter((u) => u.attivo) : clientUsers;
   const paginatedUsers = filteredUsers.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
   const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
 
@@ -206,8 +265,8 @@ export default function AdminCheckupUsersPage() {
       <div className="wow-card p-6 md:p-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <span className="wow-chip">Amministrazione</span>
-          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione utenti</h1>
-          <p className="text-sm text-slate-600 mt-1">Gestisci gli utenti admin delle aziende licenziatarie.</p>
+          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Utenti checkup</h1>
+          <p className="text-sm text-slate-600 mt-1">Gestisci gli utenti cliente collegati agli studi checkup.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -239,7 +298,9 @@ export default function AdminCheckupUsersPage() {
                 <tr>
                   <th className="px-4 py-3 text-left">Utente</th>
                   <th className="px-4 py-3 text-left">Email</th>
-                  <th className="px-4 py-3 text-left">Studio</th>
+                  <th className="px-4 py-3 text-left">Ruolo</th>
+                  <th className="px-4 py-3 text-left">Cliente</th>
+                  <th className="px-4 py-3 text-left">Sottolicenza</th>
                   <th className="px-4 py-3 text-left">Stato</th>
                   <th className="px-4 py-3 text-right">Azioni</th>
                 </tr>
@@ -250,9 +311,17 @@ export default function AdminCheckupUsersPage() {
                     <td className="px-4 py-3 text-sm font-medium text-slate-900">{u.nome} {u.cognome}</td>
                     <td className="px-4 py-3 text-sm text-slate-500">{u.email}</td>
                     <td className="px-4 py-3 text-sm text-slate-500">
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${roleBadges[u.ruolo].className}`}>
+                        {roleBadges[u.ruolo].label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-500">
+                      {u.client?.nome || u.azienda || '—'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-500">
                       <div className="flex items-center gap-2">
-                        <span>{u.studio?.nome || '—'}</span>
-                        {u.studio?.id && limitReachedByStudio.get(u.studio.id) && (
+                        <span>{u.sublicense?.numeroSublicenza || '—'}</span>
+                        {u.sublicense?.id && limitReachedBySublicense.get(u.sublicense.id) && (
                           <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600">
                             Limite utenti
                           </span>
@@ -313,7 +382,7 @@ export default function AdminCheckupUsersPage() {
             <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">
-                  {isEditing ? 'Modifica admin licenziatario' : 'Nuovo admin licenziatario'}
+                  {isEditing ? 'Modifica utente checkup' : 'Nuovo utente checkup'}
                 </h2>
                 <button onClick={handleCloseUserModal} className="text-slate-400 hover:text-slate-600">
                   <X className="h-5 w-5" />
@@ -339,6 +408,24 @@ export default function AdminCheckupUsersPage() {
                   </div>
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Studio</label>
+                  <div className="mt-1">
+                    <CustomSelect
+                      value={formData.studioId}
+                      onChange={(val) =>
+                        setFormData((p) => ({
+                          ...p,
+                          studioId: val,
+                          clientId: '',
+                          sublicenseId: '',
+                        }))
+                      }
+                      options={licenziatariStudios.map((s) => ({ value: s.id, label: s.nome }))}
+                      placeholder="Seleziona studio"
+                    />
+                  </div>
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Email</label>
                   <input
                     type="email"
@@ -359,27 +446,60 @@ export default function AdminCheckupUsersPage() {
                   </div>
                 )}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Studio</label>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Cliente</label>
                   <div className="mt-1">
                     <CustomSelect
-                      value={formData.studioId}
-                      onChange={(val) => setFormData((p) => ({ ...p, studioId: val }))}
-                      options={licenziatariStudios.map((s) => ({ value: s.id, label: s.nome }))}
-                      placeholder="Seleziona studio"
+                      value={formData.clientId}
+                      onChange={(val) =>
+                        setFormData((p) => ({
+                          ...p,
+                          clientId: val,
+                          sublicenseId: '',
+                        }))
+                      }
+                      options={clientsForStudio.map((c) => ({ value: c.id, label: c.nome }))}
+                      placeholder="Seleziona cliente"
                     />
                   </div>
-                  {selectedLicense && (
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Sottolicenza</label>
+                  <div className="mt-1">
+                    <CustomSelect
+                      value={formData.sublicenseId}
+                      onChange={(val) => setFormData((p) => ({ ...p, sublicenseId: val }))}
+                      options={sublicensesForClient.map((s) => ({
+                        value: s.id,
+                        label: s.numeroSublicenza ? `#${s.numeroSublicenza}` : 'Senza numero',
+                        sublabel: `Utenze ${s.numeroUtenze} · ${s.dataInizioValidita || '—'} → ${s.dataScadenza || '—'}`,
+                      }))}
+                      placeholder="Seleziona sottolicenza"
+                    />
+                  </div>
+                  {formData.sublicenseId && selectedSublicense ? (
                     <div
                       className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
-                        limitReached
+                        selectedClientLimitReached
                           ? 'border-rose-200 bg-rose-50 text-rose-700'
                           : 'border-slate-200 bg-slate-50 text-slate-600'
                       }`}
                     >
-                      Utenti attivi: {selectedActiveCount}/{selectedLicense.numeroUtenze}
-                      {limitReached && ' • Limite raggiunto'}
+                      Utenti attivi: {selectedClientActiveCount}/{selectedSublicense.numeroUtenze}
+                      {selectedClientLimitReached && ' • Limite raggiunto'}
                     </div>
-                  )}
+                  ) : formData.clientId ? (
+                    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      Nessuna sottolicenza disponibile per il cliente selezionato.
+                    </div>
+                  ) : null}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Azienda (opzionale)</label>
+                  <input
+                    value={formData.azienda}
+                    onChange={(e) => setFormData((p) => ({ ...p, azienda: e.target.value }))}
+                    className={inputClassName}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Telefono (opzionale)</label>
@@ -393,8 +513,8 @@ export default function AdminCheckupUsersPage() {
                   <button type="button" onClick={handleCloseUserModal} className="wow-button-ghost">
                     Annulla
                   </button>
-                  <button type="submit" className="wow-button" disabled={limitReached}>
-                    {limitReached ? 'Limite raggiunto' : isEditing ? 'Salva' : 'Crea admin'}
+                  <button type="submit" className="wow-button" disabled={submitLimitReached}>
+                    {submitLimitReached ? 'Limite raggiunto' : isEditing ? 'Salva' : 'Crea utente'}
                   </button>
                 </div>
               </form>

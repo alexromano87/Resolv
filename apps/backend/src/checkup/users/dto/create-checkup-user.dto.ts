@@ -35,5 +35,9 @@ export class CreateCheckupUserDto {
 
   @IsOptional()
   @IsString()
+  sublicenseId?: string;
+
+  @IsOptional()
+  @IsString()
   azienda?: string;
 }

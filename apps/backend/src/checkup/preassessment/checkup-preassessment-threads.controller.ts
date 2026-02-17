@@ -38,6 +38,38 @@ export class CheckupPreassessmentThreadsController {
     return this.threadsService.replyTicket(ticketId, dto, user);
   }
 
+  @Post('tickets/:ticketId/assign')
+  assignTicket(
+    @Param('ticketId') ticketId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.threadsService.assignTicket(ticketId, user);
+  }
+
+  @Post('tickets/:ticketId/request-close')
+  requestClose(
+    @Param('ticketId') ticketId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.threadsService.requestClose(ticketId, user);
+  }
+
+  @Post('tickets/:ticketId/confirm-close')
+  confirmClose(
+    @Param('ticketId') ticketId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.threadsService.confirmClose(ticketId, user);
+  }
+
+  @Post('tickets/:ticketId/reopen')
+  reopenTicket(
+    @Param('ticketId') ticketId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.threadsService.reopenTicket(ticketId, user);
+  }
+
   @Get(':preassessmentId/alerts')
   listAlerts(
     @Param('preassessmentId') preassessmentId: string,

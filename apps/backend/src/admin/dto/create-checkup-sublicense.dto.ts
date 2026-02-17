@@ -27,4 +27,12 @@ export class CreateCheckupSublicenseDto {
   @IsOptional()
   @IsBoolean()
   attiva?: boolean;
+
+  @IsOptional()
+  @IsString()
+  clientId?: string;
+
+  @IsOptional()
+  @IsString()
+  clienteStudioId?: string;
 }

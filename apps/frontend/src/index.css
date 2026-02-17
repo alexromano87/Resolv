@@ -53,59 +53,6 @@ h4,
   font-variation-settings: 'wght' 650, 'opsz' 32;
 }
 
-@keyframes toast-pop {
-  0% {
-    transform: translateY(-8px) scale(0.98);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes wow-rise {
-  0% {
-    transform: translateY(16px) scale(0.98);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes wow-fade {
-  0% {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes modal-fade-in {
-  0% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
-@keyframes modal-slide-up {
-  0% {
-    opacity: 0;
-    transform: translateY(20px) scale(0.96);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
 input,
 select,
 button,
@@ -179,29 +126,10 @@ textarea:disabled {
     @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:border-slate-400;
   }
 
-  .wow-stagger > * {
-    animation: wow-rise 600ms ease both;
-  }
-
-  .wow-stagger > *:nth-child(1) { animation-delay: 40ms; }
-  .wow-stagger > *:nth-child(2) { animation-delay: 90ms; }
-  .wow-stagger > *:nth-child(3) { animation-delay: 140ms; }
-  .wow-stagger > *:nth-child(4) { animation-delay: 190ms; }
-  .wow-stagger > *:nth-child(5) { animation-delay: 240ms; }
-  .wow-stagger > *:nth-child(6) { animation-delay: 290ms; }
-  .wow-stagger > *:nth-child(7) { animation-delay: 340ms; }
-  .wow-stagger > *:nth-child(8) { animation-delay: 390ms; }
-
+  .wow-stagger > *,
   .wow-stagger-rows tbody tr {
-    animation: wow-fade 420ms ease both;
+    animation: none;
   }
-
-  .wow-stagger-rows tbody tr:nth-child(1) { animation-delay: 40ms; }
-  .wow-stagger-rows tbody tr:nth-child(2) { animation-delay: 90ms; }
-  .wow-stagger-rows tbody tr:nth-child(3) { animation-delay: 140ms; }
-  .wow-stagger-rows tbody tr:nth-child(4) { animation-delay: 190ms; }
-  .wow-stagger-rows tbody tr:nth-child(5) { animation-delay: 240ms; }
-  .wow-stagger-rows tbody tr:nth-child(6) { animation-delay: 290ms; }
 }
 
 html[data-density='compatta'] body {
@@ -241,11 +169,8 @@ html.theme-transition *::after {
   transition-timing-function: ease-in-out;
 }
 
-/* Animazioni modali */
-.modal-overlay {
-  animation: modal-fade-in 200ms ease-out;
-}
-
+/* Animazioni modali rimosse */
+.modal-overlay,
 .modal-content {
-  animation: modal-slide-up 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: none;
 }

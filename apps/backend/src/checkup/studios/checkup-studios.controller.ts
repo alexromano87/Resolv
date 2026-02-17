@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Put, UseGuards, Post, Param, Patch } from '@nestjs/common';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupAdminStudioGuard } from '../auth/checkup-admin-studio.guard';
+import { CheckupSuperadminGuard } from '../auth/checkup-superadmin.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupStudiosService } from './checkup-studios.service';
@@ -28,7 +29,7 @@ export class CheckupStudiosController {
   }
 
   @Get('clients')
-  @UseGuards(CheckupAdminStudioGuard)
+  @UseGuards(CheckupSuperadminGuard)
   listClientStudios(@CheckupCurrentUser() user: CheckupCurrentUserData) {
     return this.studiosService.listClientStudios(user);
   }
@@ -40,7 +41,7 @@ export class CheckupStudiosController {
   }
 
   @Post('clients')
-  @UseGuards(CheckupAdminStudioGuard)
+  @UseGuards(CheckupSuperadminGuard)
   createClient(
     @Body() dto: CreateCheckupClientDto,
     @CheckupCurrentUser() user: CheckupCurrentUserData,
@@ -49,7 +50,7 @@ export class CheckupStudiosController {
   }
 
   @Put('clients/:id')
-  @UseGuards(CheckupAdminStudioGuard)
+  @UseGuards(CheckupSuperadminGuard)
   updateClient(
     @Param('id') id: string,
     @Body() dto: UpdateCheckupClientDto,
@@ -59,7 +60,7 @@ export class CheckupStudiosController {
   }
 
   @Patch('clients/:id/deactivate')
-  @UseGuards(CheckupAdminStudioGuard)
+  @UseGuards(CheckupSuperadminGuard)
   deactivateClient(@Param('id') id: string, @CheckupCurrentUser() user: CheckupCurrentUserData) {
     return this.studiosService.deactivateClient(id, user);
   }

@@ -1,8 +1,13 @@
 import { IsDateString, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
 
 export class CreateCheckupLicenseDto {
+  @IsOptional()
   @IsString()
-  studioId: string;
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  studioId?: string;
 
   @IsOptional()
   @IsString()
@@ -16,11 +21,6 @@ export class CreateCheckupLicenseDto {
   @IsInt()
   @Min(1)
   numeroUtenze: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  numeroSottolicenze?: number;
 
   @IsDateString()
   dataInizioValidita: string;

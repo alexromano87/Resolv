@@ -19,6 +19,20 @@ export class CheckupDocumentsService {
     private questionnaireRepository: Repository<CheckupQuestionnaire>,
   ) {}
 
+  private canAccess(questionnaire: CheckupQuestionnaire, user: CheckupCurrentUserData) {
+    if (user.ruolo !== 'cliente') return true;
+    if (questionnaire.clienteUserId === user.id) return true;
+    if (user.clientId && questionnaire.cliente?.clientId === user.clientId) return true;
+    return false;
+  }
+
+  private canEdit(questionnaire: CheckupQuestionnaire, user: CheckupCurrentUserData) {
+    if (user.ruolo !== 'cliente') return false;
+    if (questionnaire.clienteUserId === user.id) return true;
+    if (user.clientId && questionnaire.cliente?.clientId === user.clientId) return true;
+    return false;
+  }
+
   private getDocumentType(ext: string): CheckupDocumentType {
     const extLower = ext.toLowerCase().replace('.', '');
     const mapping: Record<string, CheckupDocumentType> = {
@@ -46,14 +60,15 @@ export class CheckupDocumentsService {
   ): Promise<CheckupDocument> {
     const questionnaire = await this.questionnaireRepository.findOne({
       where: { id: questionnaireId, attivo: true },
+      relations: ['cliente'],
     });
 
     if (!questionnaire) {
       throw new NotFoundException('Questionario non trovato');
     }
 
-    // Solo il cliente assegnato può caricare documenti
-    if (user.ruolo !== 'cliente' || questionnaire.clienteUserId !== user.id) {
+    // Solo il cliente assegnato (o dello stesso cliente) può caricare documenti
+    if (!this.canEdit(questionnaire, user)) {
       throw new ForbiddenException('Solo il cliente assegnato può caricare documenti');
     }
 
@@ -83,13 +98,14 @@ export class CheckupDocumentsService {
   ): Promise<CheckupDocument[]> {
     const questionnaire = await this.questionnaireRepository.findOne({
       where: { id: questionnaireId, attivo: true },
+      relations: ['cliente'],
     });
 
     if (!questionnaire) {
       throw new NotFoundException('Questionario non trovato');
     }
 
-    if (user.ruolo === 'cliente' && questionnaire.clienteUserId !== user.id) {
+    if (!this.canAccess(questionnaire, user)) {
       throw new ForbiddenException('Non autorizzato');
     }
 
@@ -117,14 +133,14 @@ export class CheckupDocumentsService {
   ): Promise<{ stream: fs.ReadStream; document: CheckupDocument }> {
     const doc = await this.documentRepository.findOne({
       where: { id, attivo: true },
-      relations: ['questionnaire'],
+      relations: ['questionnaire', 'questionnaire.cliente'],
     });
 
     if (!doc) {
       throw new NotFoundException('Documento non trovato');
     }
 
-    if (user.ruolo === 'cliente' && doc.questionnaire.clienteUserId !== user.id) {
+    if (!this.canAccess(doc.questionnaire, user)) {
       throw new ForbiddenException('Non autorizzato');
     }
 
@@ -135,15 +151,15 @@ export class CheckupDocumentsService {
   async remove(id: string, user: CheckupCurrentUserData): Promise<void> {
     const doc = await this.documentRepository.findOne({
       where: { id, attivo: true },
-      relations: ['questionnaire'],
+      relations: ['questionnaire', 'questionnaire.cliente'],
     });
 
     if (!doc) {
       throw new NotFoundException('Documento non trovato');
     }
 
-    // Solo il cliente assegnato può eliminare documenti
-    if (user.ruolo !== 'cliente' || doc.questionnaire.clienteUserId !== user.id) {
+    // Solo il cliente assegnato (o dello stesso cliente) può eliminare documenti
+    if (!this.canEdit(doc.questionnaire, user)) {
       throw new ForbiddenException('Solo il cliente assegnato può eliminare documenti');
     }
 

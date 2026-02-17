@@ -4,6 +4,8 @@ export interface PreassessmentPayload {
   data?: Record<string, string>;
   notes?: Record<string, string>;
   fieldNotes?: Record<string, string>;
+  naFields?: Record<string, boolean>;
+  macroValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>;
   studioCanEdit?: boolean;
 }
 
@@ -13,6 +15,9 @@ export interface PreassessmentRecord {
   data: Record<string, string> | null;
   notes: Record<string, string> | null;
   fieldNotes: Record<string, string> | null;
+  naFields?: Record<string, boolean> | null;
+  macroValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }> | null;
+  fieldMeta?: Record<string, { updatedAt: string; updatedBy: { id: string; name: string; ruolo: string } }> | null;
   studioCanEdit: boolean;
   createdAt: string;
   updatedAt: string;
@@ -22,9 +27,10 @@ export interface PreassessmentClientEntry {
   client: {
     id: string;
     nome: string;
-    cognome: string;
-    email: string;
+    cognome?: string;
+    email: string | null;
     azienda: string | null;
+    ragioneSociale?: string | null;
     studioId?: string | null;
     studioNome?: string | null;
   };
@@ -41,6 +47,14 @@ export interface PreassessmentClientRecord {
   preassessment: PreassessmentRecord;
 }
 
+export interface PreassessmentPresence {
+  fields: Array<{ fieldId: string; userId: string; name: string }>;
+}
+
+export interface PreassessmentTyping {
+  users: Array<{ userId: string; name: string; ruolo: string }>;
+}
+
 export const preassessmentApi = {
   get: () => api.get<PreassessmentRecord>('/checkup/preassessment'),
   update: (payload: PreassessmentPayload) =>
@@ -50,6 +64,18 @@ export const preassessmentApi = {
     api.get<PreassessmentClientRecord>(`/checkup/preassessment/clients/${clientId}`),
   updateClient: (clientId: string, payload: PreassessmentPayload) =>
     api.put<PreassessmentRecord>(`/checkup/preassessment/clients/${clientId}`, payload),
+  getPresence: (preassessmentId: string) =>
+    api.get<PreassessmentPresence>(`/checkup/preassessment/${preassessmentId}/presence`),
+  getOnline: () =>
+    api.get<{ preassessmentIds: string[] }>('/checkup/preassessment/online'),
+  setPresenceActive: (preassessmentId: string, fieldId: string) =>
+    api.post(`/checkup/preassessment/${preassessmentId}/presence/active`, { fieldId }),
+  setPresenceInactive: (preassessmentId: string, fieldId: string) =>
+    api.post(`/checkup/preassessment/${preassessmentId}/presence/inactive`, { fieldId }),
+  getTyping: (preassessmentId: string, sectionId: string) =>
+    api.get<PreassessmentTyping>(`/checkup/preassessment/${preassessmentId}/sections/${sectionId}/typing`),
+  setTyping: (preassessmentId: string, sectionId: string, active: boolean) =>
+    api.post(`/checkup/preassessment/${preassessmentId}/sections/${sectionId}/typing`, { active }),
   downloadPdf: async (html: string) => {
     const token = localStorage.getItem('checkup_token');
     const response = await fetch(`${apiBase}/checkup/preassessment/pdf`, {
@@ -111,10 +137,18 @@ export interface PreassessmentTicket {
   createdById: string;
   subject: string;
   body: string;
-  status: 'open' | 'closed';
+  status: 'open' | 'in_progress' | 'pending_close' | 'closed';
+  assignedToId?: string | null;
+  closeRequestedById?: string | null;
+  closeRequestedAt?: string | null;
+  closedById?: string | null;
+  closedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   createdBy: { id: string; nome: string; cognome: string; ruolo: string };
+  assignedTo?: { id: string; nome: string; cognome: string; ruolo: string } | null;
+  closeRequestedBy?: { id: string; nome: string; cognome: string; ruolo: string } | null;
+  closedBy?: { id: string; nome: string; cognome: string; ruolo: string } | null;
   messages?: PreassessmentTicketMessage[];
 }
 
@@ -125,6 +159,14 @@ export const preassessmentTicketApi = {
     api.post<PreassessmentTicket>(`/checkup/preassessment/${preassessmentId}/tickets`, { subject, body }),
   reply: (ticketId: string, messaggio: string) =>
     api.post<PreassessmentTicketMessage>(`/checkup/preassessment/tickets/${ticketId}/replies`, { messaggio }),
+  assign: (ticketId: string) =>
+    api.post<PreassessmentTicket>(`/checkup/preassessment/tickets/${ticketId}/assign`),
+  requestClose: (ticketId: string) =>
+    api.post<PreassessmentTicket>(`/checkup/preassessment/tickets/${ticketId}/request-close`),
+  confirmClose: (ticketId: string) =>
+    api.post<PreassessmentTicket>(`/checkup/preassessment/tickets/${ticketId}/confirm-close`),
+  reopen: (ticketId: string) =>
+    api.post<PreassessmentTicket>(`/checkup/preassessment/tickets/${ticketId}/reopen`),
 };
 
 export interface PreassessmentAlert {

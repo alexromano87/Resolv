@@ -20,6 +20,8 @@ export interface CustomSelectProps {
   noOptionsText?: string;
   className?: string;
   triggerClassName?: string;
+  onOpen?: () => void;
+  onClose?: () => void;
 }
 
 export function CustomSelect({
@@ -33,6 +35,8 @@ export function CustomSelect({
   noOptionsText = 'Nessun risultato',
   className = '',
   triggerClassName = '',
+  onOpen,
+  onClose,
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,6 +74,14 @@ export function CustomSelect({
       setSearchTerm('');
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      onOpen?.();
+    } else {
+      onClose?.();
+    }
+  }, [isOpen, onOpen, onClose]);
 
   useLayoutEffect(() => {
     if (!isOpen) return;

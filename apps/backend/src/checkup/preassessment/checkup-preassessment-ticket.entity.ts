@@ -30,7 +30,22 @@ export class CheckupPreassessmentTicket {
   body: string;
 
   @Column({ type: 'varchar', length: 20, default: 'open' })
-  status: 'open' | 'closed';
+  status: 'open' | 'in_progress' | 'pending_close' | 'closed';
+
+  @Column({ type: 'uuid', nullable: true })
+  assignedToId: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  closeRequestedById: string | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  closeRequestedAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  closedById: string | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  closedAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -45,6 +60,18 @@ export class CheckupPreassessmentTicket {
   @ManyToOne(() => CheckupUser, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'createdById' })
   createdBy: CheckupUser;
+
+  @ManyToOne(() => CheckupUser, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'assignedToId' })
+  assignedTo: CheckupUser | null;
+
+  @ManyToOne(() => CheckupUser, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'closeRequestedById' })
+  closeRequestedBy: CheckupUser | null;
+
+  @ManyToOne(() => CheckupUser, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'closedById' })
+  closedBy: CheckupUser | null;
 
   @OneToMany(() => CheckupPreassessmentTicketMessage, (msg) => msg.ticket)
   messages: CheckupPreassessmentTicketMessage[];

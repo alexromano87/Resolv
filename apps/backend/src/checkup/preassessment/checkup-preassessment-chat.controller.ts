@@ -19,6 +19,15 @@ export class CheckupPreassessmentChatController {
     return this.chatService.getMessages(preassessmentId, sectionId, user);
   }
 
+  @Get(':preassessmentId/sections/:sectionId/typing')
+  getTyping(
+    @Param('preassessmentId') preassessmentId: string,
+    @Param('sectionId') sectionId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.chatService.getTyping(preassessmentId, sectionId, user);
+  }
+
   @Post(':preassessmentId/sections/:sectionId/chat')
   sendMessage(
     @Param('preassessmentId') preassessmentId: string,
@@ -27,6 +36,16 @@ export class CheckupPreassessmentChatController {
     @CheckupCurrentUser() user: CheckupCurrentUserData,
   ) {
     return this.chatService.sendMessage(preassessmentId, sectionId, dto, user);
+  }
+
+  @Post(':preassessmentId/sections/:sectionId/typing')
+  setTyping(
+    @Param('preassessmentId') preassessmentId: string,
+    @Param('sectionId') sectionId: string,
+    @Body() dto: { active: boolean },
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.chatService.setTyping(preassessmentId, sectionId, dto.active, user);
   }
 
   @Patch('chat/:id/read')

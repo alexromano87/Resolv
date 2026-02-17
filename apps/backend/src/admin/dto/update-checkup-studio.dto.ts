@@ -58,6 +58,10 @@ export class UpdateCheckupStudioDto {
   note?: string;
 
   @IsOptional()
+  @IsString()
+  licenseId?: string;
+
+  @IsOptional()
   @IsBoolean()
   attivo?: boolean;
 }

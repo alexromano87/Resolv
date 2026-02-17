@@ -12,6 +12,10 @@ interface Props {
   questionnaireId: string;
   onDocumentUploaded: () => void;
   readOnly?: boolean;
+  presenceByField?: Record<string, { userId: string; name: string }[]>;
+  currentUserId?: string;
+  onFieldFocus?: (questionId: string) => void;
+  onFieldBlur?: (questionId: string) => void;
 }
 
 export function QuestionRenderer({
@@ -23,11 +27,26 @@ export function QuestionRenderer({
   questionnaireId,
   onDocumentUploaded,
   readOnly = false,
+  presenceByField = {},
+  currentUserId,
+  onFieldFocus,
+  onFieldBlur,
 }: Props) {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const currentValue = answer?.valore || '';
   const canShowDocuments = question.accettaDocumenti ?? true;
+  const presenceUsers = presenceByField[question.id] || [];
+  const otherEditors = presenceUsers.filter((u) => u.userId !== currentUserId);
+  const lastUpdatedBy = answer?.updatedByUser
+    ? `${answer.updatedByUser.nome} ${answer.updatedByUser.cognome}`.trim()
+    : '';
+  const lastUpdatedAt = answer?.updatedAt
+    ? new Date(answer.updatedAt).toLocaleString('it-IT')
+    : '';
+
+  const handleFocus = () => onFieldFocus?.(question.id);
+  const handleBlur = () => onFieldBlur?.(question.id);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -73,6 +92,8 @@ export function QuestionRenderer({
                 key={opt}
                 type="button"
                 onClick={() => !readOnly && onAnswerChange(question.id, opt)}
+                onFocus={handleFocus}
+                onBlur={handleBlur}
                 disabled={readOnly}
                 className={`px-5 py-2 rounded-lg text-sm font-medium border transition-colors ${
                   currentValue === opt
@@ -108,6 +129,8 @@ export function QuestionRenderer({
                   value={opt}
                   checked={currentValue === opt}
                   onChange={() => !readOnly && onAnswerChange(question.id, opt)}
+                  onFocus={handleFocus}
+                  onBlur={handleBlur}
                   disabled={readOnly}
                   className="text-primary-700 focus:ring-primary-500"
                 />
@@ -123,6 +146,8 @@ export function QuestionRenderer({
             type="number"
             value={currentValue}
             onChange={(e) => onAnswerChange(question.id, e.target.value)}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
             disabled={readOnly}
             className={`w-full max-w-xs px-4 py-2.5 border border-gray-300 rounded-lg outline-none ${
               readOnly
@@ -138,6 +163,8 @@ export function QuestionRenderer({
             type="date"
             value={currentValue}
             onChange={(e) => onAnswerChange(question.id, e.target.value)}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
             disabled={readOnly}
             className={`w-full max-w-xs px-4 py-2.5 border border-gray-300 rounded-lg outline-none ${
               readOnly
@@ -152,6 +179,8 @@ export function QuestionRenderer({
           <textarea
             value={currentValue}
             onChange={(e) => onAnswerChange(question.id, e.target.value)}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
             disabled={readOnly}
             rows={3}
             className={`w-full px-4 py-2.5 border border-gray-300 rounded-lg outline-none resize-y ${
@@ -172,7 +201,17 @@ export function QuestionRenderer({
           {question.testo}
           {question.obbligatoria && <span className="text-danger-500 ml-1">*</span>}
         </p>
+        {otherEditors.length > 0 && (
+          <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+            In modifica: {otherEditors.map((u) => u.name).join(', ')}
+          </span>
+        )}
       </div>
+      {lastUpdatedBy && lastUpdatedAt && (
+        <div className="text-[11px] text-gray-400">
+          Ultima modifica: {lastUpdatedBy} • {lastUpdatedAt}
+        </div>
+      )}
 
       {renderInput()}
 
@@ -239,6 +278,10 @@ export function QuestionRenderer({
               questionnaireId={questionnaireId}
               onDocumentUploaded={onDocumentUploaded}
               readOnly={readOnly}
+              presenceByField={presenceByField}
+              currentUserId={currentUserId}
+              onFieldFocus={onFieldFocus}
+              onFieldBlur={onFieldBlur}
             />
           ))}
         </div>

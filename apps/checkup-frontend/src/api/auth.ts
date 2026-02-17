@@ -6,7 +6,7 @@ export interface CheckupUser {
   nome: string;
   cognome: string;
   telefono?: string | null;
-  ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
+  ruolo: 'superadmin' | 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   studioId: string | null;
   studioNome?: string | null;
   studioTipo?: 'licenziatario' | 'cliente' | null;

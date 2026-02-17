@@ -5,6 +5,8 @@ import ChangePasswordPage from './pages/ChangePasswordPage';
 import PreassessmentPage from './pages/PreassessmentPage';
 import SettingsPage from './pages/SettingsPage';
 import AdminWorkspacePage from './pages/AdminWorkspacePage';
+import ManageQuestionsPage from './pages/ManageQuestionsPage';
+import QuestionnairePage from './pages/QuestionnairePage';
 import { useAuth } from './contexts/AuthContext';
 import { CheckupAppLayout } from './layout/CheckupAppLayout';
 
@@ -43,6 +45,17 @@ export default function App() {
       />
 
       <Route
+        path="/checkup/questionario/:id"
+        element={
+          <ProtectedRoute>
+            <CheckupAppLayout>
+              <QuestionnairePage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/checkup/amministrazione"
         element={
           <ProtectedRoute requiredRole="admin_studio">
@@ -70,6 +83,17 @@ export default function App() {
           <ProtectedRoute>
             <CheckupAppLayout>
               <SettingsPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/checkup/gestione-domande"
+        element={
+          <ProtectedRoute requiredRole="superadmin">
+            <CheckupAppLayout>
+              <ManageQuestionsPage />
             </CheckupAppLayout>
           </ProtectedRoute>
         }

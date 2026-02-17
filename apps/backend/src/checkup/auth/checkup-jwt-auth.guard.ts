@@ -1,5 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ExecutionContext } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 
 @Injectable()
-export class CheckupJwtAuthGuard extends AuthGuard('checkup-jwt') {}
+export class CheckupJwtAuthGuard extends AuthGuard('checkup-jwt') {
+  canActivate(context: ExecutionContext) {
+    return super.canActivate(context);
+  }
+}

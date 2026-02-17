@@ -54,6 +54,13 @@ export interface CheckupAnswer {
   richiesto: boolean;
   evaso: boolean;
   note: string | null;
+  updatedAt?: string;
+  updatedByUser?: {
+    id: string;
+    nome: string;
+    cognome: string;
+    ruolo?: string;
+  } | null;
   question: CheckupQuestion;
   documents?: CheckupDocument[];
 }
@@ -98,6 +105,17 @@ export const questionnairesApi = {
       `/checkup/questionnaires/${questionnaireId}/answers`,
       { answers },
     ),
+
+  getPresence: (questionnaireId: string) =>
+    api.get<{ fields: { fieldId: string; users: { userId: string; name: string }[] }[] }>(
+      `/checkup/questionnaires/${questionnaireId}/answers/presence`,
+    ),
+
+  setPresenceActive: (questionnaireId: string, fieldId: string) =>
+    api.post(`/checkup/questionnaires/${questionnaireId}/answers/presence/active`, { fieldId }),
+
+  setPresenceInactive: (questionnaireId: string, fieldId: string) =>
+    api.post(`/checkup/questionnaires/${questionnaireId}/answers/presence/inactive`, { fieldId }),
 
   getDocuments: (questionnaireId: string, sectionId?: string) =>
     api.get<CheckupDocument[]>(

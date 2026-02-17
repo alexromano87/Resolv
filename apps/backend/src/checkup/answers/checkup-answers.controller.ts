@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Put, Param, Body, Query, UseGuards, Post } from '@nestjs/common';
 import { CheckupAnswersService } from './checkup-answers.service';
 import { BulkSaveAnswersDto } from './dto/save-answer.dto';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
@@ -26,5 +26,31 @@ export class CheckupAnswersController {
     @CheckupCurrentUser() user: CheckupCurrentUserData,
   ) {
     return this.answersService.getAnswers(questionnaireId, user, sectionId);
+  }
+
+  @Get('presence')
+  getPresence(
+    @Param('questionnaireId') questionnaireId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.answersService.getPresence(questionnaireId, user);
+  }
+
+  @Post('presence/active')
+  setPresenceActive(
+    @Param('questionnaireId') questionnaireId: string,
+    @Body('fieldId') fieldId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.answersService.setPresenceActive(questionnaireId, fieldId, user);
+  }
+
+  @Post('presence/inactive')
+  setPresenceInactive(
+    @Param('questionnaireId') questionnaireId: string,
+    @Body('fieldId') fieldId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.answersService.setPresenceInactive(questionnaireId, fieldId, user);
   }
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { questionnairesApi, CheckupQuestionnaire, CheckupAnswer, CheckupSection } from '../api/questionnaires';
 import { QuestionRenderer } from '../components/QuestionRenderer';
@@ -21,11 +21,15 @@ export default function QuestionnairePage() {
   const [questionnaire, setQuestionnaire] = useState<CheckupQuestionnaire | null>(null);
   const [answers, setAnswers] = useState<Map<string, CheckupAnswer>>(new Map());
   const [pendingChanges, setPendingChanges] = useState<Map<string, string>>(new Map());
+  const pendingChangesRef = useRef<Map<string, string>>(new Map());
   const [activeSectionIdx, setActiveSectionIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
+  const [presenceByField, setPresenceByField] = useState<Record<string, { userId: string; name: string }[]>>({});
+  const activeFieldRef = useRef<string | null>(null);
+  const totalQuestionsRef = useRef(0);
 
   const isReadOnly = user?.ruolo !== 'cliente';
 
@@ -52,12 +56,32 @@ export default function QuestionnairePage() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    pendingChangesRef.current = pendingChanges;
+  }, [pendingChanges]);
+
   const sections = useMemo(
     () => questionnaire?.template?.sections || [],
     [questionnaire],
   );
 
+  useEffect(() => {
+    totalQuestionsRef.current = sections.reduce((sum, section) => sum + section.questions.length, 0);
+  }, [sections]);
+
   const activeSection = sections[activeSectionIdx] as CheckupSection | undefined;
+  const activeCollaborators = useMemo(() => {
+    const map = new Map<string, { userId: string; name: string }>();
+    Object.values(presenceByField).forEach((users) => {
+      users.forEach((u) => {
+        if (u.userId === user?.id) return;
+        if (!map.has(u.userId)) {
+          map.set(u.userId, u);
+        }
+      });
+    });
+    return Array.from(map.values());
+  }, [presenceByField, user?.id]);
 
   // Filter root questions (no parent) for active section
   const rootQuestions = useMemo(() => {
@@ -105,6 +129,94 @@ export default function QuestionnairePage() {
       return next;
     });
   };
+
+  const markFieldActive = useCallback(
+    (questionId: string) => {
+      if (!id || isReadOnly) return;
+      activeFieldRef.current = questionId;
+      questionnairesApi.setPresenceActive(id, questionId).catch(() => null);
+    },
+    [id, isReadOnly],
+  );
+
+  const markFieldInactive = useCallback(
+    (questionId: string) => {
+      if (!id || isReadOnly) return;
+      if (activeFieldRef.current === questionId) {
+        activeFieldRef.current = null;
+      }
+      questionnairesApi.setPresenceInactive(id, questionId).catch(() => null);
+    },
+    [id, isReadOnly],
+  );
+
+  const refreshAnswers = useCallback(async () => {
+    if (!id) return;
+    try {
+      const latest = await questionnairesApi.getAnswers(id);
+      setAnswers((prev) => {
+        const next = new Map(prev);
+        latest.forEach((answer) => {
+          if (!pendingChangesRef.current.has(answer.questionId)) {
+            next.set(answer.questionId, answer);
+          }
+        });
+        const totalQuestions = totalQuestionsRef.current;
+        if (totalQuestions > 0) {
+          const answeredCount = Array.from(next.values()).filter((a) => a?.valore && a.valore.trim() !== '').length;
+          setQuestionnaire((current) => (current ? ({
+            ...current,
+            percentualeCompletamento: Math.round((answeredCount / totalQuestions) * 100),
+          }) : current));
+        }
+        return next;
+      });
+    } catch {
+      // ignore polling errors
+    }
+  }, [id]);
+
+  const refreshPresence = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await questionnairesApi.getPresence(id);
+      const next: Record<string, { userId: string; name: string }[]> = {};
+      res.fields.forEach((field) => {
+        next[field.fieldId] = field.users;
+      });
+      setPresenceByField(next);
+    } catch {
+      // ignore polling errors
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    refreshPresence();
+    const interval = setInterval(refreshPresence, 4000);
+    return () => clearInterval(interval);
+  }, [id, refreshPresence]);
+
+  useEffect(() => {
+    if (!id) return;
+    const interval = setInterval(refreshAnswers, 5000);
+    return () => clearInterval(interval);
+  }, [id, refreshAnswers]);
+
+  useEffect(() => {
+    if (!id || isReadOnly) return;
+    const interval = setInterval(() => {
+      if (activeFieldRef.current) {
+        questionnairesApi.setPresenceActive(id, activeFieldRef.current).catch(() => null);
+      }
+    }, 5000);
+    return () => {
+      clearInterval(interval);
+      if (activeFieldRef.current) {
+        questionnairesApi.setPresenceInactive(id, activeFieldRef.current).catch(() => null);
+      }
+    };
+  }, [id, isReadOnly]);
 
   const saveSection = async () => {
     if (!id || pendingChanges.size === 0 || isReadOnly) return;
@@ -188,13 +300,28 @@ export default function QuestionnairePage() {
             <span className="text-sm text-gray-500">{questionnaire.percentualeCompletamento}%</span>
           </div>
         </div>
+        {activeCollaborators.length > 0 && (
+          <div className="flex flex-col items-end gap-1">
+            <span className="text-[11px] uppercase tracking-wide text-gray-400">Collaboratori attivi</span>
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {activeCollaborators.map((u) => (
+                <span
+                  key={u.userId}
+                  className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5"
+                >
+                  {u.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Read-only banner for staff */}
       {isReadOnly && (
         <div className="flex items-center gap-2 p-3 bg-cyan-50 border border-cyan-200 rounded-lg text-cyan-700 text-sm">
           <Eye className="h-4 w-4 flex-shrink-0" />
-          Stai visualizzando il questionario in sola lettura. Solo il cliente assegnato può compilare le risposte.
+          Stai visualizzando il questionario in sola lettura. Solo gli utenti cliente della stessa azienda possono compilare le risposte.
         </div>
       )}
 
@@ -263,6 +390,10 @@ export default function QuestionnairePage() {
                   questionnaireId={questionnaire.id}
                   onDocumentUploaded={loadData}
                   readOnly={isReadOnly}
+                  presenceByField={presenceByField}
+                  currentUserId={user?.id}
+                  onFieldFocus={markFieldActive}
+                  onFieldBlur={markFieldInactive}
                 />
               ))}
             </div>

@@ -37,20 +37,13 @@ export class CheckupPreassessmentThreadsService {
     if (!pre) throw new NotFoundException('Checkup non trovato');
 
     if (user.ruolo === 'cliente') {
-      if (pre.userId !== user.id) {
+      if (!user.clientId || pre.clientId !== user.clientId) {
         throw new ForbiddenException('Non autorizzato');
       }
-      return { pre, client: null };
+      return { pre, clientId: pre.clientId };
     }
 
     if (!user.studioId) {
-      throw new ForbiddenException('Non autorizzato');
-    }
-    const client = await this.userRepository.findOne({
-      where: { id: pre.userId, attivo: true },
-      relations: ['client'],
-    });
-    if (!client || !client.clientId) {
       throw new ForbiddenException('Non autorizzato');
     }
     const license = await this.licenseRepository.findOne({ where: { studioId: user.studioId } });
@@ -58,20 +51,27 @@ export class CheckupPreassessmentThreadsService {
       throw new ForbiddenException('Non autorizzato');
     }
     const sublicense = await this.sublicenseRepository.findOne({
-      where: { licenseId: license.id, clientId: client.clientId, attiva: true },
+      where: { licenseId: license.id, clientId: pre.clientId, attiva: true },
     });
     if (!sublicense) {
       throw new ForbiddenException('Non autorizzato');
     }
 
-    return { pre, client };
+    return { pre, clientId: pre.clientId };
   }
 
   async listTickets(preassessmentId: string, user: CheckupCurrentUserData) {
     await this.ensureAccess(preassessmentId, user);
     const tickets = await this.ticketRepository.find({
       where: { preassessmentId },
-      relations: ['createdBy', 'messages', 'messages.user'],
+      relations: [
+        'createdBy',
+        'assignedTo',
+        'closeRequestedBy',
+        'closedBy',
+        'messages',
+        'messages.user',
+      ],
       order: { createdAt: 'DESC' },
     });
 
@@ -133,6 +133,71 @@ export class CheckupPreassessmentThreadsService {
     });
   }
 
+  async assignTicket(ticketId: string, user: CheckupCurrentUserData) {
+    if (user.ruolo === 'cliente') {
+      throw new ForbiddenException('Solo lo studio può prendere in carico i ticket');
+    }
+    const ticket = await this.ticketRepository.findOne({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundException('Ticket non trovato');
+
+    await this.ensureAccess(ticket.preassessmentId, user);
+
+    ticket.assignedToId = user.id;
+    ticket.status = 'in_progress';
+    return this.ticketRepository.save(ticket);
+  }
+
+  async requestClose(ticketId: string, user: CheckupCurrentUserData) {
+    if (user.ruolo === 'cliente') {
+      throw new ForbiddenException('Solo lo studio può richiedere la chiusura');
+    }
+    const ticket = await this.ticketRepository.findOne({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundException('Ticket non trovato');
+
+    await this.ensureAccess(ticket.preassessmentId, user);
+
+    ticket.status = 'pending_close';
+    ticket.closeRequestedById = user.id;
+    ticket.closeRequestedAt = new Date();
+    return this.ticketRepository.save(ticket);
+  }
+
+  async confirmClose(ticketId: string, user: CheckupCurrentUserData) {
+    if (user.ruolo !== 'cliente') {
+      throw new ForbiddenException('Solo il cliente può confermare la chiusura');
+    }
+    const ticket = await this.ticketRepository.findOne({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundException('Ticket non trovato');
+
+    await this.ensureAccess(ticket.preassessmentId, user);
+
+    if (ticket.status !== 'pending_close') {
+      throw new ForbiddenException('Chiusura non richiesta');
+    }
+
+    ticket.status = 'closed';
+    ticket.closedById = user.id;
+    ticket.closedAt = new Date();
+    return this.ticketRepository.save(ticket);
+  }
+
+  async reopenTicket(ticketId: string, user: CheckupCurrentUserData) {
+    if (user.ruolo === 'cliente') {
+      throw new ForbiddenException('Solo lo studio può riaprire il ticket');
+    }
+    const ticket = await this.ticketRepository.findOne({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundException('Ticket non trovato');
+
+    await this.ensureAccess(ticket.preassessmentId, user);
+
+    ticket.status = 'in_progress';
+    ticket.closeRequestedById = null;
+    ticket.closeRequestedAt = null;
+    ticket.closedById = null;
+    ticket.closedAt = null;
+    return this.ticketRepository.save(ticket);
+  }
+
   async listAlerts(preassessmentId: string, user: CheckupCurrentUserData) {
     await this.ensureAccess(preassessmentId, user);
 
@@ -158,7 +223,7 @@ export class CheckupPreassessmentThreadsService {
       throw new ForbiddenException('Solo l\'admin studio può inviare alert');
     }
 
-    const { client } = await this.ensureAccess(preassessmentId, user);
+    const { pre, clientId } = await this.ensureAccess(preassessmentId, user);
 
     let targetUserId = dto.targetUserId || user.id;
     if (dto.targetUserId) {
@@ -179,10 +244,12 @@ export class CheckupPreassessmentThreadsService {
       if (!sublicense) {
         throw new ForbiddenException('Destinatario non valido');
       }
+      if (target.clientId !== clientId) {
+        throw new ForbiddenException('Alert non coerente con il checkup selezionato');
+      }
       targetUserId = target.id;
     }
-
-    if (client && dto.targetUserId && client.id !== dto.targetUserId) {
+    if (!dto.targetUserId && user.clientId && user.clientId !== clientId) {
       throw new ForbiddenException('Alert non coerente con il checkup selezionato');
     }
 

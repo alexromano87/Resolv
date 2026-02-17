@@ -140,3 +140,4 @@ rimuoviamo l'hero, il sotto titolo presente nell'hero come ad esempio "Visione c
 - [X] Nella scheda ho rilevato solo un problema con inserimento numero di telefono. Non consente di inserire +39 (ovvero il +, dice carattere non consentito)
 - [X] inserire label "Stato" attivo/disattivo su tutte le pagine, come già fatto su quella dei collaboratori
 - [ ] rivedere i simboli non permessi
+- [X] modulo checkup: più utenti della stessa sottolicenza (stessa azienda) devono lavorare sullo stesso checkup e vedere gli stessi dati. Serve collaborazione in tempo reale tipo Google Sheets per vedere chi sta compilando cosa; inoltre, per ogni campo, devo poter vedere chi lo ha modificato e quando.

@@ -26,8 +26,14 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
       .join('');
   }, [user]);
 
-  const licenseeName = useMemo(() => {
-    return user?.license?.intestatario || user?.licenziatarioNome || user?.studioNome || '';
+  const clientCompanyName = useMemo(() => {
+    return (
+      user?.client?.ragioneSociale ||
+      user?.azienda ||
+      user?.clientNome ||
+      user?.client?.nome ||
+      ''
+    );
   }, [user]);
 
   const pageTitle = useMemo(() => {
@@ -78,11 +84,6 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
           <div className="flex items-center justify-between border-b border-blue-800/30 px-6 py-5 flex-shrink-0">
             <div className={`overflow-hidden transition-all duration-400 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
               <img src="/logo_resolv.png" alt="RESOLV" className="h-14 w-auto" />
-              {licenseeName && (
-                <div className="mt-3 rounded-lg border border-blue-800/40 bg-blue-900/30 px-3 py-2 text-[11px] text-slate-200">
-                  Licenziatario <span className="font-semibold text-white">{licenseeName}</span>
-                </div>
-              )}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -189,7 +190,9 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                     {user?.nome} {user?.cognome}
                   </p>
                   <p className="text-[10px] text-slate-500 truncate max-w-[160px]">
-                    {user?.ruolo}
+                    {user?.ruolo === 'cliente'
+                      ? `Cliente${clientCompanyName ? ` · ${clientCompanyName}` : ''}`
+                      : user?.ruolo}
                   </p>
                 </div>
               </div>
