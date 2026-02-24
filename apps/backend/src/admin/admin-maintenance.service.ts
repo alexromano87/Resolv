@@ -72,7 +72,7 @@ export class AdminMaintenanceService {
       this.ticketRepository.count({ where: { studioId: IsNull() } }),
       this.documentoRepository.count({ where: { studioId: IsNull() } }),
       this.cartellaRepository.count({ where: { studioId: IsNull() } }),
-      this.userRepository.count({ where: { studioId: IsNull(), ruolo: Not('superuser') } }),
+      this.userRepository.count({ where: { studioId: IsNull(), ruolo: Not('superadmin') } }),
     ]);
 
     return {
@@ -115,7 +115,7 @@ export class AdminMaintenanceService {
         .createQueryBuilder()
         .update(User)
         .set({ studioId })
-        .where('studioId IS NULL AND ruolo != :ruolo', { ruolo: 'superuser' })
+        .where('studioId IS NULL AND ruolo != :ruolo', { ruolo: 'superadmin' })
         .execute(),
     ]);
 

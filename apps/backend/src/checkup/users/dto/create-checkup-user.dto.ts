@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateCheckupUserDto {
   @IsEmail()
@@ -7,7 +7,7 @@ export class CreateCheckupUserDto {
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(8)
+  @MinLength(12)
   password: string;
 
   @IsString()
@@ -40,4 +40,9 @@ export class CreateCheckupUserDto {
   @IsOptional()
   @IsString()
   azienda?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  macroAreaOwner?: string[];
 }

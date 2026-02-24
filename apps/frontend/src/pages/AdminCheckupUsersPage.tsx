@@ -13,6 +13,8 @@ export default function AdminCheckupUsersPage() {
   const [studios, setStudios] = useState<CheckupStudio[]>([]);
   const [clients, setClients] = useState<CheckupClient[]>([]);
   const [sublicenses, setSublicenses] = useState<CheckupSublicense[]>([]);
+  const [macroAreas, setMacroAreas] = useState<{ code: string; label: string; sortOrder: number }[]>([]);
+  const [macroLoading, setMacroLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -32,6 +34,7 @@ export default function AdminCheckupUsersPage() {
     sublicenseId: '',
     azienda: '',
     telefono: '',
+    macroAreaOwner: [] as string[],
   });
   const inputClassName =
     'mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100';
@@ -70,7 +73,18 @@ export default function AdminCheckupUsersPage() {
   }, []);
 
   const resetUserForm = () => {
-    setFormData({ nome: '', cognome: '', email: '', password: '', studioId: '', clientId: '', sublicenseId: '', azienda: '', telefono: '' });
+    setFormData({
+      nome: '',
+      cognome: '',
+      email: '',
+      password: '',
+      studioId: '',
+      clientId: '',
+      sublicenseId: '',
+      azienda: '',
+      telefono: '',
+      macroAreaOwner: [] as string[],
+    });
   };
 
   const handleOpenCreateUser = () => {
@@ -97,6 +111,11 @@ export default function AdminCheckupUsersPage() {
       sublicenseId: userSublicense?.id || '',
       azienda: user.azienda || '',
       telefono: user.telefono || '',
+      macroAreaOwner: Array.isArray(user.macroAreaOwner)
+        ? user.macroAreaOwner
+        : user.macroAreaOwner
+        ? [user.macroAreaOwner as unknown as string]
+        : [],
     });
     setShowUserModal(true);
   };
@@ -126,6 +145,10 @@ export default function AdminCheckupUsersPage() {
       toastError('Seleziona la sottolicenza per l\'utente');
       return;
     }
+    if (!formData.macroAreaOwner.length) {
+      toastError('Seleziona la macro area owner');
+      return;
+    }
     if (!isEditing && !formData.password) {
       toastError('La password è obbligatoria');
       return;
@@ -146,6 +169,7 @@ export default function AdminCheckupUsersPage() {
           ruolo: 'cliente',
           azienda: formData.azienda || undefined,
           telefono: formData.telefono || undefined,
+          macroAreaOwner: formData.macroAreaOwner,
         });
         success('Utente aggiornato');
       } else {
@@ -160,6 +184,7 @@ export default function AdminCheckupUsersPage() {
           ruolo: 'cliente',
           azienda: formData.azienda || undefined,
           telefono: formData.telefono || undefined,
+          macroAreaOwner: formData.macroAreaOwner,
         });
         success('Utente creato');
       }
@@ -236,6 +261,35 @@ export default function AdminCheckupUsersPage() {
   const selectedSublicense = formData.sublicenseId
     ? sublicensesForClient.find((s) => s.id === formData.sublicenseId) || null
     : null;
+
+  useEffect(() => {
+    const modelId = selectedSublicense?.license?.model?.id || selectedSublicense?.license?.modelId;
+    if (!modelId) {
+      setMacroAreas([]);
+      return;
+    }
+    setMacroLoading(true);
+    checkupAdminApi
+      .getMacroAreasByModel(modelId)
+      .then((data) => {
+        const filtered = data
+          .filter((m) => m.code !== 'k' && !m.label.toLowerCase().includes('owner'))
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        setMacroAreas(filtered);
+      })
+      .catch(() => setMacroAreas([]))
+      .finally(() => setMacroLoading(false));
+  }, [selectedSublicense?.license?.model?.id, selectedSublicense?.license?.modelId]);
+
+  useEffect(() => {
+    if (formData.macroAreaOwner.length === 0) return;
+    if (macroAreas.length === 0) return;
+    const allowed = new Set(macroAreas.map((m) => m.code));
+    const filtered = formData.macroAreaOwner.filter((macro) => allowed.has(macro));
+    if (filtered.length !== formData.macroAreaOwner.length) {
+      setFormData((prev) => ({ ...prev, macroAreaOwner: filtered }));
+    }
+  }, [macroAreas, formData.macroAreaOwner]);
 
   useEffect(() => {
     if (!formData.clientId) return;
@@ -379,7 +433,7 @@ export default function AdminCheckupUsersPage() {
       {showUserModal && (
         <BodyPortal>
           <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
-            <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
+            <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">
                   {isEditing ? 'Modifica utente checkup' : 'Nuovo utente checkup'}
@@ -389,7 +443,7 @@ export default function AdminCheckupUsersPage() {
                 </button>
               </div>
               <form onSubmit={handleSubmitUser} className="space-y-4 p-6">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Nome</label>
                     <input
@@ -407,107 +461,181 @@ export default function AdminCheckupUsersPage() {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Studio</label>
-                  <div className="mt-1">
-                    <CustomSelect
-                      value={formData.studioId}
-                      onChange={(val) =>
-                        setFormData((p) => ({
-                          ...p,
-                          studioId: val,
-                          clientId: '',
-                          sublicenseId: '',
-                        }))
-                      }
-                      options={licenziatariStudios.map((s) => ({ value: s.id, label: s.nome }))}
-                      placeholder="Seleziona studio"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Email</label>
-                  <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
-                    className={inputClassName}
-                  />
-                </div>
-                {!isEditing && (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Password</label>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Studio</label>
+                    <div className="mt-1">
+                      <CustomSelect
+                        value={formData.studioId}
+                        onChange={(val) =>
+                          setFormData((p) => ({
+                            ...p,
+                            studioId: val,
+                            clientId: '',
+                            sublicenseId: '',
+                          }))
+                        }
+                        options={licenziatariStudios.map((s) => ({ value: s.id, label: s.nome }))}
+                        placeholder="Seleziona studio"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Email</label>
                     <input
-                      type="password"
-                      value={formData.password}
-                      onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))}
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
                       className={inputClassName}
                     />
                   </div>
-                )}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Cliente</label>
-                  <div className="mt-1">
-                    <CustomSelect
-                      value={formData.clientId}
-                      onChange={(val) =>
-                        setFormData((p) => ({
-                          ...p,
-                          clientId: val,
-                          sublicenseId: '',
-                        }))
-                      }
-                      options={clientsForStudio.map((c) => ({ value: c.id, label: c.nome }))}
-                      placeholder="Seleziona cliente"
+                  {!isEditing && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Password</label>
+                      <input
+                        type="password"
+                        value={formData.password}
+                        onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))}
+                        className={inputClassName}
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Cliente</label>
+                    <div className="mt-1">
+                      <CustomSelect
+                        value={formData.clientId}
+                        onChange={(val) =>
+                          setFormData((p) => ({
+                            ...p,
+                            clientId: val,
+                            sublicenseId: '',
+                            macroAreaOwner: [],
+                          }))
+                        }
+                        options={clientsForStudio.map((c) => ({ value: c.id, label: c.nome }))}
+                        placeholder="Seleziona cliente"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Sottolicenza</label>
+                    <div className="mt-1">
+                      <CustomSelect
+                        value={formData.sublicenseId}
+                        onChange={(val) => setFormData((p) => ({ ...p, sublicenseId: val }))}
+                        options={sublicensesForClient.map((s) => ({
+                          value: s.id,
+                          label: s.numeroSublicenza ? `#${s.numeroSublicenza}` : 'Senza numero',
+                          sublabel: `Utenze ${s.numeroUtenze} · ${s.dataInizioValidita || '—'} → ${s.dataScadenza || '—'}`,
+                        }))}
+                        placeholder="Seleziona sottolicenza"
+                      />
+                    </div>
+                    {formData.sublicenseId && selectedSublicense ? (
+                      <div
+                        className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
+                          selectedClientLimitReached
+                            ? 'border-rose-200 bg-rose-50 text-rose-700'
+                            : 'border-slate-200 bg-slate-50 text-slate-600'
+                        }`}
+                      >
+                        Utenti attivi: {selectedClientActiveCount}/{selectedSublicense.numeroUtenze}
+                        {selectedClientLimitReached && ' • Limite raggiunto'}
+                      </div>
+                    ) : formData.clientId ? (
+                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        Nessuna sottolicenza disponibile per il cliente selezionato.
+                      </div>
+                    ) : null}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Azienda (opzionale)</label>
+                    <input
+                      value={formData.azienda}
+                      onChange={(e) => setFormData((p) => ({ ...p, azienda: e.target.value }))}
+                      className={inputClassName}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Telefono (opzionale)</label>
+                    <input
+                      value={formData.telefono}
+                      onChange={(e) => setFormData((p) => ({ ...p, telefono: e.target.value }))}
+                      className={inputClassName}
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Sottolicenza</label>
-                  <div className="mt-1">
-                    <CustomSelect
-                      value={formData.sublicenseId}
-                      onChange={(val) => setFormData((p) => ({ ...p, sublicenseId: val }))}
-                      options={sublicensesForClient.map((s) => ({
-                        value: s.id,
-                        label: s.numeroSublicenza ? `#${s.numeroSublicenza}` : 'Senza numero',
-                        sublabel: `Utenze ${s.numeroUtenze} · ${s.dataInizioValidita || '—'} → ${s.dataScadenza || '—'}`,
-                      }))}
-                      placeholder="Seleziona sottolicenza"
-                    />
-                  </div>
-                  {formData.sublicenseId && selectedSublicense ? (
-                    <div
-                      className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
-                        selectedClientLimitReached
-                          ? 'border-rose-200 bg-rose-50 text-rose-700'
-                          : 'border-slate-200 bg-slate-50 text-slate-600'
-                      }`}
-                    >
-                      Utenti attivi: {selectedClientActiveCount}/{selectedSublicense.numeroUtenze}
-                      {selectedClientLimitReached && ' • Limite raggiunto'}
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Macro area owner</label>
+                  <div className="mt-1 space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      {formData.macroAreaOwner.length === 0 ? (
+                        <span className="text-xs text-slate-500">Nessuna macro area selezionata.</span>
+                      ) : (
+                        formData.macroAreaOwner.map((macro) => {
+                          const label = macroAreas.find((m) => m.code === macro)?.label || macro;
+                          return (
+                            <span
+                              key={macro}
+                              className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700"
+                            >
+                              {label}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setFormData((p) => ({
+                                    ...p,
+                                    macroAreaOwner: p.macroAreaOwner.filter((m) => m !== macro),
+                                  }))
+                                }
+                                className="text-indigo-500 hover:text-indigo-700"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          );
+                        })
+                      )}
                     </div>
-                  ) : formData.clientId ? (
+                    <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                      {macroLoading && (
+                        <div className="py-2 text-xs text-slate-500">Caricamento macro aree...</div>
+                      )}
+                      {!macroLoading && macroAreas.length === 0 && (
+                        <div className="py-2 text-xs text-slate-500">Nessuna macro area disponibile.</div>
+                      )}
+                      {!macroLoading && macroAreas.length > 0 && (
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                          {macroAreas.map((macro) => {
+                            const checked = formData.macroAreaOwner.includes(macro.code);
+                            return (
+                              <label key={macro.code} className="flex items-center gap-2 text-sm text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const next = e.target.checked
+                                      ? Array.from(new Set([...formData.macroAreaOwner, macro.code]))
+                                      : formData.macroAreaOwner.filter((m) => m !== macro.code);
+                                    setFormData((p) => ({ ...p, macroAreaOwner: next }));
+                                  }}
+                                  className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                                  disabled={!selectedSublicense}
+                                />
+                                <span>{macro.label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {selectedSublicense && !macroLoading && macroAreas.length === 0 && (
                     <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                      Nessuna sottolicenza disponibile per il cliente selezionato.
+                      Nessuna macro area disponibile per il modello selezionato.
                     </div>
-                  ) : null}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Azienda (opzionale)</label>
-                  <input
-                    value={formData.azienda}
-                    onChange={(e) => setFormData((p) => ({ ...p, azienda: e.target.value }))}
-                    className={inputClassName}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Telefono (opzionale)</label>
-                  <input
-                    value={formData.telefono}
-                    onChange={(e) => setFormData((p) => ({ ...p, telefono: e.target.value }))}
-                    className={inputClassName}
-                  />
+                  )}
                 </div>
                 <div className="flex justify-end gap-3 pt-2">
                   <button type="button" onClick={handleCloseUserModal} className="wow-button-ghost">

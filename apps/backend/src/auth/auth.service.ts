@@ -148,16 +148,15 @@ export class AuthService {
   }
 
   private async sendPasswordResetCode(email: string, token: string) {
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const link = `${baseUrl}/reset-password?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`;
     await this.emailService.sendEmail({
       to: email,
-      subject: 'Link per recupero password',
+      subject: 'Codice per recupero password',
       text: [
         'Hai richiesto il recupero della password.',
-        `Link per il reset: ${link}`,
-        'Il link scade tra 15 minuti.',
+        `Codice di verifica: ${token}`,
+        'Il codice scade tra 15 minuti.',
       ].join('\n'),
+      html: buildTwoFactorEmailHtml({ code: token, product: 'Resolv' }),
     });
   }
 
@@ -372,7 +371,7 @@ export class AuthService {
       throw new UnauthorizedException('Email non trovata');
     }
 
-    const token = `${this.generateTwoFactorCode()}-${Math.random().toString(36).slice(2, 10)}`;
+    const token = this.generateTwoFactorCode();
     user.twoFactorCode = token;
     user.twoFactorCodePurpose = 'password_reset';
     user.twoFactorCodeExpires = new Date(Date.now() + 15 * 60 * 1000);

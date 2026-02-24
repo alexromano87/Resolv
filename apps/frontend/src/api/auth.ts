@@ -2,7 +2,7 @@
 import { api } from './config';
 
 export type UserRole =
-  | 'superuser'
+  | 'superadmin'
   | 'titolare_studio'
   | 'avvocato'
   | 'collaboratore'

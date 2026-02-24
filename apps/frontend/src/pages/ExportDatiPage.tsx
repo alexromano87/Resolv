@@ -33,7 +33,7 @@ export function ExportDatiPage() {
   const { token, user } = useAuth();
   const [studi, setStudi] = useState<Studio[]>([]);
   const [loadingStudi, setLoadingStudi] = useState(true);
-  const isSuperuser = user?.ruolo === 'superuser';
+  const isSuperadmin = user?.ruolo === 'superadmin';
 
   // Export form state
   const [exportType, setExportType] = useState<'selective' | 'backup'>('selective');
@@ -60,19 +60,19 @@ export function ExportDatiPage() {
 
   useEffect(() => {
     loadStudi();
-  }, [isSuperuser, user?.studioId]);
+  }, [isSuperadmin, user?.studioId]);
 
   // Pulisci la selezione dello studio quando si seleziona USERS o altre entità senza studio
   useEffect(() => {
-    if (isSuperuser && ENTITIES_WITHOUT_STUDIO.includes(selectedEntity)) {
+    if (isSuperadmin && ENTITIES_WITHOUT_STUDIO.includes(selectedEntity)) {
       setSelectedStudioId('');
     }
-  }, [selectedEntity, isSuperuser]);
+  }, [selectedEntity, isSuperadmin]);
 
   const loadStudi = async () => {
     try {
       setLoadingStudi(true);
-      if (isSuperuser) {
+      if (isSuperadmin) {
         const data = await studiApi.getAll();
         setStudi(data);
       } else if (user?.studioId) {
@@ -104,7 +104,7 @@ export function ExportDatiPage() {
       const request: ExportRequest = {
         entity: selectedEntity,
         format: selectedFormat,
-        studioId: (isSuperuser ? selectedStudioId : (user?.studioId || selectedStudioId)) || undefined,
+        studioId: (isSuperadmin ? selectedStudioId : (user?.studioId || selectedStudioId)) || undefined,
         dataInizio: dataInizio || undefined,
         dataFine: dataFine || undefined,
         includeInactive,
@@ -135,7 +135,7 @@ export function ExportDatiPage() {
 
     try {
       const request: BackupStudioRequest = {
-        studioId: isSuperuser ? selectedStudioId : (user?.studioId || selectedStudioId),
+        studioId: isSuperadmin ? selectedStudioId : (user?.studioId || selectedStudioId),
         includeDocuments,
         includeAuditLogs,
       };
@@ -162,7 +162,7 @@ export function ExportDatiPage() {
   }));
 
   const studioOptions = [
-    ...(isSuperuser ? [{ value: '', label: 'Tutti gli studi' }] : []),
+    ...(isSuperadmin ? [{ value: '', label: 'Tutti gli studi' }] : []),
     ...studi.map((s) => ({
       value: s.id,
       label: s.nome,
@@ -172,7 +172,7 @@ export function ExportDatiPage() {
 
   const isStudioRequired = ENTITIES_REQUIRING_STUDIO.includes(selectedEntity);
   const isStudioHidden = ENTITIES_WITHOUT_STUDIO.includes(selectedEntity);
-  const effectiveStudioId = isSuperuser ? selectedStudioId : (user?.studioId || selectedStudioId);
+  const effectiveStudioId = isSuperadmin ? selectedStudioId : (user?.studioId || selectedStudioId);
 
   return (
     <div className="space-y-6 wow-stagger">
@@ -270,7 +270,7 @@ export function ExportDatiPage() {
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                   Studio Legale {isStudioRequired && '*'}
                 </label>
-                {isSuperuser ? (
+                {isSuperadmin ? (
                   <>
                     <CustomSelect
                       options={studioOptions}
@@ -380,7 +380,7 @@ export function ExportDatiPage() {
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                 Studio Legale *
               </label>
-              {isSuperuser ? (
+              {isSuperadmin ? (
                 <CustomSelect
                   options={studi.map((s) => ({
                     value: s.id,

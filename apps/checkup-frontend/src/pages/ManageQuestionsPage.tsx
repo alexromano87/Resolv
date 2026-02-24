@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
-import { Plus, Edit2, Trash2, Save, X, HelpCircle, GripVertical, Folder, FileText, List, Settings } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, HelpCircle, GripVertical, Folder, FileText, List } from 'lucide-react';
 import * as questionApi from '../api/questionManagement';
-import { useNavigate } from 'react-router-dom';
 
 interface EditingMacro {
   id?: number;
+  modelId: string;
   code: string;
   label: string;
   color: string;
@@ -34,7 +33,10 @@ interface EditingField {
 }
 
 export default function ManageQuestionsPage() {
-  const navigate = useNavigate();
+  const [models, setModels] = useState<questionApi.QuestionModel[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
+  const [editingModel, setEditingModel] = useState<questionApi.CreateQuestionModelDto & { id?: string; attivo?: boolean } | null>(null);
+
   const [macroAreas, setMacroAreas] = useState<questionApi.MacroArea[]>([]);
   const [sections, setSections] = useState<questionApi.Section[]>([]);
   const [fields, setFields] = useState<questionApi.Field[]>([]);
@@ -49,11 +51,21 @@ export default function ManageQuestionsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sidebarTarget = typeof document !== 'undefined' ? document.getElementById('checkup-subnav') : null;
+  useEffect(() => {
+    loadModels();
+  }, []);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (selectedModelId) {
+      loadData(selectedModelId);
+    } else {
+      setMacroAreas([]);
+      setSections([]);
+      setFields([]);
+      setSelectedMacro(null);
+      setSelectedSection(null);
+    }
+  }, [selectedModelId]);
 
   useEffect(() => {
     if (selectedMacro) {
@@ -73,13 +85,91 @@ export default function ManageQuestionsPage() {
     }
   }, [selectedSection]);
 
-  const loadData = async () => {
+  const loadModels = async () => {
     try {
       setLoading(true);
-      const data = await questionApi.getAllMacroAreas();
+      const data = await questionApi.getModels();
+      setModels(data);
+      if (data.length > 0) {
+        setSelectedModelId((prev) => prev || data[0].id);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to load models');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadData = async (modelId: string) => {
+    try {
+      setLoading(true);
+      const data = await questionApi.getAllMacroAreas(modelId);
       setMacroAreas(data);
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateModel = () => {
+    setEditingModel({
+      code: '',
+      label: '',
+      description: '',
+      attivo: true,
+    });
+  };
+
+  const handleEditModel = (model: questionApi.QuestionModel) => {
+    setEditingModel({
+      id: model.id,
+      code: model.code,
+      label: model.label,
+      description: model.description || '',
+      attivo: model.attivo,
+    });
+  };
+
+  const handleSaveModel = async () => {
+    if (!editingModel) return;
+    try {
+      setLoading(true);
+      setError(null);
+      if (editingModel.id) {
+        await questionApi.updateModel(editingModel.id, {
+          code: editingModel.code,
+          label: editingModel.label,
+          description: editingModel.description,
+          attivo: editingModel.attivo,
+        });
+      } else {
+        await questionApi.createModel({
+          code: editingModel.code,
+          label: editingModel.label,
+          description: editingModel.description,
+        });
+      }
+      setEditingModel(null);
+      await loadModels();
+    } catch (err: any) {
+      setError(err.message || 'Failed to save model');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteModel = async (id: string) => {
+    if (!confirm('Eliminare questo modello? Verranno eliminate tutte le macro-aree e domande associate.')) return;
+    try {
+      setLoading(true);
+      await questionApi.deleteModel(id);
+      if (selectedModelId === id) {
+        setSelectedModelId('');
+      }
+      await loadModels();
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete model');
     } finally {
       setLoading(false);
     }
@@ -106,17 +196,23 @@ export default function ManageQuestionsPage() {
   // ============ MACRO AREA HANDLERS ============
 
   const handleCreateMacro = () => {
+    if (!selectedModelId) {
+      alert('Seleziona prima un modello');
+      return;
+    }
     setEditingMacro({
       code: '',
       label: '',
       color: '#6366f1',
       sortOrder: macroAreas.length,
+      modelId: selectedModelId,
     });
   };
 
   const handleEditMacro = (macro: questionApi.MacroArea) => {
     setEditingMacro({
       id: macro.id,
+      modelId: macro.modelId,
       code: macro.code,
       label: macro.label,
       color: macro.color,
@@ -138,7 +234,9 @@ export default function ManageQuestionsPage() {
       }
 
       setEditingMacro(null);
-      await loadData();
+      if (selectedModelId) {
+        await loadData(selectedModelId);
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Failed to save macro area');
     } finally {
@@ -155,7 +253,9 @@ export default function ManageQuestionsPage() {
       if (selectedMacro === id) {
         setSelectedMacro(null);
       }
-      await loadData();
+      if (selectedModelId) {
+        await loadData(selectedModelId);
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Failed to delete macro area');
     } finally {
@@ -332,6 +432,60 @@ export default function ManageQuestionsPage() {
             <button onClick={() => setError(null)} className="ml-2 text-red-900 font-bold">×</button>
           </div>
         )}
+
+        <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-3">
+              <List className="w-5 h-5 text-slate-600" />
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Modelli questionario</div>
+                <div className="text-xs text-slate-500">Seleziona o crea un modello (231, GDPR, ecc.)</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedModelId}
+                onChange={(e) => setSelectedModelId(e.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              >
+                <option value="">Seleziona modello</option>
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.label} {model.attivo ? '' : '(disattivo)'}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleCreateModel}
+                className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+              >
+                <Plus className="w-4 h-4" />
+                Nuovo modello
+              </button>
+              {selectedModelId && (
+                <>
+                  <button
+                    onClick={() => {
+                      const model = models.find((m) => m.id === selectedModelId);
+                      if (model) handleEditModel(model);
+                    }}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                    Modifica
+                  </button>
+                  <button
+                    onClick={() => handleDeleteModel(selectedModelId)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Elimina
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* MACRO AREAS COLUMN */}
@@ -536,18 +690,20 @@ export default function ManageQuestionsPage() {
         </div>
 
         {/* EDIT MODAL */}
-        {(editingMacro || editingSection || editingField) && (
+        {(editingModel || editingMacro || editingSection || editingField) && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <div className="p-6">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl font-bold">
+                    {editingModel && (editingModel.id ? 'Modifica Modello' : 'Nuovo Modello')}
                     {editingMacro && (editingMacro.id ? 'Modifica Macro-Area' : 'Nuova Macro-Area')}
                     {editingSection && (editingSection.id ? 'Modifica Sezione' : 'Nuova Sezione')}
                     {editingField && (editingField.id ? 'Modifica Domanda' : 'Nuova Domanda')}
                   </h3>
                   <button
                     onClick={() => {
+                      setEditingModel(null);
                       setEditingMacro(null);
                       setEditingSection(null);
                       setEditingField(null);
@@ -557,6 +713,58 @@ export default function ManageQuestionsPage() {
                     <X className="w-5 h-5" />
                   </button>
                 </div>
+
+                {/* MODEL FORM */}
+                {editingModel && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Codice *</label>
+                      <input
+                        type="text"
+                        value={editingModel.code}
+                        onChange={(e) => setEditingModel({ ...editingModel, code: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-transparent"
+                        placeholder="es: preassessment, 231, gdpr"
+                        maxLength={50}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Label *</label>
+                      <input
+                        type="text"
+                        value={editingModel.label}
+                        onChange={(e) => setEditingModel({ ...editingModel, label: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-transparent"
+                        placeholder="es: Modello 231"
+                        maxLength={150}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione</label>
+                      <textarea
+                        value={editingModel.description || ''}
+                        onChange={(e) => setEditingModel({ ...editingModel, description: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-transparent"
+                        rows={3}
+                        placeholder="Descrizione del modello"
+                      />
+                    </div>
+                    {editingModel.id && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="model-active"
+                          checked={editingModel.attivo ?? true}
+                          onChange={(e) => setEditingModel({ ...editingModel, attivo: e.target.checked })}
+                          className="w-4 h-4 text-slate-600 border-gray-300 rounded focus:ring-slate-500"
+                        />
+                        <label htmlFor="model-active" className="text-sm font-medium text-gray-700">
+                          Modello attivo
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* MACRO AREA FORM */}
                 {editingMacro && (
@@ -758,6 +966,7 @@ export default function ManageQuestionsPage() {
                 <div className="flex gap-3 mt-6 pt-6 border-t">
                   <button
                     onClick={() => {
+                      setEditingModel(null);
                       setEditingMacro(null);
                       setEditingSection(null);
                       setEditingField(null);
@@ -769,6 +978,7 @@ export default function ManageQuestionsPage() {
                   </button>
                   <button
                     onClick={() => {
+                      if (editingModel) handleSaveModel();
                       if (editingMacro) handleSaveMacro();
                       if (editingSection) handleSaveSection();
                       if (editingField) handleSaveField();
@@ -786,33 +996,6 @@ export default function ManageQuestionsPage() {
         )}
       </div>
 
-      {sidebarTarget &&
-        createPortal(
-          <div className="space-y-2">
-            <button
-              onClick={() => navigate('/checkup/amministrazione')}
-              className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-blue-900/40 hover:text-white"
-            >
-              <Settings className="h-5 w-5" />
-              <span>Amministrazione</span>
-            </button>
-            <button
-              onClick={() => navigate('/checkup/gestione-domande')}
-              className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium bg-blue-900/60 text-white"
-            >
-              <List className="h-5 w-5" />
-              <span>Gestione Domande</span>
-            </button>
-            <button
-              onClick={() => navigate('/checkup/impostazioni')}
-              className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-blue-900/40 hover:text-white"
-            >
-              <Settings className="h-5 w-5" />
-              <span>Impostazioni</span>
-            </button>
-          </div>,
-          sidebarTarget,
-        )}
     </div>
   );
 }

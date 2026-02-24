@@ -7,6 +7,8 @@ export interface FieldSpec {
   options?: string[];
   required?: boolean;
   help?: string;
+  allowDocuments?: boolean;
+  weight?: number;
 }
 
 export interface SectionSpec {

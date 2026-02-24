@@ -115,7 +115,7 @@ export class DocumentiController {
     };
 
     // Auto-assegna studioId se l'utente non è admin
-    if (user.ruolo !== 'superuser' && user.studioId) {
+    if (user.ruolo !== 'superadmin' && user.studioId) {
       createDto.studioId = user.studioId;
     }
 
@@ -184,7 +184,7 @@ export class DocumentiController {
     const cartella = await this.cartelleService.findOne(cartellaId);
     if (cartella.praticaId) {
       await this.praticheService.findOneForUser(cartella.praticaId, user);
-    } else if (user.ruolo !== 'superuser' && cartella.studioId !== user.studioId) {
+    } else if (user.ruolo !== 'superadmin' && cartella.studioId !== user.studioId) {
       throw new NotFoundException('Cartella non trovata');
     }
     return this.documentiService.findByCartella(
@@ -280,7 +280,7 @@ export class DocumentiController {
   }
 
   private async assertDocumentoAccess(id: string, user: CurrentUserData | null) {
-    if (!user || user.ruolo === 'superuser') return;
+    if (!user || user.ruolo === 'superadmin') return;
     const documento = await this.documentiService.findOne(id);
     if (documento.praticaId) {
       await this.praticheService.findOneForUser(documento.praticaId, user);

@@ -5,8 +5,11 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { QuestionSection } from './question-section.entity';
+import { QuestionModel } from './question-model.entity';
 
 @Entity('checkup_question_macro_areas')
 export class QuestionMacroArea {
@@ -24,6 +27,13 @@ export class QuestionMacroArea {
 
   @Column({ type: 'int', default: 0 })
   sortOrder: number;
+
+  @Column({ type: 'uuid' })
+  modelId: string;
+
+  @ManyToOne(() => QuestionModel, (model) => model.macroAreas, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'modelId' })
+  model: QuestionModel;
 
   @OneToMany(() => QuestionSection, (section) => section.macroArea)
   sections: QuestionSection[];

@@ -45,7 +45,7 @@ export function StudiPage() {
   const { confirm: secureConfirm, SecureConfirmDialog } = useSecureConfirmDialog();
 
   useEffect(() => {
-    if (currentUser?.ruolo !== 'superuser') return;
+    if (currentUser?.ruolo !== 'superadmin') return;
     loadStudi();
   }, [currentUser?.ruolo]);
 
@@ -313,7 +313,7 @@ export function StudiPage() {
     }
   };
 
-  if (currentUser?.ruolo !== 'superuser') {
+  if (currentUser?.ruolo !== 'superadmin') {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
         <Building2 className="mx-auto h-12 w-12 text-slate-400" />
@@ -321,7 +321,7 @@ export function StudiPage() {
           Accesso negato
         </h3>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-          Solo i superuser possono accedere a questa pagina.
+          Solo i superadmin possono accedere a questa pagina.
         </p>
       </div>
     );

@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  LayoutGrid,
   Search,
   ChevronLeft,
   ChevronRight,
@@ -11,6 +10,9 @@ import {
   HelpCircle,
   Download,
   Printer,
+  Upload,
+  FileText,
+  Trash2,
   MessageCircle,
   Ticket,
   Bell,
@@ -18,24 +20,31 @@ import {
   Eye,
   Users,
   Loader2,
+  Ban,
+  RefreshCw,
+  Lock,
 } from 'lucide-react';
 import { CustomSelect } from '../components/CustomSelect';
 import {
-  MACRO_AREAS,
-  SECTIONS,
+  MACRO_AREAS as DEFAULT_MACRO_AREAS,
+  SECTIONS as DEFAULT_SECTIONS,
   FieldSpec,
   SectionSpec,
+  MacroAreaSpec,
 } from '../data/preassessment';
+import * as questionManagementApi from '../api/questionManagement';
 import {
   preassessmentApi,
   preassessmentChatApi,
   preassessmentTicketApi,
   preassessmentAlertApi,
+  preassessmentDocumentsApi,
   PreassessmentClientEntry,
   PreassessmentClientRecord,
   PreassessmentChatMessage,
   PreassessmentTicket,
   PreassessmentAlert,
+  PreassessmentDocument,
 } from '../api/preassessment';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -164,15 +173,15 @@ function getOptions(field: FieldSpec) {
   return [...(field.options || [])];
 }
 
-function getInitialData() {
+function getInitialData(sectionsData: SectionSpec[]) {
   const init: Record<string, string> = {};
-  SECTIONS.forEach((s) => s.fields.forEach((f) => { init[f.id] = ''; }));
+  sectionsData.forEach((s) => s.fields.forEach((f) => { init[f.id] = ''; }));
   return init;
 }
 
-function getInitialNaFields() {
+function getInitialNaFields(sectionsData: SectionSpec[]) {
   const init: Record<string, boolean> = {};
-  SECTIONS.forEach((s) => s.fields.forEach((f) => { init[f.id] = false; }));
+  sectionsData.forEach((s) => s.fields.forEach((f) => { init[f.id] = false; }));
   return init;
 }
 
@@ -211,6 +220,66 @@ export default function PreassessmentPage() {
     || user?.ruolo === 'segreteria';
   const canCreateAlert = user?.ruolo === 'admin_studio';
 
+  const [macroAreas, setMacroAreas] = useState<MacroAreaSpec[]>(DEFAULT_MACRO_AREAS);
+  const [sections, setSections] = useState<SectionSpec[]>(DEFAULT_SECTIONS);
+
+  useEffect(() => {
+    const modelId = user?.license?.model?.id;
+    if (!modelId) {
+      setMacroAreas(DEFAULT_MACRO_AREAS);
+      setSections(DEFAULT_SECTIONS);
+      return;
+    }
+
+    let cancelled = false;
+    const normalizeFieldType = (value: string): FieldSpec['type'] => {
+      if (value === 'textarea' || value === 'select' || value === 'multiselect' || value === 'number') {
+        return value;
+      }
+      return 'text';
+    };
+
+    questionManagementApi
+      .getCompleteStructure(modelId)
+      .then((data) => {
+        if (cancelled) return;
+        const nextMacroAreas: MacroAreaSpec[] = data.map((macro) => ({
+          id: macro.code,
+          label: macro.label,
+          color: macro.color,
+        }));
+        const nextSections: SectionSpec[] = data.flatMap((macro) =>
+          (macro.sections || []).map((section) => ({
+            id: section.code,
+            macro: macro.code,
+            title: section.title,
+            description: section.description || '',
+            fields: (section.fields || []).map((field) => ({
+              id: field.fieldId,
+              label: field.label,
+              type: normalizeFieldType(field.type),
+              options: field.options || undefined,
+              required: field.required || false,
+              help: field.help || undefined,
+              allowDocuments: field.allowDocuments ?? true,
+              weight: typeof field.weight === 'number' ? field.weight : 1,
+            })),
+          }))
+        );
+        setMacroAreas(nextMacroAreas.length ? nextMacroAreas : DEFAULT_MACRO_AREAS);
+        setSections(nextSections.length ? nextSections : DEFAULT_SECTIONS);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMacroAreas(DEFAULT_MACRO_AREAS);
+        setSections(DEFAULT_SECTIONS);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.license?.model?.id]);
+
   const [clients, setClients] = useState<PreassessmentClientEntry[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(clientId ?? null);
@@ -218,17 +287,21 @@ export default function PreassessmentPage() {
   const [clientResults, setClientResults] = useState<PreassessmentClientEntry[]>([]);
   const [clientSearched, setClientSearched] = useState(false);
 
-  const [data, setData] = useState<Record<string, string>>(getInitialData);
+  const [data, setData] = useState<Record<string, string>>(() => getInitialData(sections));
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [fieldNotes, setFieldNotes] = useState<Record<string, string>>({});
   const [fieldMeta, setFieldMeta] = useState<Record<string, { updatedAt: string; updatedBy: { id: string; name: string; ruolo: string } }>>({});
-  const [naFields, setNaFields] = useState<Record<string, boolean>>(getInitialNaFields);
+  const [naFields, setNaFields] = useState<Record<string, boolean>>(() => getInitialNaFields(sections));
   const [macroValidations, setMacroValidations] = useState<Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>>({});
   const [studioCanEdit, setStudioCanEdit] = useState(false);
+  const [assessmentStatus, setAssessmentStatus] = useState<'in_progress' | 'concluso'>('in_progress');
+  const [completeLoading, setCompleteLoading] = useState(false);
+  const [completeError, setCompleteError] = useState('');
   const [preassessmentId, setPreassessmentId] = useState<string | null>(null);
   const [isPreassessmentOnline, setIsPreassessmentOnline] = useState(false);
   const [clientInfo, setClientInfo] = useState<PreassessmentClientRecord['client'] | null>(null);
   const [view, setView] = useState<'dashboard' | number>('dashboard');
+  const lastSectionIdRef = useRef<string | null>(null);
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [showExport, setShowExport] = useState(false);
@@ -252,6 +325,22 @@ export default function PreassessmentPage() {
   const [alerts, setAlerts] = useState<PreassessmentAlert[]>([]);
   const [activeEditors, setActiveEditors] = useState<Record<string, { userId: string; name: string }>>({});
   const [dashFilter, setDashFilter] = useState<'all' | 'completed' | 'todo' | 'na'>('all');
+  const [documentsByField, setDocumentsByField] = useState<Record<string, PreassessmentDocument[]>>({});
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+
+  useEffect(() => {
+    setData((prev) => ({ ...getInitialData(sections), ...prev }));
+    setNaFields((prev) => ({ ...getInitialNaFields(sections), ...prev }));
+  }, [sections]);
+
+  useEffect(() => {
+    const handler = () => {
+      setView('dashboard');
+      setPanel(null);
+    };
+    window.addEventListener('checkup:go-dashboard', handler);
+    return () => window.removeEventListener('checkup:go-dashboard', handler);
+  }, []);
 
   const didInitRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -260,9 +349,11 @@ export default function PreassessmentPage() {
   const sidebarTarget = typeof document !== 'undefined' ? document.getElementById('checkup-subnav') : null;
 
   const activeClientId = isClient ? user?.clientId ?? null : selectedClientId;
-  const canEdit = isClient || (isStaff && studioCanEdit);
+  const canEdit = isClient ? assessmentStatus !== 'concluso' : (isStaff && studioCanEdit);
   const readOnly = !canEdit;
   const showAssessment = !!activeClientId && !!preassessmentId;
+  const activeSection = typeof view === 'number' ? sections[view] : null;
+  const activeMacro = activeSection ? macroAreas.find((m) => m.id === activeSection.macro) : null;
   const lastRemoteUpdatedAtRef = useRef<string | null>(null);
   const lastLocalChangeRef = useRef<number>(0);
   const onlineUsers = useMemo(() => {
@@ -273,6 +364,50 @@ export default function PreassessmentPage() {
     });
     return Array.from(map.values());
   }, [activeEditors]);
+
+  const loadDocuments = useCallback(async () => {
+    if (!preassessmentId || !activeSection) return;
+    setDocumentsLoading(true);
+    setDocumentsByField({});
+    try {
+      const docs = await preassessmentDocumentsApi.list(preassessmentId, activeSection.id);
+      const grouped: Record<string, PreassessmentDocument[]> = {};
+      docs.forEach((doc) => {
+        const key = doc.fieldId;
+        grouped[key] = grouped[key] ? [...grouped[key], doc] : [doc];
+      });
+      setDocumentsByField(grouped);
+    } catch {
+      setDocumentsByField({});
+    } finally {
+      setDocumentsLoading(false);
+    }
+  }, [preassessmentId, activeSection]);
+
+  useEffect(() => {
+    loadDocuments();
+  }, [loadDocuments]);
+
+  const handleUploadDocument = useCallback(async (fieldId: string, sectionId: string, file: File) => {
+    if (!preassessmentId) return;
+    await preassessmentDocumentsApi.upload(preassessmentId, file, fieldId, sectionId);
+    await loadDocuments();
+  }, [preassessmentId, loadDocuments]);
+
+  const handleDeleteDocument = useCallback(async (docId: string) => {
+    await preassessmentDocumentsApi.delete(docId);
+    await loadDocuments();
+  }, [loadDocuments]);
+
+  const handleDownloadDocument = useCallback(async (doc: PreassessmentDocument) => {
+    const blob = await preassessmentDocumentsApi.download(doc.id);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = doc.nomeOriginale || 'documento';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
 
   useEffect(() => {
     if (!preassessmentId) {
@@ -341,13 +476,14 @@ export default function PreassessmentPage() {
         if (isStaff && !activeClientId) {
           setPreassessmentId(null);
           setClientInfo(null);
-          setData(getInitialData());
+          setData(getInitialData(sections));
           setNotes({});
           setFieldNotes({});
           setFieldMeta({});
-          setNaFields(getInitialNaFields());
+          setNaFields(getInitialNaFields(sections));
           setMacroValidations({});
           setStudioCanEdit(false);
+          setAssessmentStatus('in_progress');
           setLastSavedAt(null);
           return;
         }
@@ -355,15 +491,16 @@ export default function PreassessmentPage() {
         if (isStaff && activeClientId) {
           const res = await preassessmentApi.getClient(activeClientId);
           if (!isMounted) return;
-          const base = getInitialData();
+          const base = getInitialData(sections);
           setClientInfo(res.client);
           setPreassessmentId(res.preassessment.id);
           setStudioCanEdit(res.preassessment.studioCanEdit);
+          setAssessmentStatus(res.preassessment.status || 'in_progress');
           setData({ ...base, ...(res.preassessment.data || {}) });
           setNotes(res.preassessment.notes || {});
           setFieldNotes(res.preassessment.fieldNotes || {});
           setFieldMeta(res.preassessment.fieldMeta || {});
-          setNaFields(res.preassessment.naFields || getInitialNaFields());
+          setNaFields(res.preassessment.naFields || getInitialNaFields(sections));
           setMacroValidations(res.preassessment.macroValidations || {});
           lastRemoteUpdatedAtRef.current = res.preassessment.updatedAt;
           setLastSavedAt(new Date(res.preassessment.updatedAt).toLocaleTimeString('it-IT'));
@@ -373,15 +510,16 @@ export default function PreassessmentPage() {
 
         const res = await preassessmentApi.get();
         if (!isMounted) return;
-        const base = getInitialData();
+        const base = getInitialData(sections);
         setClientInfo(null);
         setPreassessmentId(res.id);
         setStudioCanEdit(res.studioCanEdit);
+        setAssessmentStatus(res.status || 'in_progress');
         setData({ ...base, ...(res.data || {}) });
         setNotes(res.notes || {});
         setFieldNotes(res.fieldNotes || {});
         setFieldMeta(res.fieldMeta || {});
-        setNaFields(res.naFields || getInitialNaFields());
+        setNaFields(res.naFields || getInitialNaFields(sections));
         setMacroValidations(res.macroValidations || {});
         lastRemoteUpdatedAtRef.current = res.updatedAt;
         setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
@@ -427,6 +565,27 @@ export default function PreassessmentPage() {
   }, [activeClientId]);
 
   useEffect(() => {
+    if (typeof view !== 'number') return;
+    const current = sections[view];
+    if (current) {
+      lastSectionIdRef.current = current.id;
+      return;
+    }
+    if (lastSectionIdRef.current) {
+      const idx = sections.findIndex((s) => s.id === lastSectionIdRef.current);
+      if (idx >= 0) {
+        setView(idx);
+        setPanel(null);
+        return;
+      }
+    }
+    if (view < 0 || view >= sections.length) {
+      setView('dashboard');
+      setPanel(null);
+    }
+  }, [sections, view]);
+
+  useEffect(() => {
     if (!activeClientId) return;
     const key = `checkup_preassessment_view_${activeClientId}`;
     localStorage.setItem(key, JSON.stringify({ view, panel }));
@@ -470,15 +629,16 @@ export default function PreassessmentPage() {
           const nextRemote = new Date(updatedAt).getTime();
           if (nextRemote <= lastRemote) return;
           if (Date.now() - lastLocalChangeRef.current < 1200) return;
-          const base = getInitialData();
+          const base = getInitialData(sections);
           setClientInfo(res.client);
           setPreassessmentId(res.preassessment.id);
           setStudioCanEdit(res.preassessment.studioCanEdit);
+          setAssessmentStatus(res.preassessment.status || 'in_progress');
           setData({ ...base, ...(res.preassessment.data || {}) });
           setNotes(res.preassessment.notes || {});
           setFieldNotes(res.preassessment.fieldNotes || {});
           setFieldMeta(res.preassessment.fieldMeta || {});
-          setNaFields(res.preassessment.naFields || getInitialNaFields());
+          setNaFields(res.preassessment.naFields || getInitialNaFields(sections));
           setMacroValidations(res.preassessment.macroValidations || {});
           setLastSavedAt(new Date(res.preassessment.updatedAt).toLocaleTimeString('it-IT'));
           lastRemoteUpdatedAtRef.current = res.preassessment.updatedAt;
@@ -492,15 +652,16 @@ export default function PreassessmentPage() {
         const nextRemote = new Date(updatedAt).getTime();
         if (nextRemote <= lastRemote) return;
         if (Date.now() - lastLocalChangeRef.current < 1200) return;
-        const base = getInitialData();
+        const base = getInitialData(sections);
         setClientInfo(null);
         setPreassessmentId(res.id);
         setStudioCanEdit(res.studioCanEdit);
+        setAssessmentStatus(res.status || 'in_progress');
         setData({ ...base, ...(res.data || {}) });
         setNotes(res.notes || {});
         setFieldNotes(res.fieldNotes || {});
         setFieldMeta(res.fieldMeta || {});
-        setNaFields(res.naFields || getInitialNaFields());
+        setNaFields(res.naFields || getInitialNaFields(sections));
         setMacroValidations(res.macroValidations || {});
         setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
         lastRemoteUpdatedAtRef.current = res.updatedAt;
@@ -540,6 +701,9 @@ export default function PreassessmentPage() {
       promise
         .then((res) => {
           setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
+          if (res.status) {
+            setAssessmentStatus(res.status);
+          }
           if (res.fieldMeta) {
             setFieldMeta(res.fieldMeta);
           }
@@ -592,8 +756,27 @@ export default function PreassessmentPage() {
     }
   }, [canEdit]);
 
+  const handleSectionSkip = useCallback((sectionFields: FieldSpec[]) => {
+    if (!canEdit) return;
+    const allNA = sectionFields.every((f) => naFields[f.id]);
+    const newValue = !allNA;
+    setNaFields((prev) => {
+      const updates: Record<string, boolean> = {};
+      sectionFields.forEach((f) => { updates[f.id] = newValue; });
+      return { ...prev, ...updates };
+    });
+    if (newValue) {
+      setData((prev) => {
+        const updates: Record<string, string> = {};
+        sectionFields.forEach((f) => { updates[f.id] = ''; });
+        return { ...prev, ...updates };
+      });
+    }
+  }, [canEdit, naFields]);
+
   const handleValidateMacro = useCallback((macroId: string) => {
     if (!activeClientId || !user) return;
+    if (assessmentStatus === 'concluso') return;
     const name = `${user.nome} ${user.cognome}`.trim() || user.email;
     setMacroValidations((p) => ({
       ...p,
@@ -602,34 +785,65 @@ export default function PreassessmentPage() {
         at: new Date().toISOString(),
       },
     }));
-  }, [activeClientId, user]);
+  }, [activeClientId, assessmentStatus, user]);
 
   const handleRevokeValidation = useCallback((macroId: string) => {
     if (!activeClientId) return;
+    if (assessmentStatus === 'concluso') return;
     setMacroValidations((p) => {
       const next = { ...p };
       delete next[macroId];
       return next;
     });
-  }, [activeClientId]);
+  }, [activeClientId, assessmentStatus]);
 
+  const handleCompleteCheckup = useCallback(async () => {
+    setCompleteError('');
+    if (!isClient) return;
+    if (!confirm('Confermi la chiusura del checkup e l’invio allo studio?')) return;
+    setCompleteLoading(true);
+    try {
+      const res = await preassessmentApi.complete();
+      setAssessmentStatus(res.status || 'concluso');
+      setCompleteError('');
+      if (res.updatedAt) {
+        setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Errore durante la chiusura';
+      setCompleteError(message);
+    } finally {
+      setCompleteLoading(false);
+    }
+  }, [isClient]);
+
+  // Count-based metrics (for display "N/M" labels)
   const totalReq = useMemo(
-    () => SECTIONS.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id]).length, 0),
-    [naFields],
+    () => sections.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id]).length, 0),
+    [sections, naFields],
   );
   const totalFilled = useMemo(
-    () => SECTIONS.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id] && data[f.id]?.trim()).length, 0),
-    [data, naFields],
+    () => sections.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id] && data[f.id]?.trim()).length, 0),
+    [sections, data, naFields],
   );
   const totalFields = useMemo(
-    () => SECTIONS.reduce((a, s) => a + s.fields.length, 0),
-    [],
+    () => sections.reduce((a, s) => a + s.fields.length, 0),
+    [sections],
   );
   const totalNA = useMemo(
     () => Object.values(naFields).filter(Boolean).length,
     [naFields],
   );
-  const pct = totalReq > 0 ? Math.round((totalFilled / totalReq) * 100) : 0;
+  // Weighted score (uses field.weight, defaults to 1)
+  const totalWeightReq = useMemo(
+    () => sections.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id]).reduce((acc, f) => acc + (f.weight ?? 1), 0), 0),
+    [sections, naFields],
+  );
+  const totalWeightFilled = useMemo(
+    () => sections.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id] && data[f.id]?.trim()).reduce((acc, f) => acc + (f.weight ?? 1), 0), 0),
+    [sections, data, naFields],
+  );
+  const pct = totalWeightReq > 0 ? Math.round((totalWeightFilled / totalWeightReq) * 100) : 0;
 
   const sDone = (s: SectionSpec) => s.fields.filter((f) => f.required && !naFields[f.id] && data[f.id]?.trim()).length;
   const sTotal = (s: SectionSpec) => s.fields.filter((f) => f.required && !naFields[f.id]).length;
@@ -644,9 +858,9 @@ export default function PreassessmentPage() {
   };
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return SECTIONS;
+    if (!search.trim()) return sections;
     const t = search.toLowerCase();
-    return SECTIONS.filter((s) =>
+    return sections.filter((s) =>
       s.title.toLowerCase().includes(t)
       || s.description.toLowerCase().includes(t)
       || s.fields.some((f) => f.label.toLowerCase().includes(t)),
@@ -654,7 +868,7 @@ export default function PreassessmentPage() {
   }, [search]);
 
   const grouped = useMemo(
-    () => MACRO_AREAS
+    () => macroAreas
       .map((m) => ({ ...m, sections: filtered.filter((s) => s.macro === m.id) }))
       .filter((g) => g.sections.length > 0),
     [filtered],
@@ -668,8 +882,6 @@ export default function PreassessmentPage() {
     return ownerEmail !== '' && ownerEmail === user.email.toLowerCase();
   };
 
-  const activeSection = typeof view === 'number' ? SECTIONS[view] : null;
-  const activeMacro = activeSection ? MACRO_AREAS.find((m) => m.id === activeSection.macro) : null;
   const dashFilterLabel = dashFilter === 'completed'
     ? 'Completati'
     : dashFilter === 'todo'
@@ -686,10 +898,10 @@ export default function PreassessmentPage() {
       data_compilazione: new Date().toISOString(),
       modalita: excludeNA ? 'Escludi N/A' : 'Completo',
       note_consulente: includeNotes ? 'incluse' : 'escluse',
-      sezioni: SECTIONS.map((s) => ({
+      sezioni: sections.map((s) => ({
         id: s.id,
         titolo: s.title,
-        macro_area: MACRO_AREAS.find((m) => m.id === s.macro)?.label,
+        macro_area: macroAreas.find((m) => m.id === s.macro)?.label,
         risposte: Object.fromEntries(
           s.fields
             .filter((f) => !(excludeNA && naFields[f.id]))
@@ -721,8 +933,8 @@ export default function PreassessmentPage() {
     let csv = 'Macro Area;Sezione;Campo;Obbligatorio;Valore';
     if (includeNotes) csv += ';Nota consulente';
     csv += ';Note sezione\n';
-    SECTIONS.forEach((s) => {
-      const m = MACRO_AREAS.find((x) => x.id === s.macro)?.label || '';
+    sections.forEach((s) => {
+      const m = macroAreas.find((x) => x.id === s.macro)?.label || '';
       const rows = s.fields.filter((f) => !(excludeNA && naFields[f.id]));
       rows.forEach((f, i) => {
         const isNA = !!naFields[f.id];
@@ -1072,7 +1284,7 @@ export default function PreassessmentPage() {
                   </div>
                 </div>
                 <div class="cover-band">
-                  <div class="item"><div class="label">Sezioni</div><div class="value">${SECTIONS.length}</div></div>
+                  <div class="item"><div class="label">Sezioni</div><div class="value">${sections.length}</div></div>
                   <div class="item"><div class="label">Obbligatori</div><div class="value">${totalReq}</div></div>
                   <div class="item"><div class="label">Compilati</div><div class="value">${totalFilled}/${totalReq} (${pct}%)</div></div>
                 </div>
@@ -1096,15 +1308,15 @@ export default function PreassessmentPage() {
 
           <div class="summary">
             <div class="summary-grid">
-              <div class="summary-item"><div class="label">Sezioni</div><div class="value">${SECTIONS.length}</div></div>
+              <div class="summary-item"><div class="label">Sezioni</div><div class="value">${sections.length}</div></div>
               <div class="summary-item"><div class="label">Campi obbligatori</div><div class="value">${totalReq}</div></div>
               <div class="summary-item"><div class="label">Compilati</div><div class="value">${totalFilled}/${totalReq} (${pct}%)</div></div>
             </div>
           </div>`;
 
-    const sectionsByMacro = MACRO_AREAS.map((m) => ({
+    const sectionsByMacro = macroAreas.map((m) => ({
       macro: m.label,
-      sections: SECTIONS.filter((s) => s.macro === m.id),
+      sections: sections.filter((s) => s.macro === m.id),
     })).filter((g) => g.sections.length > 0);
 
     html += `<div class="index-page"><div class="index-title">Indice</div><div class="index-grid">`;
@@ -1118,7 +1330,7 @@ export default function PreassessmentPage() {
     html += `</div></div>`;
     html += `</div>`;
 
-    const macroLabelById = new Map(MACRO_AREAS.map((m) => [m.id, m.label]));
+    const macroLabelById = new Map(macroAreas.map((m) => [m.id, m.label]));
     const FIELDS_PER_PAGE = 14;
     const chunkFields = <T,>(arr: T[], size: number) => {
       const chunks: T[][] = [];
@@ -1128,7 +1340,7 @@ export default function PreassessmentPage() {
       return chunks;
     };
 
-    const sectionPages = SECTIONS.flatMap((s) => {
+    const sectionPages = sections.flatMap((s) => {
       const fields = excludeNA ? s.fields.filter((f) => !naFields[f.id]) : s.fields;
       if (fields.length === 0) return [];
       const chunks = chunkFields(fields, FIELDS_PER_PAGE);
@@ -1371,6 +1583,11 @@ export default function PreassessmentPage() {
   const openTickets = tickets.filter((t) =>
     isStaff ? t.status === 'open' : t.status === 'pending_close',
   ).length;
+  const allMacrosValidated = useMemo(() => {
+    const filtered = macroAreas.filter((m) => m.id !== 'k');
+    if (filtered.length === 0) return false;
+    return filtered.every((m) => macroValidations[m.id]);
+  }, [macroAreas, macroValidations]);
 
   const renderDashboard = () => {
     if (isStaff && !activeClientId) {
@@ -1463,22 +1680,22 @@ export default function PreassessmentPage() {
       );
     }
 
-    const completedSections = SECTIONS.filter((s) => {
+    const completedSections = sections.filter((s) => {
       const t = sTotal(s);
       return t > 0 && sDone(s) === t;
     }).length;
 
-    const filteredMacros = MACRO_AREAS.filter((m) => m.id !== 'k');
+    const filteredMacros = macroAreas.filter((m) => m.id !== 'k');
     const validatedCount = filteredMacros.filter((m) => macroValidations[m.id]).length;
     const macroRows = filteredMacros.map((m) => {
-      const sects = SECTIONS.filter((s) => s.macro === m.id);
+      const sects = sections.filter((s) => s.macro === m.id);
       const total = sects.reduce((a, s) => a + sTotal(s), 0);
       const done = sects.reduce((a, s) => a + sDone(s), 0);
       const naCount = sects.reduce((a, s) => a + sNA(s), 0);
       const pctMacro = total > 0 ? Math.round((done / total) * 100) : 0;
       return { ...m, total, done, naCount, pctMacro, sections: sects.length };
     });
-    const sectionCards = SECTIONS.filter((s) => s.fields.some(fieldMatchesFilter));
+    const sectionCards = sections.filter((s) => s.fields.some(fieldMatchesFilter));
 
     return (
       <div className="space-y-6">
@@ -1565,8 +1782,8 @@ export default function PreassessmentPage() {
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           {[
-            { label: 'Macro Aree', value: MACRO_AREAS.length, detail: 'aree tematiche' },
-            { label: 'Sezioni', value: SECTIONS.length, detail: `${completedSections} completate` },
+            { label: 'Macro Aree', value: macroAreas.length, detail: 'aree tematiche' },
+            { label: 'Sezioni', value: sections.length, detail: `${completedSections} completate` },
             { label: 'Campi', value: totalFields, detail: `${totalReq} obbligatori` },
             { label: 'Compilati', value: totalFilled, detail: `su ${totalReq}` },
             { label: 'N/A', value: totalNA, detail: 'campi esclusi' },
@@ -1637,7 +1854,7 @@ export default function PreassessmentPage() {
                           <span className="text-[10px] text-slate-400">
                             {macroValidations[row.id].by.name} • {new Date(macroValidations[row.id].at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                           </span>
-                          {isOwnerForMacro(row.id) && (
+                          {assessmentStatus !== 'concluso' && isOwnerForMacro(row.id) && (
                             <button
                               onClick={() => handleRevokeValidation(row.id)}
                               className="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600"
@@ -1648,7 +1865,7 @@ export default function PreassessmentPage() {
                         </div>
                       ) : (
                         <div>
-                          {isOwnerForMacro(row.id) && row.pctMacro === 100 ? (
+                          {assessmentStatus !== 'concluso' && isOwnerForMacro(row.id) && row.pctMacro === 100 ? (
                             <button
                               onClick={() => handleValidateMacro(row.id)}
                               className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"
@@ -1677,17 +1894,21 @@ export default function PreassessmentPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {sectionCards.map((s) => {
-            const done = sDone(s);
-            const total = sTotal(s);
-            const naCount = sNA(s);
-            const sp = total > 0 ? Math.round((done / total) * 100) : 0;
-            const macro = MACRO_AREAS.find((m) => m.id === s.macro);
-            const isValidated = !!macroValidations[s.macro];
-            const realIndex = SECTIONS.indexOf(s);
-            return (
+              const done = sDone(s);
+              const total = sTotal(s);
+              const naCount = sNA(s);
+              const sp = total > 0 ? Math.round((done / total) * 100) : 0;
+              const macro = macroAreas.find((m) => m.id === s.macro);
+              const isValidated = !!macroValidations[s.macro];
+              const realIndex = sections.findIndex((sec) => sec.id === s.id);
+              return (
               <button
                 key={s.id}
-                onClick={() => setView(realIndex)}
+                onClick={() => {
+                  if (realIndex < 0) return;
+                  setView(realIndex);
+                  setPanel(null);
+                }}
                 className={`wow-card p-4 text-left transition hover:border-blue-300 ${isValidated ? 'border-emerald-200' : ''}`}
               >
                 <div className="mb-2 flex items-center justify-between">
@@ -1732,12 +1953,32 @@ export default function PreassessmentPage() {
             </span>
             <h2 className="mt-3 text-2xl font-semibold text-slate-900">{activeSection.title}</h2>
             <p className="text-sm text-slate-600">{activeSection.description}</p>
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500">
-              <span>Filtro: {dashFilter === 'completed' ? 'Completati' : dashFilter === 'todo' ? 'Da completare' : dashFilter === 'na' ? 'N/A' : 'Tutti'}</span>
-              {macroValidation && (
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                  Macro validata • {macroValidation.by.name} • {new Date(macroValidation.at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                </span>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500">
+                <span>Filtro: {dashFilter === 'completed' ? 'Completati' : dashFilter === 'todo' ? 'Da completare' : dashFilter === 'na' ? 'N/A' : 'Tutti'}</span>
+                {macroValidation && (
+                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                    Macro validata • {macroValidation.by.name} • {new Date(macroValidation.at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => handleSectionSkip(activeSection.fields)}
+                  title={activeSection.fields.every((f) => naFields[f.id]) ? 'Ripristina tutti i campi della sezione' : 'Marca tutti i campi come N/A'}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10px] font-semibold transition-all duration-200 ${
+                    activeSection.fields.every((f) => naFields[f.id])
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700'
+                  }`}
+                >
+                  {activeSection.fields.every((f) => naFields[f.id]) ? (
+                    <><RefreshCw className="h-3 w-3" /><span>Ripristina sezione</span></>
+                  ) : (
+                    <><Ban className="h-3 w-3" /><span>Salta sezione (N/A)</span></>
+                  )}
+                </button>
               )}
             </div>
           </div>
@@ -1757,6 +1998,7 @@ export default function PreassessmentPage() {
                 fieldNote={fieldNotes[f.id]}
                 onNoteChange={handleFieldNote}
                 readOnly={readOnly}
+                ownerProtected={isClient && /^owner_[a-j]_/.test(f.id)}
                 fieldMeta={fieldMeta[f.id]}
                 activeEditor={activeEditors[f.id]}
                 currentUserId={user?.id}
@@ -1764,7 +2006,13 @@ export default function PreassessmentPage() {
                 onFieldBlur={emitFieldInactive}
                 naChecked={!!naFields[f.id]}
                 onNaChange={handleNaChange}
-                canEditNotes={!isClient && !readOnly}
+                canEditNotes={!readOnly && !(isClient && /^owner_[a-j]_/.test(f.id))}
+                documents={documentsByField[f.id] || []}
+                documentsLoading={documentsLoading}
+                onUploadDocument={handleUploadDocument}
+                onDeleteDocument={handleDeleteDocument}
+                onDownloadDocument={handleDownloadDocument}
+                sectionId={activeSection.id}
               />
             ))}
           </div>
@@ -1797,12 +2045,12 @@ export default function PreassessmentPage() {
               <ChevronLeft className="h-4 w-4" />
               {view === 0 ? 'Dashboard' : 'Precedente'}
             </button>
-            <span className="text-xs font-semibold text-slate-400">{(view as number) + 1}/{SECTIONS.length}</span>
+            <span className="text-xs font-semibold text-slate-400">{(view as number) + 1}/{sections.length}</span>
             <button
-              onClick={() => (view === SECTIONS.length - 1 ? setView('dashboard') : setView((view as number) + 1))}
+              onClick={() => (view === sections.length - 1 ? setView('dashboard') : setView((view as number) + 1))}
               className="wow-button"
             >
-              {view === SECTIONS.length - 1 ? 'Dashboard' : 'Successiva'}
+              {view === sections.length - 1 ? 'Dashboard' : 'Successiva'}
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
@@ -1871,6 +2119,12 @@ export default function PreassessmentPage() {
               {isStaff && !readOnly && (
                 <div className="text-emerald-700 font-semibold">Modifiche abilitate dal cliente</div>
               )}
+              {assessmentStatus === 'concluso' && (
+                <div className="text-emerald-700 font-semibold">Checkup concluso</div>
+              )}
+              {completeError && (
+                <div className="text-rose-700 font-semibold">{completeError}</div>
+              )}
             </div>
           </div>
           <div className="flex flex-col items-start gap-2 md:items-end">
@@ -1884,12 +2138,21 @@ export default function PreassessmentPage() {
                   Esporta
                 </button>
               )}
-              {isClient && (
+              {isClient && assessmentStatus !== 'concluso' && (
                 <button
                   onClick={() => setStudioCanEdit((p) => !p)}
                   className={`wow-button-ghost ${studioCanEdit ? 'border-emerald-300 text-emerald-700' : ''}`}
                 >
                   {studioCanEdit ? 'Modifiche studio: abilitate' : 'Modifiche studio: disattivate'}
+                </button>
+              )}
+              {isClient && assessmentStatus !== 'concluso' && allMacrosValidated && (
+                <button
+                  onClick={handleCompleteCheckup}
+                  disabled={completeLoading}
+                  className="wow-button"
+                >
+                  {completeLoading ? 'Invio in corso...' : 'Concludi e invia'}
                 </button>
               )}
               {saving && (
@@ -2018,6 +2281,7 @@ export default function PreassessmentPage() {
           search={search}
           setSearch={setSearch}
           grouped={grouped}
+          sections={sections}
           collapsed={collapsed}
           setCollapsed={setCollapsed}
           sDone={sDone}
@@ -2044,6 +2308,7 @@ function PreassessmentSidebar({
   search,
   setSearch,
   grouped,
+  sections,
   collapsed,
   setCollapsed,
   sDone,
@@ -2063,6 +2328,7 @@ function PreassessmentSidebar({
   search: string;
   setSearch: (val: string) => void;
   grouped: { id: string; label: string; color: string; sections: SectionSpec[] }[];
+  sections: SectionSpec[];
   collapsed: Record<string, boolean>;
   setCollapsed: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   sDone: (s: SectionSpec) => number;
@@ -2086,13 +2352,6 @@ function PreassessmentSidebar({
       )}
 
       <div className="space-y-1">
-        <button
-          onClick={() => { setView('dashboard'); setPanel(null); }}
-          className={`flex w-full items-center gap-3 rounded-lg px-4 py-2 text-sm font-semibold transition ${view === 'dashboard' && !panel ? 'bg-blue-700/90 text-white shadow-md' : 'text-slate-200 hover:bg-blue-900/40'}`}
-        >
-          <LayoutGrid className="h-4 w-4" />
-          Dashboard
-        </button>
         {hasAssessment && (
           <>
             <button
@@ -2154,7 +2413,7 @@ function PreassessmentSidebar({
                   <ChevronDown className={`h-3 w-3 transition ${collapsed[g.id] ? '-rotate-90' : ''}`} />
                 </button>
                 {!collapsed[g.id] && g.sections.map((s) => {
-                  const idx = SECTIONS.indexOf(s);
+                  const idx = sections.findIndex((sec) => sec.id === s.id);
                   const active = view === idx && !panel;
                   const done = sDone(s);
                   const total = sTotal(s);
@@ -2163,7 +2422,11 @@ function PreassessmentSidebar({
                   return (
                     <button
                       key={s.id}
-                      onClick={() => { setView(idx); setPanel(null); }}
+                      onClick={() => {
+                        if (idx < 0) return;
+                        setView(idx);
+                        setPanel(null);
+                      }}
                       className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition ${active ? 'bg-blue-700/80 text-white' : 'text-slate-200 hover:bg-blue-900/40'}`}
                     >
                       <span className="truncate">{s.title}</span>
@@ -2646,6 +2909,13 @@ const FormField = memo(function FormField({
   naChecked = false,
   onNaChange,
   canEditNotes = false,
+  documents = [],
+  documentsLoading = false,
+  onUploadDocument,
+  onDeleteDocument,
+  onDownloadDocument,
+  sectionId,
+  ownerProtected = false,
 }: {
   field: FieldSpec;
   value: string;
@@ -2653,6 +2923,7 @@ const FormField = memo(function FormField({
   fieldNote?: string;
   onNoteChange: (id: string, val: string) => void;
   readOnly?: boolean;
+  ownerProtected?: boolean;
   fieldMeta?: { updatedAt: string; updatedBy: { id: string; name: string; ruolo: string } };
   activeEditor?: { userId: string; name: string };
   currentUserId?: string;
@@ -2661,16 +2932,40 @@ const FormField = memo(function FormField({
   naChecked?: boolean;
   onNaChange?: (id: string, checked: boolean) => void;
   canEditNotes?: boolean;
+  documents?: PreassessmentDocument[];
+  documentsLoading?: boolean;
+  onUploadDocument?: (fieldId: string, sectionId: string, file: File) => Promise<void> | void;
+  onDeleteDocument?: (docId: string) => Promise<void> | void;
+  onDownloadDocument?: (doc: PreassessmentDocument) => Promise<void> | void;
+  sectionId: string;
 }) {
   const [showHelp, setShowHelp] = useState(false);
   const [showNote, setShowNote] = useState(Boolean(fieldNote));
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const helpRef = useRef<HTMLDivElement>(null);
   const isEditingOther = activeEditor && activeEditor.userId !== currentUserId;
   const showModified = !!fieldMeta;
   const modifiedAt = fieldMeta
     ? new Date(fieldMeta.updatedAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : null;
-  const disabled = readOnly || !!isEditingOther || naChecked;
+  const disabled = readOnly || ownerProtected || !!isEditingOther || naChecked;
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !onUploadDocument) return;
+    setUploading(true);
+    try {
+      await onUploadDocument(field.id, sectionId, file);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  useEffect(() => {
+    if (fieldNote) setShowNote(true);
+  }, [fieldNote]);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -2705,7 +3000,13 @@ const FormField = memo(function FormField({
               In modifica da {activeEditor?.name}
             </span>
           )}
-          {!readOnly && !isEditingOther && (
+          {ownerProtected && (
+            <span className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5">
+              <Lock className="h-2.5 w-2.5" />
+              Campo Studio
+            </span>
+          )}
+          {!readOnly && !ownerProtected && !isEditingOther && (
             <label className={`flex items-center gap-2 rounded-md border px-2 py-1 text-[10px] font-semibold ${naChecked ? 'border-rose-200 bg-rose-50 text-rose-600' : 'border-slate-200 text-slate-500'}`}>
               <input
                 type="checkbox"
@@ -2832,6 +3133,63 @@ const FormField = memo(function FormField({
         />
       )}
 
+      {field.allowDocuments !== false && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-slate-400" />
+            <span className="text-xs font-semibold text-slate-500">Documenti allegati</span>
+            {documentsLoading && (
+              <span className="text-[10px] text-slate-400">Caricamento...</span>
+            )}
+          </div>
+          {documents.length > 0 ? (
+            <div className="mt-2 space-y-1">
+              {documents.map((doc) => (
+                <div key={doc.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                  <button
+                    type="button"
+                    onClick={() => onDownloadDocument?.(doc)}
+                    className="truncate text-left text-slate-700 hover:text-blue-700"
+                  >
+                    {doc.nomeOriginale}
+                  </button>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteDocument?.(doc.id)}
+                      className="ml-2 text-slate-400 hover:text-rose-600"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-2 text-[11px] text-slate-400">Nessun documento caricato.</div>
+          )}
+          {!readOnly && (
+            <>
+              <input
+                ref={fileRef}
+                type="file"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 hover:border-blue-200 hover:text-blue-700 disabled:opacity-50"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                {uploading ? 'Caricamento...' : 'Carica documento'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {showNote && canEditNotes && !naChecked && (
         <textarea
           value={fieldNote || ''}
@@ -2839,7 +3197,7 @@ const FormField = memo(function FormField({
           onFocus={() => onFieldFocus?.(field.id)}
           onBlur={() => onFieldBlur?.(field.id)}
           rows={2}
-          placeholder="Nota consulente..."
+          placeholder="Nota..."
           disabled={disabled}
           className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 outline-none focus:ring-2 focus:ring-amber-300 disabled:bg-slate-50 disabled:text-slate-400"
         />
@@ -2847,7 +3205,7 @@ const FormField = memo(function FormField({
 
       {!canEditNotes && fieldNote && !naChecked && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          <strong>Nota consulente:</strong> {fieldNote}
+          <strong>Nota:</strong> {fieldNote}
         </div>
       )}
     </div>

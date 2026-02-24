@@ -303,11 +303,11 @@ export class ImportService {
       if (options.forceStudioId && options.allowedFields.includes('studioId')) {
         record.studioId = options.forceStudioId;
       }
-      if (options.forceStudioId && record.ruolo === 'superuser') {
+      if (options.forceStudioId && record.ruolo === 'superadmin') {
         result.skipped += 1;
         result.errors.push({
           row,
-          reason: 'Ruolo superuser non importabile da questo account',
+          reason: 'Ruolo superadmin non importabile da questo account',
         });
         continue;
       }

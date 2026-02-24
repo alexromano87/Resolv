@@ -24,7 +24,7 @@ export class UsersController {
   ) {
     const filters: any = {};
 
-    if (currentUser.ruolo !== 'superuser') {
+    if (currentUser.ruolo !== 'superadmin') {
       if (!currentUser.studioId) {
         throw new ForbiddenException('Studio non assegnato');
       }
@@ -52,8 +52,8 @@ export class UsersController {
 
   @Get(':id')
   async findOne(@CurrentUser() currentUser: CurrentUserData, @Param('id') id: string) {
-    const user = await this.usersService.findOne(id, currentUser.ruolo !== 'superuser');
-    if (currentUser.ruolo !== 'superuser') {
+    const user = await this.usersService.findOne(id, currentUser.ruolo !== 'superadmin');
+    if (currentUser.ruolo !== 'superadmin') {
       if (!currentUser.studioId || !this.usersService.isUserInStudio(user, currentUser.studioId)) {
         throw new ForbiddenException('Accesso negato');
       }
@@ -66,15 +66,15 @@ export class UsersController {
     if (createUserDto.isAdmin && createUserDto.ruolo === 'cliente') {
       throw new ForbiddenException('Non puoi assegnare admin a un cliente');
     }
-    if (createUserDto.ruolo === 'superuser' && createUserDto.email?.toLowerCase() !== 'admin@resolv.legal') {
-      throw new ForbiddenException('Solo admin@resolv.legal può essere superuser');
+    if (createUserDto.ruolo === 'superadmin' && createUserDto.email?.toLowerCase() !== 'admin@resolv.legal') {
+      throw new ForbiddenException('Solo admin@resolv.legal può essere superadmin');
     }
-    if (currentUser.ruolo !== 'superuser') {
+    if (currentUser.ruolo !== 'superadmin') {
       if (!currentUser.studioId) {
         throw new ForbiddenException('Studio non assegnato');
       }
-      if (createUserDto.ruolo === 'superuser') {
-        throw new ForbiddenException('Non puoi creare superuser');
+      if (createUserDto.ruolo === 'superadmin') {
+        throw new ForbiddenException('Non puoi creare superadmin');
       }
       createUserDto.studioId = currentUser.studioId;
     }
@@ -90,28 +90,28 @@ export class UsersController {
     const targetUser = await this.usersService.findOne(id, true);
     const targetRole = updateUserDto.ruolo ?? targetUser.ruolo;
     if (targetUser.email.toLowerCase() === 'admin@resolv.legal') {
-      if (updateUserDto.ruolo && updateUserDto.ruolo !== 'superuser') {
-        throw new ForbiddenException('admin@resolv.legal deve rimanere superuser');
+      if (updateUserDto.ruolo && updateUserDto.ruolo !== 'superadmin') {
+        throw new ForbiddenException('admin@resolv.legal deve rimanere superadmin');
       }
       if (updateUserDto.email && updateUserDto.email.toLowerCase() !== 'admin@resolv.legal') {
-        throw new ForbiddenException('Non puoi cambiare la mail del superuser');
+        throw new ForbiddenException('Non puoi cambiare la mail del superadmin');
       }
     }
     if (updateUserDto.isAdmin && targetRole === 'cliente') {
       throw new ForbiddenException('Non puoi assegnare admin a un cliente');
     }
-    if (updateUserDto.ruolo === 'superuser') {
+    if (updateUserDto.ruolo === 'superadmin') {
       const email = updateUserDto.email?.toLowerCase() ?? targetUser.email.toLowerCase();
       if (email !== 'admin@resolv.legal') {
-        throw new ForbiddenException('Solo admin@resolv.legal può essere superuser');
+        throw new ForbiddenException('Solo admin@resolv.legal può essere superadmin');
       }
     }
-    if (currentUser.ruolo !== 'superuser') {
+    if (currentUser.ruolo !== 'superadmin') {
       if (!currentUser.studioId || !this.usersService.isUserInStudio(targetUser, currentUser.studioId)) {
         throw new ForbiddenException('Accesso negato');
       }
-      if (updateUserDto.ruolo === 'superuser') {
-        throw new ForbiddenException('Non puoi assegnare il ruolo superuser');
+      if (updateUserDto.ruolo === 'superadmin') {
+        throw new ForbiddenException('Non puoi assegnare il ruolo superadmin');
       }
       updateUserDto.studioId = currentUser.studioId;
     }
@@ -120,7 +120,7 @@ export class UsersController {
 
   @Delete(':id')
   async remove(@CurrentUser() currentUser: CurrentUserData, @Param('id') id: string) {
-    if (currentUser.ruolo !== 'superuser') {
+    if (currentUser.ruolo !== 'superadmin') {
       const user = await this.usersService.findOne(id, true);
       if (!currentUser.studioId || !this.usersService.isUserInStudio(user, currentUser.studioId)) {
         throw new ForbiddenException('Accesso negato');
@@ -131,7 +131,7 @@ export class UsersController {
 
   @Put(':id/toggle-active')
   async toggleActive(@CurrentUser() currentUser: CurrentUserData, @Param('id') id: string) {
-    if (currentUser.ruolo !== 'superuser') {
+    if (currentUser.ruolo !== 'superadmin') {
       const user = await this.usersService.findOne(id, true);
       if (!currentUser.studioId || !this.usersService.isUserInStudio(user, currentUser.studioId)) {
         throw new ForbiddenException('Accesso negato');
@@ -146,7 +146,7 @@ export class UsersController {
     @Param('id') id: string,
     @Body() body: { newPassword: string },
   ) {
-    if (currentUser.ruolo !== 'superuser') {
+    if (currentUser.ruolo !== 'superadmin') {
       const user = await this.usersService.findOne(id, true);
       if (!currentUser.studioId || !this.usersService.isUserInStudio(user, currentUser.studioId)) {
         throw new ForbiddenException('Accesso negato');
@@ -161,7 +161,7 @@ export class UsersController {
     @Param('id') id: string,
     @Body() body: { studiIds: string[] },
   ) {
-    if (currentUser.ruolo !== 'superuser') {
+    if (currentUser.ruolo !== 'superadmin') {
       throw new ForbiddenException('Accesso negato');
     }
     return this.usersService.updateStudi(id, body.studiIds);
@@ -169,7 +169,7 @@ export class UsersController {
 
   @Get(':id/studi')
   async getStudi(@CurrentUser() currentUser: CurrentUserData, @Param('id') id: string) {
-    if (currentUser.ruolo !== 'superuser') {
+    if (currentUser.ruolo !== 'superadmin') {
       throw new ForbiddenException('Accesso negato');
     }
     return this.usersService.getStudi(id);

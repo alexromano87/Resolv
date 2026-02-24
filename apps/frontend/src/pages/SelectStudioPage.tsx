@@ -34,7 +34,7 @@ export default function SelectStudioPage() {
       setSession(response);
 
       // Naviga alla dashboard
-      if (response.user?.isAdmin || response.user?.ruolo === 'superuser') {
+      if (response.user?.isAdmin || response.user?.ruolo === 'superadmin') {
         localStorage.setItem('admin_view', 'admin');
         navigate('/admin/users');
         return;

@@ -6,10 +6,12 @@ import {
   UpdateDateColumn,
   OneToOne,
   OneToMany,
+  ManyToOne,
   JoinColumn,
 } from 'typeorm';
 import { CheckupStudio } from '../studios/checkup-studio.entity';
 import { CheckupSublicense } from './checkup-sublicense.entity';
+import { QuestionModel } from '../entities/question-model.entity';
 
 @Entity('checkup_licenses')
 export class CheckupLicense {
@@ -18,6 +20,9 @@ export class CheckupLicense {
 
   @Column({ type: 'uuid', nullable: true })
   studioId: string | null;
+
+  @Column({ type: 'uuid' })
+  modelId: string;
 
   @Column({ length: 255 })
   intestatario: string;
@@ -49,6 +54,10 @@ export class CheckupLicense {
   @OneToOne(() => CheckupStudio, (studio) => studio.license, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'studioId' })
   studio: CheckupStudio | null;
+
+  @ManyToOne(() => QuestionModel, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'modelId' })
+  model: QuestionModel;
 
   @OneToMany(() => CheckupSublicense, (sublicense) => sublicense.license)
   sublicenses: CheckupSublicense[];

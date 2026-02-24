@@ -25,7 +25,7 @@ export function AdminUsersPage() {
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [hideInactive, setHideInactive] = useState(false);
   const ITEMS_PER_PAGE = 10;
-  const isSuperuser = currentUser?.ruolo === 'superuser';
+  const isSuperadmin = currentUser?.ruolo === 'superadmin';
 
   const [formData, setFormData] = useState<CreateUserDto>({
     email: '',
@@ -37,17 +37,17 @@ export function AdminUsersPage() {
     studioId: null,
     isAdmin: false,
   });
-  const isStudioRequired = isSuperuser && formData.ruolo === 'titolare_studio';
+  const isStudioRequired = isSuperadmin && formData.ruolo === 'titolare_studio';
 
   const { success, error: toastError } = useToast();
   const { confirm, ConfirmDialog } = useConfirmDialog();
 
   useEffect(() => {
     loadUsers();
-    if (isSuperuser) {
+    if (isSuperadmin) {
       loadStudi();
     }
-  }, [isSuperuser]);
+  }, [isSuperadmin]);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -81,7 +81,7 @@ export function AdminUsersPage() {
       cognome: '',
       ruolo: 'collaboratore',
       clienteId: null,
-      studioId: isSuperuser ? null : (currentUser?.studioId ?? null),
+      studioId: isSuperadmin ? null : (currentUser?.studioId ?? null),
       isAdmin: false,
     });
     setShowModal(true);
@@ -98,7 +98,7 @@ export function AdminUsersPage() {
       cognome: user.cognome,
       ruolo: user.ruolo,
       clienteId: user.clienteId || null,
-      studioId: isSuperuser ? (user.studioId || user.studio?.id || null) : (currentUser?.studioId ?? null),
+      studioId: isSuperadmin ? (user.studioId || user.studio?.id || null) : (currentUser?.studioId ?? null),
       isAdmin: Boolean(user.isAdmin),
     });
     setShowModal(true);
@@ -146,7 +146,7 @@ export function AdminUsersPage() {
           cognome: formData.cognome,
           ruolo: formData.ruolo,
           clienteId: formData.clienteId,
-          studioId: isSuperuser
+          studioId: isSuperadmin
             ? (formData.studioId || selectedUser?.studioId || selectedUser?.studio?.id || null)
             : (currentUser?.studioId ?? null),
         };
@@ -159,7 +159,7 @@ export function AdminUsersPage() {
         await usersApi.update(selectedUser.id, updateDto);
         success('Utente aggiornato con successo');
       } else {
-        const payload = isSuperuser
+        const payload = isSuperadmin
           ? formData
           : { ...formData, studioId: currentUser?.studioId ?? null };
         await usersApi.create(payload);
@@ -245,7 +245,7 @@ export function AdminUsersPage() {
 
   const getRuoloBadge = (ruolo: UserRole) => {
     const colors: Record<UserRole, string> = {
-      superuser: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-400',
+      superadmin: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-400',
       titolare_studio: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-400',
       avvocato: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400',
       collaboratore: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-400',
@@ -254,7 +254,7 @@ export function AdminUsersPage() {
     };
 
     const labels: Record<UserRole, string> = {
-      superuser: 'Superuser',
+      superadmin: 'Superadmin',
       titolare_studio: 'Titolare Studio',
       avvocato: 'Avvocato',
       collaboratore: 'Collaboratore',
@@ -275,7 +275,7 @@ export function AdminUsersPage() {
     </span>
   );
 
-  if (!currentUser || (!currentUser.isAdmin && currentUser.ruolo !== 'superuser')) {
+  if (!currentUser || (!currentUser.isAdmin && currentUser.ruolo !== 'superadmin')) {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
         <Shield className="mx-auto h-12 w-12 text-slate-400" />
@@ -398,7 +398,7 @@ export function AdminUsersPage() {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       {getRuoloBadge(user.ruolo)}
-                      {user.isAdmin && user.ruolo !== 'superuser' ? getAdminBadge() : null}
+                      {user.isAdmin && user.ruolo !== 'superadmin' ? getAdminBadge() : null}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -574,7 +574,7 @@ export function AdminUsersPage() {
               </div>
 
               {/* Mostra il campo Studio solo se il ruolo richiede uno studio singolo */}
-              {isSuperuser && formData.ruolo !== 'cliente' && (
+              {isSuperadmin && formData.ruolo !== 'cliente' && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                     Studio legale {isStudioRequired && '*'}

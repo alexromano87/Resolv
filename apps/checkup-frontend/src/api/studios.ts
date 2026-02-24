@@ -30,6 +30,11 @@ export interface CheckupLicenseInfo {
   numeroSottolicenze: number;
   dataInizioValidita?: string | null;
   dataScadenza?: string | null;
+  model?: {
+    id: string;
+    code: string;
+    label: string;
+  } | null;
 }
 
 export interface CheckupSublicenseInfo {
@@ -120,6 +125,11 @@ export interface CheckupSublicenseOption {
     numeroLicenza: string | null;
     dataInizioValidita: string | null;
     dataScadenza: string | null;
+    model?: {
+      id: string;
+      code: string;
+      label: string;
+    } | null;
   };
 }
 

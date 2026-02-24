@@ -28,7 +28,7 @@ export class AlertsController {
   @Post()
   @RateLimit({ limit: 30, windowMs: 10 * 60 * 1000 })
   create(@CurrentUser() user: CurrentUserData, @Body() createAlertDto: CreateAlertDto) {
-    if (user.ruolo !== 'superuser' && user.studioId) {
+    if (user.ruolo !== 'superadmin' && user.studioId) {
       createAlertDto.studioId = user.studioId;
     }
     // Aggiungi il nome dell'utente che ha creato l'alert

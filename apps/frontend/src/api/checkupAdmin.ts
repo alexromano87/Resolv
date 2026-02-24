@@ -34,6 +34,7 @@ export interface CheckupAdminUser {
   sublicenseId?: string | null;
   sublicense?: CheckupSublicense | null;
   azienda?: string | null;
+  macroAreaOwner?: string[] | null;
   attivo: boolean;
   createdAt: string;
 }
@@ -41,6 +42,7 @@ export interface CheckupAdminUser {
 export interface CheckupLicense {
   id: string;
   studioId: string | null;
+  modelId?: string;
   intestatario: string;
   tipo: string;
   numeroUtenze: number;
@@ -48,6 +50,11 @@ export interface CheckupLicense {
   numeroLicenza?: string | null;
   dataInizioValidita?: string | null;
   dataScadenza?: string | null;
+  model?: {
+    id: string;
+    code: string;
+    label: string;
+  } | null;
   studio?: CheckupStudio | null;
   sublicenses?: CheckupSublicense[];
   createdAt: string;
@@ -147,6 +154,7 @@ export interface CreateCheckupAdminUserDto {
   azienda?: string;
   ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   telefono?: string;
+  macroAreaOwner?: string[];
 }
 
 export interface UpdateCheckupAdminUserDto {
@@ -160,11 +168,13 @@ export interface UpdateCheckupAdminUserDto {
   azienda?: string;
   ruolo?: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   attivo?: boolean;
+  macroAreaOwner?: string[];
 }
 
 export interface UpsertCheckupLicenseDto {
   id?: string;
   studioId?: string;
+  modelId?: string;
   tipo: string;
   numeroUtenze: number;
   dataInizioValidita: string;
@@ -202,6 +212,12 @@ export const checkupAdminApi = {
 
   getAdminUsers: async (): Promise<CheckupAdminUser[]> => {
     return api.get<CheckupAdminUser[]>('/admin/checkup/users');
+  },
+
+  getMacroAreasByModel: async (modelId: string) => {
+    return api.get<{ id: number; code: string; label: string; color: string; sortOrder: number }[]>(
+      `/admin/checkup/questions/macro-areas?modelId=${encodeURIComponent(modelId)}`,
+    );
   },
 
   createAdminUser: async (dto: CreateCheckupAdminUserDto): Promise<CheckupAdminUser> => {

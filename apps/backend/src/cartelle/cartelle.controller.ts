@@ -30,7 +30,7 @@ export class CartelleController {
 
   @Post()
   async create(@CurrentUser() user: CurrentUserData, @Body() createDto: CreateCartellaDto): Promise<Cartella> {
-    if (user.ruolo !== 'superuser' && user.studioId) {
+    if (user.ruolo !== 'superadmin' && user.studioId) {
       createDto.studioId = user.studioId;
     }
     return this.cartelleService.create(createDto);
@@ -120,7 +120,7 @@ export class CartelleController {
   }
 
   private async assertCartellaAccess(id: string, user: CurrentUserData | null) {
-    if (!user || user.ruolo === 'superuser') return;
+    if (!user || user.ruolo === 'superadmin') return;
     const cartella = await this.cartelleService.findOne(id);
     if (cartella.praticaId) {
       await this.praticheService.findOneForUser(cartella.praticaId, user);

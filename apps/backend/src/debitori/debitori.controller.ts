@@ -87,11 +87,11 @@ export class DebitoriController {
   // POST /debitori -> creazione nuovo debitore
   @Post()
   create(@CurrentUser() user: CurrentUserData, @Body() dto: CreateDebitoreDto) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     // Se l'utente non è admin e ha uno studio, assegna automaticamente il suo studioId
-    if (user.ruolo !== 'superuser' && user.studioId) {
+    if (user.ruolo !== 'superadmin' && user.studioId) {
       dto.studioId = user.studioId;
     }
     return this.debitoriService.create(dto);
@@ -100,7 +100,7 @@ export class DebitoriController {
   // PUT /debitori/:id -> aggiornamento debitore
   @Put(':id')
   update(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Body() dto: UpdateDebitoreDto) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.debitoriService.update(id, dto);
@@ -109,7 +109,7 @@ export class DebitoriController {
   // PATCH /debitori/:id/deactivate -> disattiva debitore (soft-delete)
   @Patch(':id/deactivate')
   deactivate(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.debitoriService.deactivate(id);
@@ -118,7 +118,7 @@ export class DebitoriController {
   // PATCH /debitori/:id/reactivate -> riattiva debitore
   @Patch(':id/reactivate')
   reactivate(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.debitoriService.reactivate(id);
@@ -128,7 +128,7 @@ export class DebitoriController {
   // ATTENZIONE: preferire deactivate nella maggior parte dei casi
   @Delete(':id')
   remove(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.debitoriService.remove(id);

@@ -71,7 +71,7 @@ export class ReportController {
     const options = {
       clienteId,
       clienteIds,
-      studioId: user.ruolo === 'superuser' ? undefined : user.studioId || undefined,
+      studioId: user.ruolo === 'superadmin' ? undefined : user.studioId || undefined,
       dataInizio: dataInizio ? new Date(dataInizio) : undefined,
       dataFine: dataFine ? new Date(dataFine) : undefined,
       includiDettaglioPratiche: includiDettaglio !== 'false',
@@ -223,7 +223,7 @@ export class ReportController {
     const options = {
       clienteId,
       clienteIds,
-      studioId: user.ruolo === 'superuser' ? undefined : user.studioId || undefined,
+      studioId: user.ruolo === 'superadmin' ? undefined : user.studioId || undefined,
       dataInizio: dataInizio ? new Date(dataInizio) : undefined,
       dataFine: dataFine ? new Date(dataFine) : undefined,
     };
@@ -266,7 +266,7 @@ export class ReportController {
     const options = {
       clienteId,
       clienteIds,
-      studioId: user.ruolo === 'superuser' ? undefined : user.studioId || undefined,
+      studioId: user.ruolo === 'superadmin' ? undefined : user.studioId || undefined,
       dataInizio: dataInizio ? new Date(dataInizio) : undefined,
       dataFine: dataFine ? new Date(dataFine) : undefined,
     };
@@ -303,7 +303,7 @@ export class ReportController {
 
     // Prepara filtri
     const filters: any = {
-      studioId: user.ruolo === 'superuser' ? undefined : user.studioId || undefined,
+      studioId: user.ruolo === 'superadmin' ? undefined : user.studioId || undefined,
       statoFatturazione,
       clienteId,
     };

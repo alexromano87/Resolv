@@ -27,7 +27,7 @@ export default function AdminSuperSettingsPage() {
 
   useEffect(() => {
     if (!user) return;
-    if (user.ruolo !== 'superuser') {
+    if (user.ruolo !== 'superadmin') {
       navigate('/');
       return;
     }

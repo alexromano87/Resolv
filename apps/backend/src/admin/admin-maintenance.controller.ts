@@ -1,10 +1,10 @@
 import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
 import { AdminMaintenanceService } from './admin-maintenance.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { SuperuserGuard } from '../auth/superuser.guard';
+import { SuperadminGuard } from '../auth/superadmin.guard';
 
 @Controller('admin/maintenance')
-@UseGuards(JwtAuthGuard, SuperuserGuard)
+@UseGuards(JwtAuthGuard, SuperadminGuard)
 export class AdminMaintenanceController {
   constructor(private readonly adminMaintenanceService: AdminMaintenanceService) {}
 

@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Menu, ChevronLeft, ChevronRight, X, ArrowLeft } from 'lucide-react';
+import { LogOut, Menu, ChevronLeft, ChevronRight, X, ArrowLeft, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface CheckupAppLayoutProps {
@@ -84,6 +84,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
           <div className="flex items-center justify-between border-b border-blue-800/30 px-6 py-5 flex-shrink-0">
             <div className={`overflow-hidden transition-all duration-400 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
               <img src="/logo_resolv.png" alt="RESOLV" className="h-14 w-auto" />
+              <p className="mt-1 text-[9px] font-semibold uppercase tracking-[0.2em] text-cyan-400/80">Pre-Assessment Platform</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -105,10 +106,56 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
             </div>
           </div>
 
-          <nav className="flex-1 px-4 py-5 overflow-y-auto overflow-x-hidden">
-            <div className={`${sidebarCollapsed ? 'hidden' : ''}`}>
+          <nav className="flex-1 px-4 py-5 overflow-y-auto overflow-x-hidden space-y-4">
+            <div className={`${sidebarCollapsed ? 'hidden' : ''} space-y-1`}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (location.pathname === '/checkup' || location.pathname === '/checkup/') {
+                    window.dispatchEvent(new CustomEvent('checkup:go-dashboard'));
+                  }
+                  navigate('/checkup');
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                  location.pathname === '/checkup' || location.pathname === '/checkup/'
+                    ? 'bg-blue-700/90 text-white shadow-md'
+                    : 'text-slate-300 hover:bg-blue-900/40 hover:text-white'
+                }`}
+              >
+                <LayoutDashboard size={18} />
+                Dashboard
+              </button>
               <div id="checkup-subnav" className="space-y-3" />
             </div>
+            {user?.ruolo === 'admin_studio' && (
+              <div className={`${sidebarCollapsed ? 'hidden' : ''} space-y-1 border-t border-blue-800/30 pt-4`}>
+                <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
+                  Gestione
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate('/checkup/amministrazione')}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                    location.pathname.startsWith('/checkup/amministrazione') || location.pathname.startsWith('/checkup/utenti')
+                      ? 'bg-blue-700/90 text-white shadow-md'
+                      : 'text-slate-300 hover:bg-blue-900/40 hover:text-white'
+                  }`}
+                >
+                  Amministrazione
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/checkup/impostazioni')}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                    location.pathname.startsWith('/checkup/impostazioni')
+                      ? 'bg-blue-700/90 text-white shadow-md'
+                      : 'text-slate-300 hover:bg-blue-900/40 hover:text-white'
+                  }`}
+                >
+                  Impostazioni
+                </button>
+              </div>
+            )}
           </nav>
 
           <div className="px-4 pb-5">
@@ -161,26 +208,15 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                   Torna al checkup
                 </button>
               )}
-              {user?.ruolo === 'admin_studio' && (
+              {!location.pathname.startsWith('/checkup/impostazioni') && (
                 <button
                   type="button"
-                  onClick={() => {
-                    navigate('/checkup/amministrazione');
-                  }}
+                  onClick={() => navigate('/checkup/impostazioni')}
                   className="hidden md:inline-flex items-center gap-2 rounded-full border border-indigo-200/60 bg-white/85 px-3 py-2 text-[11px] font-semibold text-slate-700 shadow-[0_12px_30px_rgba(10,16,32,0.16)] transition hover:border-indigo-300 hover:text-indigo-700"
                 >
-                  Amministrazione
+                  Impostazioni
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => {
-                  navigate('/checkup/impostazioni');
-                }}
-                className="hidden md:inline-flex items-center gap-2 rounded-full border border-indigo-200/60 bg-white/85 px-3 py-2 text-[11px] font-semibold text-slate-700 shadow-[0_12px_30px_rgba(10,16,32,0.16)] transition hover:border-indigo-300 hover:text-indigo-700"
-              >
-                Impostazioni
-              </button>
               <div className="flex items-center gap-3 rounded-2xl border border-indigo-200/60 bg-white/85 px-3 py-2 text-xs shadow-[0_16px_46px_rgba(10,16,32,0.16)]">
                 <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-800 via-indigo-600 to-blue-500 text-[11px] font-semibold text-white">
                   {initials}

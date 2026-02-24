@@ -7,9 +7,11 @@ import {
   CheckupTwoFactorRequestDto,
   CheckupTwoFactorVerifyDto,
 } from './dto/checkup-two-factor.dto';
+import { CheckupPasswordResetRequestDto, CheckupPasswordResetConfirmDto } from './dto/checkup-password-reset.dto';
 import { CheckupJwtAuthGuard } from './checkup-jwt-auth.guard';
 import { CheckupCurrentUser } from './checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from './checkup-current-user.decorator';
+import { RateLimit } from '../../common/rate-limit.decorator';
 
 @Controller('checkup/auth')
 export class CheckupAuthController {
@@ -23,6 +25,18 @@ export class CheckupAuthController {
   @Post('login/2fa')
   verifyTwoFactorLogin(@Body() dto: CheckupTwoFactorLoginVerifyDto) {
     return this.authService.verifyTwoFactorLogin(dto.userId, dto.code);
+  }
+
+  @Post('password-reset/request')
+  @RateLimit({ limit: 3, windowMs: 15 * 60 * 1000 })
+  requestPasswordReset(@Body() dto: CheckupPasswordResetRequestDto) {
+    return this.authService.requestPasswordReset(dto.email);
+  }
+
+  @Post('password-reset/confirm')
+  @RateLimit({ limit: 5, windowMs: 15 * 60 * 1000 })
+  confirmPasswordReset(@Body() dto: CheckupPasswordResetConfirmDto) {
+    return this.authService.confirmPasswordReset(dto.email, dto.token, dto.newPassword);
   }
 
   @UseGuards(CheckupJwtAuthGuard)

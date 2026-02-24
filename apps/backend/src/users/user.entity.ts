@@ -13,7 +13,7 @@ import {
 import { Studio } from '../studi/studio.entity';
 
 export type UserRole =
-  | 'superuser'
+  | 'superadmin'
   | 'titolare_studio'
   | 'avvocato'
   | 'collaboratore'
@@ -57,7 +57,7 @@ export class User {
 
   @Column({
     type: 'enum',
-    enum: ['superuser', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'],
+    enum: ['superadmin', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'],
     default: 'collaboratore',
   })
   ruolo: UserRole;

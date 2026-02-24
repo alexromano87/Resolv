@@ -26,11 +26,11 @@ export class AvvocatiController {
 
   @Post()
   create(@CurrentUser() user: CurrentUserData, @Body() createAvvocatoDto: CreateAvvocatoDto) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     // Se l'utente non è admin e ha uno studio, assegna automaticamente il suo studioId
-    if (user.ruolo !== 'superuser' && user.studioId) {
+    if (user.ruolo !== 'superadmin' && user.studioId) {
       createAvvocatoDto.studioId = user.studioId;
     }
     return this.avvocatiService.create(createAvvocatoDto);
@@ -43,10 +43,10 @@ export class AvvocatiController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
-    const studioId = user.ruolo === 'superuser' ? undefined : user.studioId || undefined;
+    const studioId = user.ruolo === 'superadmin' ? undefined : user.studioId || undefined;
     return this.avvocatiService.findAll(includeInactive, studioId, {
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
@@ -60,7 +60,7 @@ export class AvvocatiController {
 
   @Patch(':id')
   update(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Body() updateAvvocatoDto: UpdateAvvocatoDto) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.avvocatiService.update(id, updateAvvocatoDto);
@@ -68,7 +68,7 @@ export class AvvocatiController {
 
   @Patch(':id/deactivate')
   deactivate(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.avvocatiService.deactivate(id);
@@ -76,7 +76,7 @@ export class AvvocatiController {
 
   @Patch(':id/reactivate')
   reactivate(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.avvocatiService.reactivate(id);
@@ -84,7 +84,7 @@ export class AvvocatiController {
 
   @Delete(':id')
   remove(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.avvocatiService.remove(id);

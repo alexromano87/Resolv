@@ -38,7 +38,7 @@ export class ExportController {
     @Res() res: Response,
   ) {
     try {
-      if (user.ruolo !== 'superuser') {
+      if (user.ruolo !== 'superadmin') {
         if (!user.studioId) {
           throw new ForbiddenException('Studio non assegnato');
         }
@@ -106,7 +106,7 @@ export class ExportController {
     @Res() res: Response,
   ) {
     try {
-      if (user.ruolo !== 'superuser') {
+      if (user.ruolo !== 'superadmin') {
         if (!user.studioId) {
           throw new ForbiddenException('Studio non assegnato');
         }

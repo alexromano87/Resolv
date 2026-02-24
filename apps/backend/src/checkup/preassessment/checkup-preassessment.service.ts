@@ -1,22 +1,46 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, ForbiddenException, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Not, IsNull } from 'typeorm';
 import { CheckupPreassessment } from './checkup-preassessment.entity';
+import { CheckupPreassessmentAlert } from './checkup-preassessment-alert.entity';
 import { UpdatePreassessmentDto } from './dto/update-preassessment.dto';
 import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupUser } from '../users/checkup-user.entity';
 import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
+import { EmailService } from '../../notifications/email.service';
+import { QuestionManagementService } from '../services/question-management.service';
 import puppeteer from 'puppeteer';
 
 @Injectable()
 export class CheckupPreassessmentService {
   private presenceByPreassessment = new Map<string, Map<string, { userId: string; name: string; expiresAt: number }>>();
 
+  // Mutex per-campo per evitare race condition su setPresenceActive
+  private presenceMutexes = new Map<string, Promise<void>>();
+
+  private async withPresenceLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    let release!: () => void;
+    const lock = new Promise<void>((resolve) => { release = resolve; });
+    const prev = this.presenceMutexes.get(key) ?? Promise.resolve();
+    this.presenceMutexes.set(key, prev.then(() => lock));
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.presenceMutexes.get(key) === lock) {
+        this.presenceMutexes.delete(key);
+      }
+    }
+  }
+
   constructor(
     @InjectRepository(CheckupPreassessment)
     private preassessmentRepository: Repository<CheckupPreassessment>,
+    @InjectRepository(CheckupPreassessmentAlert)
+    private alertRepository: Repository<CheckupPreassessmentAlert>,
     @InjectRepository(CheckupUser)
     private userRepository: Repository<CheckupUser>,
     @InjectRepository(CheckupLicense)
@@ -25,14 +49,43 @@ export class CheckupPreassessmentService {
     private sublicenseRepository: Repository<CheckupSublicense>,
     @InjectRepository(CheckupClient)
     private clientRepository: Repository<CheckupClient>,
+    private emailService: EmailService,
+    private questionManagementService: QuestionManagementService,
   ) {}
+
+  private static OWNER_EMAIL_BY_MACRO: Record<string, string> = {
+    a: 'owner_a_email',
+    b: 'owner_b_email',
+    c: 'owner_c_email',
+    d: 'owner_d_email',
+    e: 'owner_e_email',
+    f: 'owner_f_email',
+    g: 'owner_g_email',
+    h: 'owner_h_email',
+    i: 'owner_i_email',
+    j: 'owner_j_email',
+  };
+
+  private isOwnerMacroArea(code: string, label?: string | null) {
+    if (code === 'k') return true;
+    if (label && label.toLowerCase().includes('owner')) return true;
+    return false;
+  }
+
+  private isOwnerForMacro(record: CheckupPreassessment, user: CheckupCurrentUserData, macroId: string) {
+    if (user.ruolo !== 'cliente') return false;
+    const field = CheckupPreassessmentService.OWNER_EMAIL_BY_MACRO[macroId];
+    if (!field) return false;
+    const ownerEmail = (record.data?.[field] || '').trim().toLowerCase();
+    return ownerEmail !== '' && ownerEmail === user.email.toLowerCase();
+  }
 
   private async getOrCreateByClientId(clientId: string, currentUser: CheckupCurrentUserData): Promise<CheckupPreassessment> {
     const clientExists = await this.clientRepository.findOne({ where: { id: clientId, attivo: true } });
     if (!clientExists) {
       throw new NotFoundException('Cliente non trovato');
     }
-    const existing = await this.preassessmentRepository.findOne({ where: { clientId } });
+    const existing = await this.preassessmentRepository.findOne({ where: { clientId, isLatest: true } });
     if (existing) return existing;
 
     const created = this.preassessmentRepository.create({
@@ -44,9 +97,56 @@ export class CheckupPreassessmentService {
       naFields: {},
       macroValidations: {},
       studioCanEdit: false,
+      status: 'in_progress',
+      completedAt: null,
+      completedById: null,
+      version: 1,
+      parentId: null,
+      isLatest: true,
     });
 
     return this.preassessmentRepository.save(created);
+  }
+
+  async createNewVersion(clientId: string, currentUser: CheckupCurrentUserData): Promise<CheckupPreassessment> {
+    await this.ensureAccess(currentUser, clientId);
+
+    const current = await this.preassessmentRepository.findOne({ where: { clientId, isLatest: true } });
+    if (!current) {
+      throw new NotFoundException('Preassessment non trovato');
+    }
+
+    current.isLatest = false;
+    await this.preassessmentRepository.save(current);
+
+    const newVersion = this.preassessmentRepository.create({
+      userId: currentUser.id,
+      clientId,
+      data: {},
+      notes: {},
+      fieldNotes: {},
+      naFields: {},
+      macroValidations: {},
+      studioCanEdit: false,
+      status: 'in_progress',
+      completedAt: null,
+      completedById: null,
+      version: current.version + 1,
+      parentId: current.id,
+      isLatest: true,
+    });
+
+    return this.preassessmentRepository.save(newVersion);
+  }
+
+  async getHistory(clientId: string, currentUser: CheckupCurrentUserData) {
+    await this.ensureAccess(currentUser, clientId);
+
+    return this.preassessmentRepository.find({
+      where: { clientId },
+      order: { version: 'DESC' },
+      select: ['id', 'version', 'status', 'createdAt', 'updatedAt', 'completedAt', 'isLatest', 'parentId'],
+    });
   }
 
   async getOrCreate(user: CheckupCurrentUserData): Promise<CheckupPreassessment> {
@@ -98,17 +198,155 @@ export class CheckupPreassessmentService {
   async update(user: CheckupCurrentUserData, dto: UpdatePreassessmentDto): Promise<CheckupPreassessment> {
     const record = await this.getOrCreate(user);
 
+    if (user.ruolo === 'cliente' && record.status === 'concluso') {
+      throw new ForbiddenException('Il checkup è concluso e non può più essere modificato');
+    }
+
+    // Owner email fields (owner_*_email) must NOT be modifiable by cliente role.
+    // Capture them from the existing record BEFORE any data update so that
+    // isOwnerForMacro always checks the staff-assigned values, not what the
+    // client just sent.
+    const ownerEmailFields = new Set(Object.values(CheckupPreassessmentService.OWNER_EMAIL_BY_MACRO));
+    const frozenOwnerEmails: Record<string, string> = {};
+    for (const field of ownerEmailFields) {
+      const existing = record.data?.[field];
+      if (existing !== undefined) frozenOwnerEmails[field] = existing;
+    }
+
     this.applyFieldMeta(record, dto.data, dto.naFields, user);
-    if (dto.data !== undefined) record.data = dto.data;
+    if (dto.data !== undefined) {
+      if (user.ruolo === 'cliente') {
+        // Merge incoming data but preserve all owner email fields from the DB
+        const sanitized = { ...dto.data };
+        for (const field of ownerEmailFields) {
+          if (frozenOwnerEmails[field] !== undefined) {
+            sanitized[field] = frozenOwnerEmails[field];
+          } else {
+            delete sanitized[field];
+          }
+        }
+        record.data = sanitized;
+      } else {
+        record.data = dto.data;
+      }
+    }
     if (dto.notes !== undefined) record.notes = dto.notes;
-    if (dto.fieldNotes !== undefined && user.ruolo !== 'cliente') record.fieldNotes = dto.fieldNotes;
+    if (dto.fieldNotes !== undefined) record.fieldNotes = dto.fieldNotes;
     if (dto.naFields !== undefined) record.naFields = dto.naFields;
     if (dto.macroValidations !== undefined && user.ruolo === 'cliente') {
-      record.macroValidations = dto.macroValidations;
+      const prev = record.macroValidations || {};
+      const next = dto.macroValidations || {};
+      const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+      // Build a temporary record snapshot using frozen owner emails for the check
+      const recordForOwnerCheck = {
+        ...record,
+        data: { ...(record.data || {}), ...frozenOwnerEmails },
+      } as CheckupPreassessment;
+      for (const key of keys) {
+        const prevVal = prev[key];
+        const nextVal = next[key];
+        if (JSON.stringify(prevVal) !== JSON.stringify(nextVal)) {
+          if (!this.isOwnerForMacro(recordForOwnerCheck, user, key)) {
+            throw new ForbiddenException('Solo l\'owner può validare la macro area');
+          }
+        }
+      }
+      record.macroValidations = next;
     }
     if (dto.studioCanEdit !== undefined) record.studioCanEdit = dto.studioCanEdit;
 
     return this.preassessmentRepository.save(record);
+  }
+
+  private async resolveModelIdForClient(clientId: string) {
+    const sublicense = await this.sublicenseRepository.findOne({
+      where: { clientId, attiva: true },
+    });
+    if (!sublicense) {
+      throw new NotFoundException('Sottolicenza non trovata');
+    }
+    const license = await this.licenseRepository.findOne({
+      where: { id: sublicense.licenseId },
+      relations: ['model', 'studio'],
+    });
+    if (!license || !license.modelId) {
+      throw new ConflictException('Licenza senza modello associato');
+    }
+    return { modelId: license.modelId, studioId: license.studioId, license };
+  }
+
+  private async notifyCompletion(
+    preassessment: CheckupPreassessment,
+    client: CheckupClient,
+    user: CheckupCurrentUserData,
+    studioId: string | null,
+  ) {
+    if (!studioId) return;
+    const admins = await this.userRepository.find({
+      where: { studioId, ruolo: 'admin_studio', attivo: true },
+    });
+    const requester = `${user.nome} ${user.cognome}`.trim() || user.email;
+    const company = client.nome || client.ragioneSociale || 'Cliente';
+    const subject = `Checkup concluso per ${company}`;
+    const text = `Il checkup di ${company} è stato concluso da ${requester}.`;
+
+    await Promise.all(
+      admins.map(async (admin) => {
+        if (admin.email) {
+          await this.emailService.sendEmail({
+            to: admin.email,
+            subject,
+            text,
+            html: `<p>${text}</p>`,
+          });
+        }
+        const alert = this.alertRepository.create({
+          preassessmentId: preassessment.id,
+          createdById: user.id,
+          targetUserId: admin.id,
+          priority: 'info',
+          messaggio: text,
+        });
+        await this.alertRepository.save(alert);
+      }),
+    );
+  }
+
+  async complete(user: CheckupCurrentUserData) {
+    if (user.ruolo !== 'cliente') {
+      throw new ForbiddenException('Solo il cliente può concludere il checkup');
+    }
+    if (!user.clientId) {
+      throw new ForbiddenException('Cliente non associato');
+    }
+
+    const record = await this.getOrCreate(user);
+    if (record.status === 'concluso') {
+      return record;
+    }
+
+    const { modelId, studioId } = await this.resolveModelIdForClient(user.clientId);
+    const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
+    const expectedMacros = macroAreas
+      .filter((m) => !this.isOwnerMacroArea(m.code, m.label))
+      .map((m) => m.code);
+    const validations = record.macroValidations || {};
+    const missing = expectedMacros.filter((m) => !validations[m]);
+    if (missing.length > 0) {
+      throw new ConflictException('Non tutte le macro aree sono validate');
+    }
+
+    record.status = 'concluso';
+    record.completedAt = new Date();
+    record.completedById = user.id;
+    const saved = await this.preassessmentRepository.save(record);
+
+    const client = await this.clientRepository.findOne({ where: { id: user.clientId } });
+    if (client) {
+      await this.notifyCompletion(saved, client, user, studioId);
+    }
+
+    return saved;
   }
 
   private async ensureAccess(currentUser: CheckupCurrentUserData, clientId: string) {
@@ -144,6 +382,10 @@ export class CheckupPreassessmentService {
     const { preassessment, client } = await this.getClientForPreassessment(preassessmentId);
     await this.ensureAccess(currentUser, client.id);
     return { preassessment, client };
+  }
+
+  async getPreassessmentForDocuments(preassessmentId: string, currentUser: CheckupCurrentUserData) {
+    return this.ensureAccessByPreassessment(currentUser, preassessmentId);
   }
 
   private cleanupPresence(preassessmentId: string) {
@@ -211,19 +453,23 @@ export class CheckupPreassessmentService {
       throw new ForbiddenException('Modifiche non autorizzate');
     }
 
-    const map = this.presenceByPreassessment.get(preassessmentId) || new Map();
-    const now = Date.now();
-    const existing = map.get(fieldId);
-    if (existing && existing.userId !== currentUser.id && existing.expiresAt > now) {
-      throw new ForbiddenException('Campo in modifica da altro utente');
-    }
-    map.set(fieldId, {
-      userId: currentUser.id,
-      name: `${currentUser.nome} ${currentUser.cognome}`.trim() || currentUser.email,
-      expiresAt: now + 10000,
+    // Mutex per-campo: garantisce atomicità del check-and-set anche con async/await
+    const lockKey = `${preassessmentId}:${fieldId}`;
+    return this.withPresenceLock(lockKey, async () => {
+      const map = this.presenceByPreassessment.get(preassessmentId) || new Map();
+      const now = Date.now();
+      const existing = map.get(fieldId);
+      if (existing && existing.userId !== currentUser.id && existing.expiresAt > now) {
+        throw new ForbiddenException('Campo in modifica da altro utente');
+      }
+      map.set(fieldId, {
+        userId: currentUser.id,
+        name: `${currentUser.nome} ${currentUser.cognome}`.trim() || currentUser.email,
+        expiresAt: now + 30000, // 30s: più ragionevole di 10s
+      });
+      this.presenceByPreassessment.set(preassessmentId, map);
+      return { ok: true };
     });
-    this.presenceByPreassessment.set(preassessmentId, map);
-    return { ok: true };
   }
 
   async setPresenceInactive(preassessmentId: string, fieldId: string, currentUser: CheckupCurrentUserData) {
@@ -306,7 +552,7 @@ export class CheckupPreassessmentService {
     }
 
     const preassessments = await this.preassessmentRepository.find({
-      where: clients.map((client) => ({ clientId: client.id })),
+      where: clients.map((client) => ({ clientId: client.id, isLatest: true })),
     });
 
     const byClientId = new Map(preassessments.map((p) => [p.clientId, p]));
@@ -336,13 +582,56 @@ export class CheckupPreassessmentService {
     });
   }
 
+  private sanitizeHtmlForPdf(html: string): string {
+    // Strip tags that can cause SSRF, XSS or file-system access via Puppeteer
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<script[^>]*>/gi, '')
+      .replace(/<link[^>]*>/gi, '')
+      .replace(/<meta[^>]*>/gi, '')
+      .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+      .replace(/<iframe[^>]*>/gi, '')
+      .replace(/<object[\s\S]*?<\/object>/gi, '')
+      .replace(/<embed[^>]*>/gi, '')
+      .replace(/<base[^>]*>/gi, '')
+      // Strip on* event handlers
+      .replace(/\s+on\w+\s*=\s*(['"])[^'"]*\1/gi, '')
+      .replace(/\s+on\w+\s*=\s*[^\s>]+/gi, '')
+      // Strip javascript: and data: hrefs/srcs
+      .replace(/(href|src|action)\s*=\s*(['"])\s*(javascript:|data:|vbscript:|file:)[^'"]*\2/gi, '$1=""');
+  }
+
   async renderHtmlToPdf(html: string): Promise<Buffer> {
+    const safeHtml = this.sanitizeHtmlForPdf(html);
     const browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-sync',
+        '--metrics-recording-only',
+        '--no-first-run',
+      ],
     });
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+
+    // Block all network requests except data URIs (needed for inline images/fonts)
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      const resourceType = req.resourceType();
+      const url = req.url();
+      // Allow data: URIs for fonts/images; block everything else that goes to network
+      if (url.startsWith('data:') || resourceType === 'document') {
+        req.continue();
+      } else {
+        req.abort();
+      }
+    });
+
+    await page.setContent(safeHtml, { waitUntil: 'domcontentloaded' });
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,

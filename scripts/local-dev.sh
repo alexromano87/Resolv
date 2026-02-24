@@ -42,10 +42,7 @@ if [[ "$FRESH_START" == "true" ]]; then
 fi
 
 echo "==> Building and starting local stack"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build
-
-echo "==> Rebuilding frontend assets"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build --force-recreate frontend
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build --force-recreate
 
 if [[ "$DO_MIGRATE" == "true" ]]; then
   echo "==> Running migrations"

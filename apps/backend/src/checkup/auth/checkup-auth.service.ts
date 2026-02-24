@@ -23,6 +23,22 @@ export class CheckupAuthService {
     const clientSublicense = user.client?.sublicenses?.[0] || null;
     const clientLicense = clientSublicense?.license || null;
     const licenziatarioNome = clientLicense?.studio?.nome ?? null;
+    type LicensePayload = NonNullable<NonNullable<CheckupUser['studio']>['license']>;
+    const mapLicense = (license: LicensePayload) => ({
+      id: license.id,
+      studioId: license.studioId,
+      intestatario: license.intestatario,
+      tipo: license.tipo,
+      numeroUtenze: license.numeroUtenze,
+      numeroSottolicenze: license.numeroSottolicenze,
+      model: license.model
+        ? {
+            id: license.model.id,
+            code: license.model.code,
+            label: license.model.label,
+          }
+        : null,
+    });
     return {
       id: user.id,
       email: user.email,
@@ -41,23 +57,9 @@ export class CheckupAuthService {
       twoFactorEnabled: user.twoFactorEnabled,
       twoFactorChannel: user.twoFactorChannel,
       license: user.studio?.license
-        ? {
-            id: user.studio.license.id,
-            studioId: user.studio.license.studioId,
-            intestatario: user.studio.license.intestatario,
-            tipo: user.studio.license.tipo,
-            numeroUtenze: user.studio.license.numeroUtenze,
-            numeroSottolicenze: user.studio.license.numeroSottolicenze,
-          }
+        ? mapLicense(user.studio.license)
         : clientLicense
-          ? {
-              id: clientLicense.id,
-              studioId: clientLicense.studioId,
-              intestatario: clientLicense.intestatario,
-              tipo: clientLicense.tipo,
-              numeroUtenze: clientLicense.numeroUtenze,
-              numeroSottolicenze: clientLicense.numeroSottolicenze,
-            }
+          ? mapLicense(clientLicense)
           : null,
     };
   }
@@ -68,9 +70,11 @@ export class CheckupAuthService {
       .addSelect('u.password')
       .leftJoinAndSelect('u.studio', 'studio')
       .leftJoinAndSelect('studio.license', 'license')
+      .leftJoinAndSelect('license.model', 'licenseModel')
       .leftJoinAndSelect('u.client', 'client')
       .leftJoinAndSelect('client.sublicenses', 'clientSublicense')
       .leftJoinAndSelect('clientSublicense.license', 'clientLicense')
+      .leftJoinAndSelect('clientLicense.model', 'clientLicenseModel')
       .leftJoinAndSelect('clientLicense.studio', 'licenziatarioStudio')
       .andWhere('u.attivo = :attivo', { attivo: true });
 
@@ -86,6 +90,15 @@ export class CheckupAuthService {
 
   private generateTwoFactorCode() {
     return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  private async sendPasswordResetCode(email: string, code: string) {
+    await this.emailService.sendEmail({
+      to: email,
+      subject: 'Codice per recupero password',
+      text: buildTwoFactorEmailText({ code, product: 'Checkup' }),
+      html: buildTwoFactorEmailHtml({ code, product: 'Checkup' }),
+    });
   }
 
   private async sendTwoFactorCode(channel: 'sms' | 'email', destination: string, code: string) {
@@ -117,7 +130,7 @@ export class CheckupAuthService {
 
     if (user.twoFactorEnabled) {
       const code = this.generateTwoFactorCode();
-      user.twoFactorCode = code;
+      user.twoFactorCode = await bcrypt.hash(code, 8);
       user.twoFactorCodePurpose = 'login';
       user.twoFactorCodeExpires = new Date(Date.now() + 5 * 60 * 1000);
       await this.userRepository.save(user);
@@ -156,8 +169,11 @@ export class CheckupAuthService {
       throw new UnauthorizedException('Utente non trovato');
     }
 
+    const isLoginCodeValid = user.twoFactorCode
+      ? await bcrypt.compare(code, user.twoFactorCode)
+      : false;
     if (
-      user.twoFactorCode !== code ||
+      !isLoginCodeValid ||
       user.twoFactorCodePurpose !== 'login' ||
       !user.twoFactorCodeExpires ||
       user.twoFactorCodeExpires.getTime() < Date.now()
@@ -199,7 +215,7 @@ export class CheckupAuthService {
     }
 
     const code = this.generateTwoFactorCode();
-    user.twoFactorCode = code;
+    user.twoFactorCode = await bcrypt.hash(code, 8);
     user.twoFactorCodePurpose = 'enable';
     user.twoFactorCodeExpires = new Date(Date.now() + 5 * 60 * 1000);
     user.twoFactorChannel = channel;
@@ -215,8 +231,11 @@ export class CheckupAuthService {
       throw new UnauthorizedException('Utente non trovato');
     }
 
+    const isEnableCodeValid = user.twoFactorCode
+      ? await bcrypt.compare(code, user.twoFactorCode)
+      : false;
     if (
-      user.twoFactorCode !== code ||
+      !isEnableCodeValid ||
       user.twoFactorCodePurpose !== 'enable' ||
       !user.twoFactorCodeExpires ||
       user.twoFactorCodeExpires.getTime() < Date.now()
@@ -249,7 +268,7 @@ export class CheckupAuthService {
     }
 
     const code = this.generateTwoFactorCode();
-    user.twoFactorCode = code;
+    user.twoFactorCode = await bcrypt.hash(code, 8);
     user.twoFactorCodePurpose = 'disable';
     user.twoFactorCodeExpires = new Date(Date.now() + 5 * 60 * 1000);
     await this.userRepository.save(user);
@@ -264,8 +283,11 @@ export class CheckupAuthService {
       throw new UnauthorizedException('Utente non trovato');
     }
 
+    const isDisableCodeValid = user.twoFactorCode
+      ? await bcrypt.compare(code, user.twoFactorCode)
+      : false;
     if (
-      user.twoFactorCode !== code ||
+      !isDisableCodeValid ||
       user.twoFactorCodePurpose !== 'disable' ||
       !user.twoFactorCodeExpires ||
       user.twoFactorCodeExpires.getTime() < Date.now()
@@ -311,6 +333,52 @@ export class CheckupAuthService {
         mustChangePassword: false,
       },
     };
+  }
+
+  async requestPasswordReset(email: string) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await this.loadUserForAuth({ email: normalizedEmail });
+
+    // Always return success to prevent email enumeration attacks
+    if (!user) {
+      return { success: true };
+    }
+
+    const code = this.generateTwoFactorCode();
+    user.twoFactorCode = await bcrypt.hash(code, 8);
+    user.twoFactorCodePurpose = 'password_reset';
+    user.twoFactorCodeExpires = new Date(Date.now() + 15 * 60 * 1000);
+    await this.userRepository.save(user);
+
+    await this.sendPasswordResetCode(user.email, code);
+    return { success: true };
+  }
+
+  async confirmPasswordReset(email: string, token: string, newPassword: string) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await this.loadUserForAuth({ email: normalizedEmail });
+    // Use a generic error to prevent email enumeration
+    const isResetCodeValid = user?.twoFactorCode
+      ? await bcrypt.compare(token, user.twoFactorCode)
+      : false;
+    if (
+      !user ||
+      !isResetCodeValid ||
+      user.twoFactorCodePurpose !== 'password_reset' ||
+      !user.twoFactorCodeExpires ||
+      user.twoFactorCodeExpires.getTime() < Date.now()
+    ) {
+      throw new UnauthorizedException('Codice non valido o scaduto');
+    }
+
+    user!.password = await bcrypt.hash(newPassword, 10);
+    user!.mustChangePassword = false;
+    user!.twoFactorCode = null;
+    user!.twoFactorCodePurpose = null;
+    user!.twoFactorCodeExpires = null;
+    await this.userRepository.save(user!);
+
+    return { success: true };
   }
 
   async getProfile(userId: string) {

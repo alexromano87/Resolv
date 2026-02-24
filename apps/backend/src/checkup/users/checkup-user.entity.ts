@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -52,6 +53,9 @@ export class CheckupUser {
   @Column({ type: 'varchar', length: 255, nullable: true })
   azienda: string | null;
 
+  @Column({ type: 'json', nullable: true })
+  macroAreaOwner: string[] | null;
+
   @Column({ default: true })
   attivo: boolean;
 
@@ -81,6 +85,9 @@ export class CheckupUser {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @DeleteDateColumn({ nullable: true, select: false })
+  deletedAt: Date | null;
 
   @ManyToOne(() => CheckupStudio, (studio) => studio.users, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'studioId' })

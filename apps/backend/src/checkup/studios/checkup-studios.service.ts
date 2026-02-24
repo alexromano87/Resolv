@@ -26,7 +26,7 @@ export class CheckupStudiosService {
   private async getStudioOrThrow(studioId: string) {
     const studio = await this.studioRepository.findOne({
       where: { id: studioId, attivo: true },
-      relations: ['license'],
+      relations: ['license', 'license.model'],
     });
     if (!studio) {
       throw new NotFoundException('Studio non trovato');
@@ -42,7 +42,10 @@ export class CheckupStudiosService {
     if (!studio || studio.tipo !== 'licenziatario') {
       throw new ForbiddenException('Studio non autorizzato');
     }
-    const license = await this.licenseRepository.findOne({ where: { studioId: studio.id } });
+    const license = await this.licenseRepository.findOne({
+      where: { studioId: studio.id },
+      relations: ['model'],
+    });
     if (!license) {
       throw new NotFoundException('Licenza non trovata');
     }
@@ -116,6 +119,13 @@ export class CheckupStudiosService {
             numeroSottolicenze: license.numeroSottolicenze,
             dataInizioValidita: license.dataInizioValidita,
             dataScadenza: license.dataScadenza,
+            model: license.model
+              ? {
+                  id: license.model.id,
+                  code: license.model.code,
+                  label: license.model.label,
+                }
+              : null,
           }
         : null,
       sublicense: null,
@@ -231,6 +241,13 @@ export class CheckupStudiosService {
         numeroLicenza: license.numeroLicenza,
         dataInizioValidita: license.dataInizioValidita,
         dataScadenza: license.dataScadenza,
+        model: license.model
+          ? {
+              id: license.model.id,
+              code: license.model.code,
+              label: license.model.label,
+            }
+          : null,
       },
     }));
   }

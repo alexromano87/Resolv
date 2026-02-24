@@ -1,7 +1,45 @@
-import { IsString, IsOptional, IsInt, IsBoolean, IsArray, MaxLength, Min } from 'class-validator';
+import { IsString, IsOptional, IsInt, IsBoolean, IsArray, IsNumber, MaxLength, Min, IsUUID } from 'class-validator';
+
+// Model DTOs
+export class CreateQuestionModelDto {
+  @IsString()
+  @MaxLength(50)
+  code: string;
+
+  @IsString()
+  @MaxLength(150)
+  label: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+export class UpdateQuestionModelDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  label?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  attivo?: boolean;
+}
 
 // Macro Area DTOs
 export class CreateMacroAreaDto {
+  @IsUUID()
+  modelId: string;
+
   @IsString()
   @MaxLength(10)
   code: string;
@@ -21,6 +59,10 @@ export class CreateMacroAreaDto {
 }
 
 export class UpdateMacroAreaDto {
+  @IsOptional()
+  @IsUUID()
+  modelId?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(10)
@@ -117,6 +159,15 @@ export class CreateFieldDto {
   @IsString()
   help?: string;
 
+  @IsOptional()
+  @IsBoolean()
+  allowDocuments?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  weight?: number;
+
   @IsInt()
   sectionId: number;
 
@@ -154,6 +205,15 @@ export class UpdateFieldDto {
   @IsOptional()
   @IsString()
   help?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowDocuments?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  weight?: number;
 
   @IsOptional()
   @IsInt()

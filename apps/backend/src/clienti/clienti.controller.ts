@@ -71,11 +71,11 @@ export class ClientiController {
   // POST /clienti  -> creazione nuovo cliente
   @Post()
   create(@CurrentUser() user: CurrentUserData, @Body() dto: CreateClienteDto) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     // Se l'utente non è admin e ha uno studio, assegna automaticamente il suo studioId
-    if (user.ruolo !== 'superuser' && user.studioId) {
+    if (user.ruolo !== 'superadmin' && user.studioId) {
       dto.studioId = user.studioId;
     }
     return this.clientiService.create(dto);
@@ -84,7 +84,7 @@ export class ClientiController {
   // PUT /clienti/:id  -> aggiornamento cliente esistente
   @Put(':id')
   update(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Body() dto: UpdateClienteDto) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.clientiService.update(id, dto);
@@ -93,7 +93,7 @@ export class ClientiController {
   // PATCH /clienti/:id/deactivate -> disattiva cliente (soft-delete)
   @Patch(':id/deactivate')
   deactivate(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.clientiService.deactivate(id);
@@ -102,7 +102,7 @@ export class ClientiController {
   // PATCH /clienti/:id/reactivate -> riattiva cliente
   @Patch(':id/reactivate')
   reactivate(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.clientiService.reactivate(id);
@@ -112,7 +112,7 @@ export class ClientiController {
   // ATTENZIONE: preferire deactivate nella maggior parte dei casi
   @Delete(':id')
   remove(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     return this.clientiService.remove(id);
@@ -144,7 +144,7 @@ export class ClientiController {
     @Param('id') id: string,
     @Body() body: { debitoriIds: string[] },
   ) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     await this.clientiDebitoriService.setDebitoriForCliente(
@@ -161,7 +161,7 @@ export class ClientiController {
     @Param('id') id: string,
     @Param('debitoreId') debitoreId: string,
   ) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     await this.clientiDebitoriService.unlinkDebitoreFromCliente(
@@ -178,7 +178,7 @@ export class ClientiController {
     @Param('id') id: string,
     @Param('debitoreId') debitoreId: string,
   ) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     await this.clientiDebitoriService.linkDebitoreToCliente(id, debitoreId);

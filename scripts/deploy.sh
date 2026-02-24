@@ -53,13 +53,13 @@ echo "==> Building backend image"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache backend
 
 echo "==> Starting services"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate
 
 echo "==> Ensuring frontend build"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d frontend
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate frontend
 
 echo "==> Ensuring checkup-frontend build"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d checkup-frontend
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate checkup-frontend
 
 echo "==> Reloading nginx (pick up new frontend builds)"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec nginx nginx -s reload 2>/dev/null || true

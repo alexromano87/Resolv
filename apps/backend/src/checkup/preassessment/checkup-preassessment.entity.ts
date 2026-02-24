@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -39,14 +40,35 @@ export class CheckupPreassessment {
   @Column({ type: 'json', nullable: true })
   fieldMeta: Record<string, { updatedAt: string; updatedBy: { id: string; name: string; ruolo: string } }> | null;
 
+  @Column({ type: 'varchar', length: 20, default: 'in_progress' })
+  status: 'in_progress' | 'concluso';
+
+  @Column({ type: 'datetime', nullable: true })
+  completedAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  completedById: string | null;
+
   @Column({ default: false })
   studioCanEdit: boolean;
+
+  @Column({ type: 'int', default: 1 })
+  version: number;
+
+  @Column({ type: 'uuid', nullable: true })
+  parentId: string | null;
+
+  @Column({ default: true })
+  isLatest: boolean;
 
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @DeleteDateColumn({ nullable: true, select: false })
+  deletedAt: Date | null;
 
   @ManyToOne(() => CheckupUser, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })

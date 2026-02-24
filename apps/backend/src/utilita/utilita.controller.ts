@@ -78,7 +78,7 @@ export class UtilitaController {
     };
 
     // Auto-assegna studioId se l'utente non è admin
-    if (user.ruolo !== 'superuser' && user.studioId) {
+    if (user.ruolo !== 'superadmin' && user.studioId) {
       createDto.studioId = user.studioId;
     }
 
@@ -91,7 +91,7 @@ export class UtilitaController {
     @Body() createDto: CreateRisorsaUtilitaDto,
   ): Promise<RisorsaUtilita> {
     // Auto-assegna studioId se l'utente non è admin
-    if (user.ruolo !== 'superuser' && user.studioId) {
+    if (user.ruolo !== 'superadmin' && user.studioId) {
       createDto.studioId = user.studioId;
     }
 
@@ -107,7 +107,7 @@ export class UtilitaController {
     @CurrentUser() user: CurrentUserData,
     @Query('includeInactive') includeInactive?: string,
   ): Promise<RisorsaUtilita[]> {
-    const studioId = user.ruolo === 'superuser' ? undefined : user.studioId || undefined;
+    const studioId = user.ruolo === 'superadmin' ? undefined : user.studioId || undefined;
     return this.utilitaService.findAll(studioId, includeInactive === 'true');
   }
 
@@ -116,7 +116,7 @@ export class UtilitaController {
     @CurrentUser() user: CurrentUserData,
     @Param('tipo') tipo: string,
   ): Promise<RisorsaUtilita[]> {
-    const studioId = user.ruolo === 'superuser' ? undefined : user.studioId || undefined;
+    const studioId = user.ruolo === 'superadmin' ? undefined : user.studioId || undefined;
     return this.utilitaService.findByTipo(tipo, studioId);
   }
 

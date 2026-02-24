@@ -6,6 +6,11 @@ import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
 
 export default function AdminCheckupSublicensesPage() {
+  const sublicenseTypeOptions = [
+    { value: 'Standard', label: 'Standard (preset)' },
+    { value: 'Professional', label: 'Professional (preset)' },
+    { value: 'Enterprise', label: 'Enterprise (preset)' },
+  ];
   const { success, error: toastError } = useToast();
   const [sublicenses, setSublicenses] = useState<CheckupSublicense[]>([]);
   const [licenses, setLicenses] = useState<CheckupLicense[]>([]);
@@ -97,7 +102,7 @@ export default function AdminCheckupSublicensesPage() {
         dataScadenza: formData.dataScadenza,
         attiva: formData.attiva,
       });
-      success(editingId ? 'Sottolicenza aggiornata' : 'Sottolicenza creata');
+      success(editingId ? 'Sublicenza aggiornata' : 'Sublicenza creata');
       setShowModal(false);
       setEditingId(null);
       setFormData({
@@ -123,9 +128,9 @@ export default function AdminCheckupSublicensesPage() {
       <div className="wow-card p-6 md:p-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <span className="wow-chip">Checkup</span>
-          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione Sottolicenze</h1>
+          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione Sublicenze</h1>
           <p className="text-sm text-slate-600 mt-1">
-            Crea e aggiorna le sottolicenze associate alle licenze principali.
+            Crea e aggiorna le sublicenze associate alle licenze principali.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -141,7 +146,7 @@ export default function AdminCheckupSublicensesPage() {
           </div>
           <button onClick={handleOpenCreate} className="wow-button">
             <KeyRound className="h-4 w-4" />
-            Nuova sottolicenza
+            Nuova sublicenza
           </button>
         </div>
       </div>
@@ -151,7 +156,7 @@ export default function AdminCheckupSublicensesPage() {
       ) : (
         <div className="wow-panel overflow-hidden">
           {filteredSublicenses.length === 0 ? (
-            <div className="p-10 text-center text-slate-500">Nessuna sottolicenza presente</div>
+            <div className="p-10 text-center text-slate-500">Nessuna sublicenza presente</div>
           ) : (
             <table className="w-full wow-stagger-rows">
               <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
@@ -210,7 +215,7 @@ export default function AdminCheckupSublicensesPage() {
             <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">
-                  {editingId ? 'Modifica sottolicenza' : 'Nuova sottolicenza'}
+                  {editingId ? 'Modifica sublicenza' : 'Nuova sublicenza'}
                 </h2>
                 <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">
                   <X className="h-5 w-5" />
@@ -232,13 +237,14 @@ export default function AdminCheckupSublicensesPage() {
                 </div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700">Tipo sottolicenza</label>
-                    <input
+                    <label className="block text-sm font-medium text-slate-700">Tipo sublicenza</label>
+                    <CustomSelect
                       value={formData.tipo}
-                      onChange={(e) => setFormData((p) => ({ ...p, tipo: e.target.value }))}
-                      className={inputClassName}
-                      placeholder="(da definire)"
+                      onChange={(val) => setFormData((p) => ({ ...p, tipo: val }))}
+                      options={sublicenseTypeOptions}
+                      placeholder="Seleziona tipo sublicenza"
                     />
+                    <p className="mt-1 text-xs text-slate-500">Preset commerciale, modificabile in futuro.</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700">Numero utenze</label>
@@ -277,14 +283,14 @@ export default function AdminCheckupSublicensesPage() {
                     checked={formData.attiva}
                     onChange={(e) => setFormData((p) => ({ ...p, attiva: e.target.checked }))}
                   />
-                  Sottolicenza attiva
+                  Sublicenza attiva
                 </label>
                 <div className="flex justify-end gap-3 pt-2">
                   <button type="button" onClick={() => setShowModal(false)} className="wow-button-ghost">
                     Annulla
                   </button>
                   <button type="submit" className="wow-button">
-                    Salva sottolicenza
+                    Salva sublicenza
                   </button>
                 </div>
               </form>

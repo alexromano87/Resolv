@@ -1,14 +1,14 @@
-// apps/backend/src/auth/superuser.guard.ts
+// apps/backend/src/auth/superadmin.guard.ts
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 
 @Injectable()
-export class SuperuserGuard implements CanActivate {
+export class SuperadminGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    if (!user || user.ruolo !== 'superuser') {
-      throw new ForbiddenException('Accesso riservato ai superuser');
+    if (!user || user.ruolo !== 'superadmin') {
+      throw new ForbiddenException('Accesso riservato ai superadmin');
     }
 
     return true;

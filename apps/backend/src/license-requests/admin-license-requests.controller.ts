@@ -1,12 +1,12 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { LicenseRequestsService } from './license-requests.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { SuperuserGuard } from '../auth/superuser.guard';
+import { SuperadminGuard } from '../auth/superadmin.guard';
 import { ProvisionLicenseRequestDto } from './dto/provision-license-request.dto';
 import type { LicenseRequestStatus } from './license-request.entity';
 
 @Controller('admin/license-requests')
-@UseGuards(JwtAuthGuard, SuperuserGuard)
+@UseGuards(JwtAuthGuard, SuperadminGuard)
 export class AdminLicenseRequestsController {
   constructor(private readonly service: LicenseRequestsService) {}
 

@@ -21,7 +21,7 @@ export default function BackupPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
-  if (user?.ruolo !== 'superuser') {
+  if (user?.ruolo !== 'superadmin') {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
         <AlertCircle className="mx-auto h-12 w-12 text-slate-400" />
@@ -29,14 +29,14 @@ export default function BackupPage() {
           Accesso negato
         </h3>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-          Solo i superuser possono accedere a questa pagina.
+          Solo i superadmin possono accedere a questa pagina.
         </p>
       </div>
     );
   }
 
   useEffect(() => {
-    if (user?.ruolo !== 'superuser') return;
+    if (user?.ruolo !== 'superadmin') return;
     loadBackups();
   }, [user?.ruolo]);
 

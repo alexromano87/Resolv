@@ -78,7 +78,7 @@ export class PraticheService {
     const where: any = includeInactive ? {} : { attivo: true };
     const page = normalizePagination(pagination?.page, pagination?.limit);
 
-    if (user.ruolo === 'superuser') {
+    if (user.ruolo === 'superadmin') {
       return this.repo.find({
         where,
         relations: ['cliente', 'debitore', 'avvocati', 'collaboratori', 'movimentiFinanziari', 'studio'],
@@ -142,7 +142,7 @@ export class PraticheService {
       : { clienteId, attivo: true };
     const page = normalizePagination(pagination?.page, pagination?.limit);
 
-    if (user.ruolo === 'superuser') {
+    if (user.ruolo === 'superadmin') {
       return this.repo.find({
         where,
         relations: ['cliente', 'debitore', 'avvocati', 'collaboratori', 'movimentiFinanziari'],
@@ -208,7 +208,7 @@ export class PraticheService {
       : { debitoreId, attivo: true };
     const page = normalizePagination(pagination?.page, pagination?.limit);
 
-    if (user.ruolo === 'superuser') {
+    if (user.ruolo === 'superadmin') {
       return this.repo.find({
         where,
         relations: ['cliente', 'debitore', 'avvocati', 'collaboratori', 'movimentiFinanziari'],
@@ -272,7 +272,7 @@ export class PraticheService {
       throw new NotFoundException(`Pratica con ID ${id} non trovata`);
     }
 
-    if (user.ruolo === 'superuser') return this.attachFase(pratica);
+    if (user.ruolo === 'superadmin') return this.attachFase(pratica);
     if (user.ruolo === 'cliente') {
       if (user.clienteId && pratica.clienteId === user.clienteId) return this.attachFase(pratica);
       throw new NotFoundException(`Pratica con ID ${id} non trovata`);
@@ -327,7 +327,7 @@ export class PraticheService {
   }
 
   async canUserModifyPratica(user: CurrentUserData): Promise<boolean> {
-    if (user.ruolo === 'superuser' || user.isAdmin || user.ruolo === 'titolare_studio') return true;
+    if (user.ruolo === 'superadmin' || user.isAdmin || user.ruolo === 'titolare_studio') return true;
     if (user.ruolo === 'collaboratore') return true;
     if (user.ruolo === 'segreteria' || user.ruolo === 'cliente') return false;
     if (user.ruolo !== 'avvocato') return false;

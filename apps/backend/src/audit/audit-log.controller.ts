@@ -11,13 +11,13 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { SuperuserGuard } from '../auth/superuser.guard';
+import { SuperadminGuard } from '../auth/superadmin.guard';
 import { AuditLogService } from './audit-log.service';
 import type { AuditLogFilters } from './audit-log.service';
 import type { AuditAction, AuditEntity } from './audit-log.entity';
 
 @Controller('admin/audit-logs')
-@UseGuards(JwtAuthGuard, SuperuserGuard)
+@UseGuards(JwtAuthGuard, SuperadminGuard)
 export class AuditLogController {
   constructor(private readonly auditLogService: AuditLogService) {}
 

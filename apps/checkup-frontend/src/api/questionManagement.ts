@@ -7,7 +7,21 @@ export interface MacroArea {
   label: string;
   color: string;
   sortOrder: number;
+  modelId: string;
   sections?: Section[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QuestionModel {
+  id: string;
+  code: string;
+  label: string;
+  description?: string | null;
+  attivo: boolean;
+  status: 'draft' | 'published' | 'archived';
+  version: number;
+  parentModelId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -33,6 +47,8 @@ export interface Field {
   options?: string[];
   required: boolean;
   help?: string;
+  allowDocuments?: boolean;
+  weight?: number;
   sortOrder: number;
   sectionId: number;
   section?: Section;
@@ -41,6 +57,7 @@ export interface Field {
 }
 
 export interface CreateMacroAreaDto {
+  modelId: string;
   code: string;
   label: string;
   color: string;
@@ -48,10 +65,24 @@ export interface CreateMacroAreaDto {
 }
 
 export interface UpdateMacroAreaDto {
+  modelId?: string;
   code?: string;
   label?: string;
   color?: string;
   sortOrder?: number;
+}
+
+export interface CreateQuestionModelDto {
+  code: string;
+  label: string;
+  description?: string;
+}
+
+export interface UpdateQuestionModelDto {
+  code?: string;
+  label?: string;
+  description?: string;
+  attivo?: boolean;
 }
 
 export interface CreateSectionDto {
@@ -95,13 +126,44 @@ export interface UpdateFieldDto {
 // API Methods
 
 // Complete Structure
-export const getCompleteStructure = async (): Promise<MacroArea[]> => {
-  return api.get('/checkup/question-management/structure');
+export const getCompleteStructure = async (modelId?: string): Promise<MacroArea[]> => {
+  return api.get(
+    '/checkup/question-management/structure',
+    modelId ? { modelId } : undefined
+  );
+};
+
+export const getModels = async (): Promise<QuestionModel[]> => {
+  return api.get('/checkup/question-management/models');
+};
+
+export const createModel = async (data: CreateQuestionModelDto): Promise<QuestionModel> => {
+  return api.post('/checkup/question-management/models', data);
+};
+
+export const updateModel = async (id: string, data: UpdateQuestionModelDto): Promise<QuestionModel> => {
+  return api.put(`/checkup/question-management/models/${id}`, data);
+};
+
+export const deleteModel = async (id: string): Promise<void> => {
+  await api.delete(`/checkup/question-management/models/${id}`);
+};
+
+export const publishModel = async (id: string): Promise<QuestionModel> => {
+  return api.post(`/checkup/question-management/models/${id}/publish`, {});
+};
+
+export const archiveModel = async (id: string): Promise<QuestionModel> => {
+  return api.post(`/checkup/question-management/models/${id}/archive`, {});
+};
+
+export const createNewModelVersion = async (id: string): Promise<QuestionModel> => {
+  return api.post(`/checkup/question-management/models/${id}/new-version`, {});
 };
 
 // Macro Areas
-export const getAllMacroAreas = async (): Promise<MacroArea[]> => {
-  return api.get('/checkup/question-management/macro-areas');
+export const getAllMacroAreas = async (modelId?: string): Promise<MacroArea[]> => {
+  return api.get('/checkup/question-management/macro-areas', modelId ? { modelId } : undefined);
 };
 
 export const getMacroAreaById = async (id: number): Promise<MacroArea> => {
