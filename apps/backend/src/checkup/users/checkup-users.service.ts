@@ -190,11 +190,12 @@ export class CheckupUsersService {
       .leftJoinAndSelect('u.studio', 'studio')
       .leftJoinAndSelect('u.client', 'client')
       .leftJoinAndSelect('u.sublicense', 'sublicense')
-      .where('u.studioId = :studioId', { studioId: currentUser.studioId });
-
-    if (clientIds.length) {
-      qb.orWhere('u.clientId IN (:...clientIds)', { clientIds });
-    }
+      .where(new Brackets((sub) => {
+        sub.where('u.studioId = :studioId', { studioId: currentUser.studioId });
+        if (clientIds.length) {
+          sub.orWhere('u.clientId IN (:...clientIds)', { clientIds });
+        }
+      }));
 
     if (!includeInactive) {
       qb.andWhere('u.attivo = :attivo', { attivo: true });

@@ -1,16 +1,25 @@
 import { useEffect, useState } from 'react';
 import { KeyRound, X, Pencil } from 'lucide-react';
 import { checkupAdminApi, type CheckupLicense } from '../api/checkupAdmin';
+import * as questionApi from '../api/checkupQuestions';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
+import { CustomSelect } from '../components/ui/CustomSelect';
 
 export default function AdminCheckupLicensesPage() {
   const { success, error: toastError } = useToast();
+  const licenseTypeOptions = [
+    { value: 'Standard', label: 'Standard (preset)' },
+    { value: 'Professional', label: 'Professional (preset)' },
+    { value: 'Enterprise', label: 'Enterprise (preset)' },
+  ];
   const [licenses, setLicenses] = useState<CheckupLicense[]>([]);
   const [loading, setLoading] = useState(false);
+  const [models, setModels] = useState<questionApi.QuestionModel[]>([]);
   const [showLicenseModal, setShowLicenseModal] = useState(false);
   const [editingLicenseId, setEditingLicenseId] = useState<string | null>(null);
   const [licenseForm, setLicenseForm] = useState({
+    modelId: '',
     tipo: '',
     numeroUtenze: 1,
     dataInizioValidita: '',
@@ -22,8 +31,12 @@ export default function AdminCheckupLicensesPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const licensesData = await checkupAdminApi.getLicenses();
+      const [licensesData, modelsData] = await Promise.all([
+        checkupAdminApi.getLicenses(),
+        questionApi.getModels(),
+      ]);
       setLicenses(licensesData);
+      setModels(modelsData);
     } catch (err: any) {
       toastError(err.message || 'Errore durante il caricamento');
     } finally {
@@ -37,13 +50,14 @@ export default function AdminCheckupLicensesPage() {
 
   const handleUpsertLicense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!licenseForm.tipo || !licenseForm.dataInizioValidita || !licenseForm.dataScadenza) {
+    if (!licenseForm.modelId || !licenseForm.tipo || !licenseForm.dataInizioValidita || !licenseForm.dataScadenza) {
       toastError('Compila tutti i campi obbligatori');
       return;
     }
     try {
       await checkupAdminApi.upsertLicense({
         id: editingLicenseId ?? undefined,
+        modelId: licenseForm.modelId || undefined,
         tipo: licenseForm.tipo.trim(),
         numeroUtenze: Number(licenseForm.numeroUtenze),
         dataInizioValidita: licenseForm.dataInizioValidita,
@@ -53,6 +67,7 @@ export default function AdminCheckupLicensesPage() {
       setShowLicenseModal(false);
       setEditingLicenseId(null);
       setLicenseForm({
+        modelId: '',
         tipo: '',
         numeroUtenze: 1,
         dataInizioValidita: '',
@@ -66,6 +81,7 @@ export default function AdminCheckupLicensesPage() {
 
   const handleEditLicense = (license: CheckupLicense) => {
     setLicenseForm({
+      modelId: license.model?.id || license.modelId || '',
       tipo: license.tipo,
       numeroUtenze: license.numeroUtenze,
       dataInizioValidita: license.dataInizioValidita || '',
@@ -89,6 +105,7 @@ export default function AdminCheckupLicensesPage() {
           <button
             onClick={() => {
               setLicenseForm({
+                modelId: '',
                 tipo: '',
                 numeroUtenze: 1,
                 dataInizioValidita: '',
@@ -117,6 +134,7 @@ export default function AdminCheckupLicensesPage() {
                 <tr>
                   <th className="px-4 py-3 text-left">Studio</th>
                   <th className="px-4 py-3 text-left">Numero licenza</th>
+                  <th className="px-4 py-3 text-left">Modello</th>
                   <th className="px-4 py-3 text-left">Tipo</th>
                   <th className="px-4 py-3 text-left">Utenze</th>
                   <th className="px-4 py-3 text-left">Validità</th>
@@ -131,6 +149,9 @@ export default function AdminCheckupLicensesPage() {
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">
                       {license.numeroLicenza || '—'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                      {license.model?.label || '—'}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{license.tipo}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{license.numeroUtenze}</td>
@@ -181,15 +202,31 @@ export default function AdminCheckupLicensesPage() {
                     <span className="ml-3 text-xs text-slate-500">Licenza #{editingLicense.numeroLicenza}</span>
                   ) : null}
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Modello abilitato</label>
+                  <select
+                    value={licenseForm.modelId}
+                    onChange={(e) => setLicenseForm((p) => ({ ...p, modelId: e.target.value }))}
+                    className={inputClassName}
+                  >
+                    <option value="">Seleziona modello</option>
+                    {models.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label} {model.attivo ? '' : '(disattivo)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Tipo licenza</label>
-                    <input
+                    <CustomSelect
                       value={licenseForm.tipo}
-                      onChange={(e) => setLicenseForm((p) => ({ ...p, tipo: e.target.value }))}
-                      className={inputClassName}
-                      placeholder="(da definire)"
+                      onChange={(val) => setLicenseForm((p) => ({ ...p, tipo: val }))}
+                      options={licenseTypeOptions}
+                      placeholder="Seleziona tipo licenza"
                     />
+                    <p className="mt-1 text-xs text-slate-500">Preset commerciale, modificabile in futuro.</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Numero utenze</label>

@@ -8,10 +8,14 @@ import {
   Param,
   ParseIntPipe,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
+import { CheckupSuperadminGuard } from '../auth/checkup-superadmin.guard';
 import { QuestionManagementService } from '../services/question-management.service';
 import {
+  CreateQuestionModelDto,
+  UpdateQuestionModelDto,
   CreateMacroAreaDto,
   UpdateMacroAreaDto,
   CreateSectionDto,
@@ -28,15 +32,63 @@ export class QuestionManagementController {
   // ==================== COMPLETE STRUCTURE ====================
 
   @Get('structure')
-  async getCompleteStructure() {
-    return this.questionService.getCompleteStructure();
+  async getCompleteStructure(@Query('modelId') modelId?: string) {
+    return this.questionService.getCompleteStructure(modelId);
+  }
+
+  // ==================== MODELS ====================
+
+  @Get('models')
+  async getAllModels() {
+    return this.questionService.getAllModels();
+  }
+
+  @Get('models/:id')
+  async getModelById(@Param('id') id: string) {
+    return this.questionService.getModelById(id);
+  }
+
+  @UseGuards(CheckupSuperadminGuard)
+  @Post('models')
+  async createModel(@Body() dto: CreateQuestionModelDto) {
+    return this.questionService.createModel(dto);
+  }
+
+  @UseGuards(CheckupSuperadminGuard)
+  @Put('models/:id')
+  async updateModel(@Param('id') id: string, @Body() dto: UpdateQuestionModelDto) {
+    return this.questionService.updateModel(id, dto);
+  }
+
+  @UseGuards(CheckupSuperadminGuard)
+  @Delete('models/:id')
+  async deleteModel(@Param('id') id: string) {
+    return this.questionService.deleteModel(id);
+  }
+
+  @UseGuards(CheckupSuperadminGuard)
+  @Post('models/:id/publish')
+  async publishModel(@Param('id') id: string) {
+    return this.questionService.publishModel(id);
+  }
+
+  @UseGuards(CheckupSuperadminGuard)
+  @Post('models/:id/archive')
+  async archiveModel(@Param('id') id: string) {
+    return this.questionService.archiveModel(id);
+  }
+
+  @UseGuards(CheckupSuperadminGuard)
+  @Post('models/:id/new-version')
+  async createNewModelVersion(@Param('id') id: string) {
+    return this.questionService.createNewModelVersion(id);
   }
 
   // ==================== MACRO AREAS ====================
 
   @Get('macro-areas')
-  async getAllMacroAreas() {
-    return this.questionService.getAllMacroAreas();
+  async getAllMacroAreas(@Query('modelId') modelId?: string) {
+    return this.questionService.getAllMacroAreas(modelId);
   }
 
   @Get('macro-areas/:id')
@@ -44,11 +96,13 @@ export class QuestionManagementController {
     return this.questionService.getMacroAreaById(id);
   }
 
+  @UseGuards(CheckupSuperadminGuard)
   @Post('macro-areas')
   async createMacroArea(@Body() dto: CreateMacroAreaDto) {
     return this.questionService.createMacroArea(dto);
   }
 
+  @UseGuards(CheckupSuperadminGuard)
   @Put('macro-areas/:id')
   async updateMacroArea(
     @Param('id', ParseIntPipe) id: number,
@@ -57,6 +111,7 @@ export class QuestionManagementController {
     return this.questionService.updateMacroArea(id, dto);
   }
 
+  @UseGuards(CheckupSuperadminGuard)
   @Delete('macro-areas/:id')
   async deleteMacroArea(@Param('id', ParseIntPipe) id: number) {
     return this.questionService.deleteMacroArea(id);
@@ -81,11 +136,13 @@ export class QuestionManagementController {
     return this.questionService.getSectionsByMacroArea(macroAreaId);
   }
 
+  @UseGuards(CheckupSuperadminGuard)
   @Post('sections')
   async createSection(@Body() dto: CreateSectionDto) {
     return this.questionService.createSection(dto);
   }
 
+  @UseGuards(CheckupSuperadminGuard)
   @Put('sections/:id')
   async updateSection(
     @Param('id', ParseIntPipe) id: number,
@@ -94,6 +151,7 @@ export class QuestionManagementController {
     return this.questionService.updateSection(id, dto);
   }
 
+  @UseGuards(CheckupSuperadminGuard)
   @Delete('sections/:id')
   async deleteSection(@Param('id', ParseIntPipe) id: number) {
     return this.questionService.deleteSection(id);
@@ -118,11 +176,13 @@ export class QuestionManagementController {
     return this.questionService.getFieldsBySection(sectionId);
   }
 
+  @UseGuards(CheckupSuperadminGuard)
   @Post('fields')
   async createField(@Body() dto: CreateFieldDto) {
     return this.questionService.createField(dto);
   }
 
+  @UseGuards(CheckupSuperadminGuard)
   @Put('fields/:id')
   async updateField(
     @Param('id', ParseIntPipe) id: number,
@@ -131,6 +191,7 @@ export class QuestionManagementController {
     return this.questionService.updateField(id, dto);
   }
 
+  @UseGuards(CheckupSuperadminGuard)
   @Delete('fields/:id')
   async deleteField(@Param('id', ParseIntPipe) id: number) {
     return this.questionService.deleteField(id);

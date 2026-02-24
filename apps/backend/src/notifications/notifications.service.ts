@@ -207,7 +207,7 @@ export class NotificationsService {
 
   async notifyAdmins(payload: NotificationPayload) {
     const admins = await this.usersRepo.find({
-      where: { ruolo: 'superuser', attivo: true },
+      where: { ruolo: 'superadmin', attivo: true },
     });
     if (admins.length === 0) return;
 
@@ -227,7 +227,7 @@ export class NotificationsService {
 
   async notifyAdminsUnique(payload: NotificationPayload) {
     const admins = await this.usersRepo.find({
-      where: { ruolo: 'superuser', attivo: true },
+      where: { ruolo: 'superadmin', attivo: true },
     });
     if (admins.length === 0) return;
 

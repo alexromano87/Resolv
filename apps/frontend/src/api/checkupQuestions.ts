@@ -3,6 +3,7 @@ import { api } from './config';
 // Types
 export interface MacroArea {
   id: number;
+  modelId?: string;
   code: string;
   label: string;
   color: string;
@@ -33,6 +34,7 @@ export interface Field {
   options?: string[];
   required: boolean;
   help?: string;
+  allowDocuments?: boolean;
   sortOrder: number;
   sectionId: number;
   section?: Section;
@@ -41,6 +43,7 @@ export interface Field {
 }
 
 export interface CreateMacroAreaDto {
+  modelId: string;
   code: string;
   label: string;
   color: string;
@@ -48,10 +51,34 @@ export interface CreateMacroAreaDto {
 }
 
 export interface UpdateMacroAreaDto {
+  modelId?: string;
   code?: string;
   label?: string;
   color?: string;
   sortOrder?: number;
+}
+
+export interface QuestionModel {
+  id: string;
+  code: string;
+  label: string;
+  description?: string | null;
+  attivo: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateQuestionModelDto {
+  code: string;
+  label: string;
+  description?: string;
+}
+
+export interface UpdateQuestionModelDto {
+  code?: string;
+  label?: string;
+  description?: string;
+  attivo?: boolean;
 }
 
 export interface CreateSectionDto {
@@ -77,6 +104,7 @@ export interface CreateFieldDto {
   options?: string[];
   required?: boolean;
   help?: string;
+  allowDocuments?: boolean;
   sectionId: number;
   sortOrder?: number;
 }
@@ -88,6 +116,7 @@ export interface UpdateFieldDto {
   options?: string[];
   required?: boolean;
   help?: string;
+  allowDocuments?: boolean;
   sectionId?: number;
   sortOrder?: number;
 }
@@ -99,9 +128,17 @@ export const getCompleteStructure = async (): Promise<MacroArea[]> => {
   return api.get('/admin/checkup/questions/structure');
 };
 
+export const getCompleteStructureByModel = async (modelId: string): Promise<MacroArea[]> => {
+  return api.get(`/admin/checkup/questions/structure?modelId=${encodeURIComponent(modelId)}`);
+};
+
 // Macro Areas
 export const getAllMacroAreas = async (): Promise<MacroArea[]> => {
   return api.get('/admin/checkup/questions/macro-areas');
+};
+
+export const getAllMacroAreasByModel = async (modelId: string): Promise<MacroArea[]> => {
+  return api.get(`/admin/checkup/questions/macro-areas?modelId=${encodeURIComponent(modelId)}`);
 };
 
 export const getMacroAreaById = async (id: number): Promise<MacroArea> => {
@@ -168,4 +205,21 @@ export const updateField = async (id: number, data: UpdateFieldDto): Promise<Fie
 
 export const deleteField = async (id: number): Promise<void> => {
   await api.delete(`/admin/checkup/questions/fields/${id}`);
+};
+
+// Models
+export const getModels = async (): Promise<QuestionModel[]> => {
+  return api.get('/admin/checkup/questions/models');
+};
+
+export const createModel = async (data: CreateQuestionModelDto): Promise<QuestionModel> => {
+  return api.post('/admin/checkup/questions/models', data);
+};
+
+export const updateModel = async (id: string, data: UpdateQuestionModelDto): Promise<QuestionModel> => {
+  return api.put(`/admin/checkup/questions/models/${id}`, data);
+};
+
+export const deleteModel = async (id: string): Promise<void> => {
+  await api.delete(`/admin/checkup/questions/models/${id}`);
 };

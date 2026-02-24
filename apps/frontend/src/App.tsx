@@ -55,6 +55,7 @@ const AdminCheckupSublicensesPage = lazyNamed(
 );
 const AdminCheckupStudiosPage = lazyNamed(() => import('./pages/AdminCheckupStudiosPage'), 'default');
 const AdminCheckupQuestionsPage = lazyNamed(() => import('./pages/AdminCheckupQuestionsPage'), 'default');
+const AdminCheckupModelsPage = lazyNamed(() => import('./pages/AdminCheckupModelsPage'), 'default');
 const AdminCheckupDashboardPage = lazyNamed(
   () => import('./pages/AdminCheckupDashboardPage'),
   'default',
@@ -102,7 +103,7 @@ const PraticaDetailRoute = () => {
 const HomeRoute = () => {
   const { user } = useAuth();
 
-  if (user?.ruolo === 'superuser') {
+  if (user?.ruolo === 'superadmin') {
     return <Navigate to="/admin/users" replace />;
   }
   if (user?.isAdmin) {
@@ -171,6 +172,7 @@ function App() {
                     <Route path="/admin/checkup-licenses" element={<AdminCheckupLicensesPage />} />
                     <Route path="/admin/checkup-sublicenses" element={<AdminCheckupSublicensesPage />} />
                     <Route path="/admin/checkup-studios" element={<AdminCheckupStudiosPage />} />
+                    <Route path="/admin/checkup-models" element={<AdminCheckupModelsPage />} />
                     <Route path="/admin/checkup-questions" element={<AdminCheckupQuestionsPage />} />
                     <Route path="/admin/checkup-dashboard" element={<AdminCheckupDashboardPage />} />
                     <Route path="/admin/impostazioni" element={<AdminSuperSettingsPage />} />

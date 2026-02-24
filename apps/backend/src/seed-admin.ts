@@ -19,7 +19,7 @@ async function bootstrap() {
       password: 'admin123',
       nome: 'Admin',
       cognome: 'Resolv',
-      ruolo: 'superuser',
+      ruolo: 'superadmin',
       isAdmin: true,
       clienteId: null,
     });
@@ -38,10 +38,10 @@ async function bootstrap() {
   } catch (error: any) {
     if (error.message?.includes('Email già registrata')) {
       const existing = await userRepository.findOne({ where: { email: 'admin@resolv.legal' } });
-      if (existing && existing.ruolo !== 'superuser') {
-        existing.ruolo = 'superuser';
+      if (existing && existing.ruolo !== 'superadmin') {
+        existing.ruolo = 'superadmin';
         await userRepository.save(existing);
-        console.log('✅ Ruolo aggiornato a superuser per admin@resolv.legal');
+        console.log('✅ Ruolo aggiornato a superadmin per admin@resolv.legal');
       }
       console.log('ℹ️  Utente admin già esistente');
       console.log('📧 Email: admin@resolv.legal');

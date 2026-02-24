@@ -49,12 +49,12 @@ export class ImportController {
     }
 
     try {
-      if (user.ruolo !== 'superuser' && !user.studioId) {
+      if (user.ruolo !== 'superadmin' && !user.studioId) {
         throw new HttpException('Studio non assegnato', HttpStatus.FORBIDDEN);
       }
       const result = await this.importService.importBackup(
         file.buffer,
-        user.ruolo === 'superuser' ? undefined : (user.studioId || undefined),
+        user.ruolo === 'superadmin' ? undefined : (user.studioId || undefined),
       );
 
       try {
@@ -101,13 +101,13 @@ export class ImportController {
     }
 
     try {
-      if (user.ruolo !== 'superuser' && !user.studioId) {
+      if (user.ruolo !== 'superadmin' && !user.studioId) {
         throw new HttpException('Studio non assegnato', HttpStatus.FORBIDDEN);
       }
       const result = await this.importService.importCsv(
         dto.entity,
         file.buffer,
-        user.ruolo === 'superuser' ? undefined : (user.studioId || undefined),
+        user.ruolo === 'superadmin' ? undefined : (user.studioId || undefined),
       );
 
       try {

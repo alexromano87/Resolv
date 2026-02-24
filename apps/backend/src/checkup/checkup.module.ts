@@ -68,6 +68,7 @@ import { CheckupClient } from './clients/checkup-client.entity';
 import { QuestionMacroArea } from './entities/question-macro-area.entity';
 import { QuestionSection } from './entities/question-section.entity';
 import { QuestionField } from './entities/question-field.entity';
+import { QuestionModel } from './entities/question-model.entity';
 import { QuestionManagementService } from './services/question-management.service';
 import { QuestionManagementController } from './controllers/question-management.controller';
 import { QuestionSeedService } from './services/question-seed.service';
@@ -96,6 +97,7 @@ import { QuestionSeedService } from './services/question-seed.service';
       QuestionMacroArea,
       QuestionSection,
       QuestionField,
+      QuestionModel,
     ]),
     PassportModule.register({ defaultStrategy: 'checkup-jwt' }),
     JwtModule.registerAsync({

@@ -32,6 +32,12 @@ export class QuestionField {
   @Column({ type: 'text', nullable: true })
   help: string; // Tooltip text - this is what the user sees with the "?"
 
+  @Column({ default: true })
+  allowDocuments: boolean;
+
+  @Column({ type: 'float', default: 1 })
+  weight: number;
+
   @Column({ type: 'int', default: 0 })
   sortOrder: number;
 

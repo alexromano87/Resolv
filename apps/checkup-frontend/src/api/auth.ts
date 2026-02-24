@@ -27,6 +27,11 @@ export interface CheckupUser {
     tipo: string;
     numeroUtenze: number;
     numeroSottolicenze: number;
+    model?: {
+      id: string;
+      code: string;
+      label: string;
+    } | null;
   } | null;
 }
 
@@ -42,6 +47,16 @@ export interface TwoFactorRequiredResponse {
 }
 
 export type LoginResult = LoginResponse | TwoFactorRequiredResponse;
+
+export interface PasswordResetRequestDto {
+  email: string;
+}
+
+export interface PasswordResetConfirmDto {
+  email: string;
+  token: string;
+  newPassword: string;
+}
 
 export const authApi = {
   login: (email: string, password: string) =>
@@ -67,4 +82,10 @@ export const authApi = {
 
   getProfile: () =>
     api.get<CheckupUser>('/checkup/auth/profile'),
+
+  requestPasswordReset: (dto: PasswordResetRequestDto) =>
+    api.post('/checkup/auth/password-reset/request', dto, { skipAuthRedirect: true }),
+
+  confirmPasswordReset: (dto: PasswordResetConfirmDto) =>
+    api.post('/checkup/auth/password-reset/confirm', dto, { skipAuthRedirect: true }),
 };

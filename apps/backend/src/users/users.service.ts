@@ -19,7 +19,7 @@ export class UsersService {
   ) {}
 
   private isStudioUserRole(ruolo?: string) {
-    return ruolo !== 'superuser' && ruolo !== 'cliente';
+    return ruolo !== 'superadmin' && ruolo !== 'cliente';
   }
 
   private async assertUserLimitAvailable(studioId: string, excludeUserId?: string) {
@@ -32,7 +32,7 @@ export class UsersService {
       .createQueryBuilder('user')
       .leftJoin('user.studi', 'userStudi')
       .where('user.attivo = :attivo', { attivo: true })
-      .andWhere("user.ruolo NOT IN ('superuser', 'cliente')")
+      .andWhere("user.ruolo NOT IN ('superadmin', 'cliente')")
       .andWhere('(user.studioId = :studioId OR userStudi.id = :studioId)', { studioId });
 
     if (excludeUserId) {

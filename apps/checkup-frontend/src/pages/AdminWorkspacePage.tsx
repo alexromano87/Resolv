@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
-import { Settings, List } from 'lucide-react';
 import { studiosApi, type CheckupStudioProfile, type UpdateCheckupStudioPayload, type CheckupSublicenseOption } from '../api/studios';
 import { usersApi } from '../api/users';
 import type { CheckupUser } from '../api/auth';
@@ -9,13 +7,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { ModalPortal } from '../components/ModalPortal';
 import StudioDashboardPage from './StudioDashboardPage';
 
-type AdminTab = 'dashboard' | 'studio' | 'licenza' | 'sottolicenze' | 'utenti';
+type AdminTab = 'dashboard' | 'studio' | 'licenza' | 'sublicenze' | 'utenti';
 
 export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initialTab?: AdminTab }) {
-  const { user, refreshProfile } = useAuth();
-  const navigate = useNavigate();
+  const { refreshProfile } = useAuth();
   const [profile, setProfile] = useState<CheckupStudioProfile | null>(null);
-  const sidebarTarget = typeof document !== 'undefined' ? document.getElementById('checkup-subnav') : null;
   const [formData, setFormData] = useState<UpdateCheckupStudioPayload>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -93,7 +89,7 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
   }, [initialTab]);
 
   useEffect(() => {
-    if (activeTab !== 'sottolicenze' && activeTab !== 'utenti') return;
+    if (activeTab !== 'sublicenze' && activeTab !== 'utenti') return;
     setSublicensesLoading(true);
     setUsageLoading(true);
     setUsersLoading(true);
@@ -108,7 +104,7 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
         setUsers(usersData);
       })
       .catch((err: any) => {
-        setError(err.message || 'Errore durante il caricamento delle sottolicenze');
+        setError(err.message || 'Errore durante il caricamento delle sublicenze');
       })
       .finally(() => {
         setSublicensesLoading(false);
@@ -125,7 +121,7 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
       .listSublicenses()
       .then((data) => setSublicenses(data))
       .catch((err: any) => {
-        setError(err.message || 'Errore durante il caricamento delle sottolicenze');
+        setError(err.message || 'Errore durante il caricamento delle sublicenze');
       })
       .finally(() => {
         setSublicensesLoading(false);
@@ -251,7 +247,7 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
         <span className="wow-chip">Amministrazione</span>
         <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Amministrazione</h1>
         <p className="text-sm text-slate-600 mt-1">
-          Panoramica studio, licenze, sottolicenze e utenti assegnati.
+          Panoramica studio, licenze, sublicenze e utenti assegnati.
         </p>
       </div>
 
@@ -267,7 +263,7 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
       )}
 
       <div className="wow-panel p-3 flex flex-wrap items-center gap-2">
-        {(['dashboard', 'studio', 'licenza', 'sottolicenze', 'utenti'] as const).map((tab) => (
+        {(['dashboard', 'studio', 'licenza', 'sublicenze', 'utenti'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => handleTabChange(tab)}
@@ -281,8 +277,8 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
               ? 'Studio'
               : tab === 'licenza'
                 ? 'Licenza'
-                : tab === 'sottolicenze'
-                  ? 'Sottolicenze'
+                : tab === 'sublicenze'
+                  ? 'Sublicenze'
                   : 'Utenti'}
           </button>
         ))}
@@ -499,7 +495,7 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
               </div>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-              <div className="text-xs text-slate-500">Sottolicenze</div>
+              <div className="text-xs text-slate-500">Sublicenze</div>
               <div className="text-sm font-semibold text-slate-900">
                 {sublicensesLoading ? '...' : sublicensesCount}
               </div>
@@ -508,25 +504,26 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
         </div>
       )}
 
-      {activeTab === 'sottolicenze' && (
+      {activeTab === 'sublicenze' && (
         <div className="wow-panel p-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Dettaglio Sottolicenze</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Dettaglio Sublicenze</h2>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-semibold text-slate-600">
               Solo lettura
             </span>
           </div>
-          <p className="text-sm text-slate-500 mt-1">Informazioni sulle sottolicenze (sola lettura).</p>
+          <p className="text-sm text-slate-500 mt-1">Informazioni sulle sublicenze (sola lettura).</p>
           <div className="mt-4">
             {sublicensesLoading || usageLoading ? (
               <div className="text-sm text-slate-500">Caricamento...</div>
             ) : sublicenses.length === 0 ? (
-              <div className="text-sm text-slate-500">Nessuna sottolicenza associata.</div>
+              <div className="text-sm text-slate-500">Nessuna sublicenza associata.</div>
             ) : (
               <table className="w-full">
                 <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
                   <tr>
-                    <th className="px-4 py-3 text-left">Sottolicenza</th>
+                    <th className="px-4 py-3 text-left">Sublicenza</th>
+                    <th className="px-4 py-3 text-left">Intestatario</th>
                     <th className="px-4 py-3 text-left">Licenza</th>
                     <th className="px-4 py-3 text-left">Utenze</th>
                     <th className="px-4 py-3 text-left">Utilizzati</th>
@@ -545,6 +542,9 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
                       >
                         <td className="px-4 py-3 text-sm text-slate-700">
                           {s.numeroSublicenza || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-600">
+                          {s.clientId ? (clientNameById.get(s.clientId) || '—') : '—'}
                         </td>
                         <td className="px-4 py-3 text-sm text-slate-600">
                           {s.license?.intestatario || 'Licenza'} · {s.license?.numeroLicenza || '—'}
@@ -671,9 +671,9 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
             <div className="w-full max-w-3xl rounded-2xl border border-indigo-100 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.25)]">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="wow-chip">Sottolicenza</span>
+                  <span className="wow-chip">Sublicenza</span>
                   <h2 className="text-xl font-semibold text-slate-900 mt-2">
-                    {selectedSublicense.numeroSublicenza || 'Dettaglio sottolicenza'}
+                    {selectedSublicense.numeroSublicenza || 'Dettaglio sublicenza'}
                   </h2>
                   <p className="text-sm text-slate-500 mt-1">
                     {selectedSublicense.license?.intestatario || 'Licenza'} · {selectedSublicense.license?.numeroLicenza || '—'}
@@ -712,7 +712,7 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
 
               <div className="mt-6">
                 <h3 className="text-sm font-semibold text-slate-900">Utenti associati</h3>
-                <p className="text-xs text-slate-500 mt-1">Elenco utenti collegati a questa sottolicenza.</p>
+                <p className="text-xs text-slate-500 mt-1">Elenco utenti collegati a questa sublicenza.</p>
                 <div className="mt-3 rounded-xl border border-slate-200 overflow-hidden">
                   {usersLoading ? (
                     <div className="p-6 text-sm text-slate-500">Caricamento utenti...</div>
@@ -746,7 +746,7 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
                       );
                     })()
                   ) : (
-                    <div className="p-6 text-sm text-slate-500">Sottolicenza non assegnata ad alcun cliente.</div>
+                    <div className="text-sm text-slate-500">Sublicenza non assegnata ad alcun cliente.</div>
                   )}
                 </div>
               </div>
@@ -755,35 +755,6 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
         </ModalPortal>
       )}
 
-      {sidebarTarget &&
-        createPortal(
-          <div className="space-y-2">
-            <button
-              onClick={() => navigate('/checkup/amministrazione')}
-              className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium bg-blue-900/60 text-white"
-            >
-              <Settings className="h-5 w-5" />
-              <span>Amministrazione</span>
-            </button>
-            {user?.ruolo === 'superadmin' && (
-              <button
-                onClick={() => navigate('/checkup/gestione-domande')}
-                className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-blue-900/40 hover:text-white"
-              >
-                <List className="h-5 w-5" />
-                <span>Gestione Domande</span>
-              </button>
-            )}
-            <button
-              onClick={() => navigate('/checkup/impostazioni')}
-              className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-blue-900/40 hover:text-white"
-            >
-              <Settings className="h-5 w-5" />
-              <span>Impostazioni</span>
-            </button>
-          </div>,
-          sidebarTarget,
-        )}
     </div>
   );
 }

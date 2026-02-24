@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsBoolean, IsEmail, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 import type { CheckupUserRole } from '../checkup-user.entity';
 
 export class UpdateCheckupUserDto {
@@ -37,6 +37,11 @@ export class UpdateCheckupUserDto {
   @IsOptional()
   @IsString()
   azienda?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  macroAreaOwner?: string[];
 
   @IsOptional()
   @IsBoolean()

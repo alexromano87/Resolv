@@ -33,14 +33,14 @@ export class CollaboratoriController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     const filters: { ruolo: string; studioId?: string; attivo?: boolean } = {
       ruolo: 'collaboratore',
     };
 
-    if (user.ruolo !== 'superuser') {
+    if (user.ruolo !== 'superadmin') {
       if (!user.studioId) {
         return [];
       }
@@ -62,10 +62,10 @@ export class CollaboratoriController {
     @CurrentUser() user: CurrentUserData,
     @Body() createDto: CreateCollaboratoreDto,
   ) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
-    const isAdmin = user.ruolo === 'superuser' || user.isAdmin;
+    const isAdmin = user.ruolo === 'superadmin' || user.isAdmin;
 
     if (!isAdmin) {
       if (!user.studioId) {
@@ -117,7 +117,7 @@ export class CollaboratoriController {
     @Param('id') id: string,
     @Body() updateDto: UpdateCollaboratoreDto,
   ) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     const collaborator = await this.usersService.findOne(id);
@@ -125,7 +125,7 @@ export class CollaboratoriController {
       throw new NotFoundException('Collaboratore non trovato');
     }
 
-    if (user.ruolo !== 'superuser' && collaborator.studioId !== user.studioId) {
+    if (user.ruolo !== 'superadmin' && collaborator.studioId !== user.studioId) {
       throw new ForbiddenException('Accesso non consentito');
     }
 
@@ -144,7 +144,7 @@ export class CollaboratoriController {
 
   @Patch(':id/deactivate')
   async deactivate(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     const collaborator = await this.usersService.findOne(id);
@@ -152,7 +152,7 @@ export class CollaboratoriController {
       throw new NotFoundException('Collaboratore non trovato');
     }
 
-    if (user.ruolo !== 'superuser' && collaborator.studioId !== user.studioId) {
+    if (user.ruolo !== 'superadmin' && collaborator.studioId !== user.studioId) {
       throw new ForbiddenException('Accesso non consentito');
     }
 
@@ -161,7 +161,7 @@ export class CollaboratoriController {
 
   @Patch(':id/reactivate')
   async reactivate(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     const collaborator = await this.usersService.findOne(id);
@@ -169,7 +169,7 @@ export class CollaboratoriController {
       throw new NotFoundException('Collaboratore non trovato');
     }
 
-    if (user.ruolo !== 'superuser' && collaborator.studioId !== user.studioId) {
+    if (user.ruolo !== 'superadmin' && collaborator.studioId !== user.studioId) {
       throw new ForbiddenException('Accesso non consentito');
     }
 
@@ -178,7 +178,7 @@ export class CollaboratoriController {
 
   @Delete(':id')
   async remove(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    if (!user.isAdmin && !['superuser', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
+    if (!user.isAdmin && !['superadmin', 'titolare_studio', 'segreteria'].includes(user.ruolo)) {
       throw new ForbiddenException('Accesso non consentito');
     }
     const collaborator = await this.usersService.findOne(id);
@@ -186,7 +186,7 @@ export class CollaboratoriController {
       throw new NotFoundException('Collaboratore non trovato');
     }
 
-    if (user.ruolo !== 'superuser' && collaborator.studioId !== user.studioId) {
+    if (user.ruolo !== 'superadmin' && collaborator.studioId !== user.studioId) {
       throw new ForbiddenException('Accesso non consentito');
     }
 

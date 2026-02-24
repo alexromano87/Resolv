@@ -23,6 +23,11 @@ const LoginPage: React.FC = () => {
   const [showRecoverModal, setShowRecoverModal] = useState(false);
   const [recoverEmail, setRecoverEmail] = useState('');
   const [recoverLoading, setRecoverLoading] = useState(false);
+  const [recoverStep, setRecoverStep] = useState<'request' | 'confirm'>('request');
+  const [recoverCode, setRecoverCode] = useState('');
+  const [recoverPassword, setRecoverPassword] = useState('');
+  const [recoverConfirm, setRecoverConfirm] = useState('');
+  const [recoverError, setRecoverError] = useState('');
   const [showInactivityModal, setShowInactivityModal] = useState(false);
 
   useEffect(() => {
@@ -53,7 +58,7 @@ const LoginPage: React.FC = () => {
         return;
       }
 
-      if (response && (response.user.isAdmin || response.user.ruolo === 'superuser')) {
+      if (response && (response.user.isAdmin || response.user.ruolo === 'superadmin')) {
         localStorage.setItem('admin_view', 'admin');
         navigate('/admin/users');
       } else {
@@ -99,7 +104,7 @@ const LoginPage: React.FC = () => {
     try {
       const response = await authApi.verifyTwoFactorLogin(twoFactorUserId, twoFactorCode.trim());
       setSession(response);
-      if (response.user.isAdmin || response.user.ruolo === 'superuser') {
+      if (response.user.isAdmin || response.user.ruolo === 'superadmin') {
         localStorage.setItem('admin_view', 'admin');
         navigate('/admin/users');
       } else {
@@ -190,7 +195,7 @@ const LoginPage: React.FC = () => {
 
         {/* Bottom Section - Footer */}
         <p className="text-xs text-blue-300 relative z-10">
-          © {new Date().getFullYear()} Resolv. Tutti i diritti riservati. GDPR Compliant.
+          ® Resolv è un marchio R&S Italy srl - Tutti i diritti riservati
         </p>
       </div>
 
@@ -298,7 +303,15 @@ const LoginPage: React.FC = () => {
               </label>
               <button
                 type="button"
-                onClick={() => setShowRecoverModal(true)}
+                onClick={() => {
+                  setRecoverEmail(formData.email);
+                  setRecoverStep('request');
+                  setRecoverError('');
+                  setRecoverCode('');
+                  setRecoverPassword('');
+                  setRecoverConfirm('');
+                  setShowRecoverModal(true);
+                }}
                 className="font-semibold text-blue-700 hover:text-blue-800 transition"
               >
                 Password dimenticata?
@@ -426,8 +439,13 @@ const LoginPage: React.FC = () => {
               Recupera password
             </h3>
             <p className="mt-2 text-sm text-slate-600">
-              Inserisci la tua email per ricevere il link di recupero.
+              Ti invieremo un codice via email.
             </p>
+            {recoverError && (
+              <div className="mt-3 rounded-lg border border-danger-200 bg-danger-50 px-3 py-2 text-xs text-danger-700">
+                {recoverError}
+              </div>
+            )}
             <div className="mt-4">
               <label className="block text-sm font-semibold text-slate-700 mb-2">
                 Email
@@ -440,6 +458,47 @@ const LoginPage: React.FC = () => {
                 placeholder="nome@studio.it"
               />
             </div>
+            {recoverStep === 'confirm' && (
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Codice
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={recoverCode}
+                    onChange={(e) => setRecoverCode(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
+                    placeholder="Codice ricevuto"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Nuova password
+                  </label>
+                  <input
+                    type="password"
+                    value={recoverPassword}
+                    onChange={(e) => setRecoverPassword(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
+                    placeholder="Nuova password"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Conferma password
+                  </label>
+                  <input
+                    type="password"
+                    value={recoverConfirm}
+                    onChange={(e) => setRecoverConfirm(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
+                    placeholder="Conferma password"
+                  />
+                </div>
+              </div>
+            )}
             <div className="mt-6 flex justify-end gap-2">
               <button
                 type="button"
@@ -448,26 +507,64 @@ const LoginPage: React.FC = () => {
               >
                 Annulla
               </button>
-              <button
-                type="button"
-                disabled={recoverLoading || !recoverEmail.trim()}
-                onClick={async () => {
-                  try {
-                    setRecoverLoading(true);
-                    await authApi.requestPasswordReset({ email: recoverEmail.trim() });
-                    success('Email inviata con il link di recupero');
-                    setShowRecoverModal(false);
-                    setRecoverEmail('');
-                  } catch (err: any) {
-                    toastError(err.message || 'Errore durante la richiesta');
-                  } finally {
-                    setRecoverLoading(false);
-                  }
-                }}
-                className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Invia link
-              </button>
+              {recoverStep === 'request' ? (
+                <button
+                  type="button"
+                  disabled={recoverLoading || !recoverEmail.trim()}
+                  onClick={async () => {
+                    try {
+                      setRecoverError('');
+                      setRecoverLoading(true);
+                      await authApi.requestPasswordReset({ email: recoverEmail.trim() });
+                      success('Codice inviato via email');
+                      setRecoverStep('confirm');
+                    } catch (err: any) {
+                      setRecoverError(err.message || 'Errore durante la richiesta');
+                      toastError(err.message || 'Errore durante la richiesta');
+                    } finally {
+                      setRecoverLoading(false);
+                    }
+                  }}
+                  className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Invia codice
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={recoverLoading || !recoverEmail.trim() || !recoverCode.trim() || !recoverPassword}
+                  onClick={async () => {
+                    try {
+                      if (recoverPassword !== recoverConfirm) {
+                        setRecoverError('Le password non coincidono');
+                        return;
+                      }
+                      setRecoverError('');
+                      setRecoverLoading(true);
+                      await authApi.confirmPasswordReset({
+                        email: recoverEmail.trim(),
+                        token: recoverCode.trim(),
+                        newPassword: recoverPassword,
+                      });
+                      success('Password aggiornata');
+                      setShowRecoverModal(false);
+                      setRecoverStep('request');
+                      setRecoverEmail('');
+                      setRecoverCode('');
+                      setRecoverPassword('');
+                      setRecoverConfirm('');
+                    } catch (err: any) {
+                      setRecoverError(err.message || 'Errore durante la conferma');
+                      toastError(err.message || 'Errore durante la conferma');
+                    } finally {
+                      setRecoverLoading(false);
+                    }
+                  }}
+                  className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Reset password
+                </button>
+              )}
             </div>
           </div>
         </div>

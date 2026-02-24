@@ -12,6 +12,9 @@ export interface PreassessmentPayload {
 export interface PreassessmentRecord {
   id: string;
   userId: string;
+  status: 'in_progress' | 'concluso';
+  completedAt?: string | null;
+  completedById?: string | null;
   data: Record<string, string> | null;
   notes: Record<string, string> | null;
   fieldNotes: Record<string, string> | null;
@@ -19,8 +22,22 @@ export interface PreassessmentRecord {
   macroValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }> | null;
   fieldMeta?: Record<string, { updatedAt: string; updatedBy: { id: string; name: string; ruolo: string } }> | null;
   studioCanEdit: boolean;
+  version: number;
+  parentId?: string | null;
+  isLatest: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PreassessmentHistoryEntry {
+  id: string;
+  version: number;
+  status: 'in_progress' | 'concluso';
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+  isLatest: boolean;
+  parentId?: string | null;
 }
 
 export interface PreassessmentClientEntry {
@@ -59,11 +76,16 @@ export const preassessmentApi = {
   get: () => api.get<PreassessmentRecord>('/checkup/preassessment'),
   update: (payload: PreassessmentPayload) =>
     api.put<PreassessmentRecord>('/checkup/preassessment', payload),
+  complete: () => api.post<PreassessmentRecord>('/checkup/preassessment/complete', {}),
   listClients: () => api.get<PreassessmentClientEntry[]>('/checkup/preassessment/clients'),
   getClient: (clientId: string) =>
     api.get<PreassessmentClientRecord>(`/checkup/preassessment/clients/${clientId}`),
   updateClient: (clientId: string, payload: PreassessmentPayload) =>
     api.put<PreassessmentRecord>(`/checkup/preassessment/clients/${clientId}`, payload),
+  createNewVersion: (clientId: string) =>
+    api.post<PreassessmentRecord>(`/checkup/preassessment/clients/${clientId}/new-version`, {}),
+  getHistory: (clientId: string) =>
+    api.get<PreassessmentHistoryEntry[]>(`/checkup/preassessment/clients/${clientId}/history`),
   getPresence: (preassessmentId: string) =>
     api.get<PreassessmentPresence>(`/checkup/preassessment/${preassessmentId}/presence`),
   getOnline: () =>
@@ -198,10 +220,12 @@ export interface PreassessmentDocument {
 }
 
 export const preassessmentDocumentsApi = {
-  list: (preassessmentId: string, sectionId?: string, fieldId?: string) =>
-    api.get<PreassessmentDocument[]>(`/checkup/preassessment/${preassessmentId}/documents`, {
-      params: { sectionId, fieldId },
-    }),
+  list: (preassessmentId: string, sectionId?: string, fieldId?: string) => {
+    const params: Record<string, string> = {};
+    if (sectionId) params.sectionId = sectionId;
+    if (fieldId) params.fieldId = fieldId;
+    return api.get<PreassessmentDocument[]>(`/checkup/preassessment/${preassessmentId}/documents`, params);
+  },
   upload: (preassessmentId: string, file: File, fieldId: string, sectionId?: string) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -210,7 +234,6 @@ export const preassessmentDocumentsApi = {
     return api.post<PreassessmentDocument>(
       `/checkup/preassessment/${preassessmentId}/documents/upload`,
       formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
     );
   },
   download: async (id: string) => {

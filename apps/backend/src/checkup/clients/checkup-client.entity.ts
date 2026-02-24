@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   OneToMany,
 } from 'typeorm';
 import { CheckupUser } from '../users/checkup-user.entity';
@@ -64,6 +65,9 @@ export class CheckupClient {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @DeleteDateColumn({ nullable: true, select: false })
+  deletedAt: Date | null;
 
   @OneToMany(() => CheckupUser, (user) => user.client)
   users: CheckupUser[];

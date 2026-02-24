@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { CustomSelect } from '../components/ui/CustomSelect';
+import { useToast } from '../components/ui/ToastProvider';
 import * as questionApi from '../api/checkupQuestions';
 import type {
   MacroArea,
@@ -34,6 +35,11 @@ interface EditState {
 }
 
 export default function AdminCheckupQuestionsPage() {
+  const { error: toastError } = useToast();
+  const [models, setModels] = useState<questionApi.QuestionModel[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
+  const [modelFilter, setModelFilter] = useState('');
+
   const [macroAreas, setMacroAreas] = useState<MacroArea[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,14 +66,65 @@ export default function AdminCheckupQuestionsPage() {
     onConfirm: () => {},
   });
 
+  const buildMacroDto = (value: Partial<MacroArea>): UpdateMacroAreaDto => ({
+    modelId: value.modelId,
+    code: value.code,
+    label: value.label,
+    color: value.color,
+    sortOrder: value.sortOrder,
+  });
+
+  const buildSectionDto = (value: Partial<Section>): UpdateSectionDto => ({
+    code: value.code,
+    title: value.title,
+    description: value.description,
+    macroAreaId: value.macroAreaId,
+    sortOrder: value.sortOrder,
+  });
+
+  const buildFieldDto = (value: Partial<Field>): UpdateFieldDto => ({
+    fieldId: value.fieldId,
+    label: value.label,
+    type: value.type,
+    options: value.options,
+    required: value.required,
+    help: value.help,
+    allowDocuments: value.allowDocuments,
+    sectionId: value.sectionId,
+    sortOrder: value.sortOrder,
+  });
+
   useEffect(() => {
-    loadData();
+    loadModels();
   }, []);
 
-  const loadData = async () => {
+  useEffect(() => {
+    if (!selectedModelId) {
+      setMacroAreas([]);
+      return;
+    }
+    loadData(selectedModelId);
+  }, [selectedModelId]);
+
+  const loadModels = async () => {
     try {
       setLoading(true);
-      const data = await questionApi.getCompleteStructure();
+      const data = await questionApi.getModels();
+      setModels(data);
+      if (data.length > 0) {
+        setSelectedModelId((prev) => prev || data[0].id);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Errore nel caricamento dei modelli');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadData = async (modelId: string) => {
+    try {
+      setLoading(true);
+      const data = await questionApi.getCompleteStructureByModel(modelId);
       setMacroAreas(data);
       setError(null);
     } catch (err: any) {
@@ -108,7 +165,17 @@ export default function AdminCheckupQuestionsPage() {
       setMacroForm(macro);
       setEditState({ mode: 'macro', id: macro.id, isNew: false });
     } else {
-      setMacroForm({ code: '', label: '', color: '#6366f1', sortOrder: macroAreas.length });
+    if (!selectedModelId) {
+      toastError('Seleziona prima un modello');
+      return;
+    }
+      setMacroForm({
+        modelId: selectedModelId,
+        code: '',
+        label: '',
+        color: '#6366f1',
+        sortOrder: macroAreas.length,
+      });
       setEditState({ mode: 'macro', id: null, isNew: true });
     }
   };
@@ -122,17 +189,20 @@ export default function AdminCheckupQuestionsPage() {
         : `Vuoi salvare le modifiche alla macro area "${macroForm.label}"?`,
       onConfirm: async () => {
         try {
+          const payload = buildMacroDto(macroForm);
           if (editState.isNew) {
-            await questionApi.createMacroArea(macroForm as CreateMacroAreaDto);
+            await questionApi.createMacroArea(payload as CreateMacroAreaDto);
           } else if (editState.id) {
-            await questionApi.updateMacroArea(editState.id, macroForm as UpdateMacroAreaDto);
+            await questionApi.updateMacroArea(editState.id, payload);
           }
-          await loadData();
+          if (selectedModelId) {
+            await loadData(selectedModelId);
+          }
           setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
           cancelEdit();
         } catch (err: any) {
           setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
-          alert('Errore nel salvataggio: ' + (err.message || 'Errore sconosciuto'));
+          toastError(err.message || 'Errore nel salvataggio');
         }
       },
     });
@@ -144,9 +214,11 @@ export default function AdminCheckupQuestionsPage() {
     }
     try {
       await questionApi.deleteMacroArea(id);
-      await loadData();
+      if (selectedModelId) {
+        await loadData(selectedModelId);
+      }
     } catch (err: any) {
-      alert('Errore nell\'eliminazione: ' + (err.message || 'Errore sconosciuto'));
+      toastError(err.message || 'Errore nell\'eliminazione');
     }
   };
 
@@ -172,17 +244,20 @@ export default function AdminCheckupQuestionsPage() {
         : `Vuoi salvare le modifiche alla sezione "${sectionForm.title}"?`,
       onConfirm: async () => {
         try {
+          const payload = buildSectionDto(sectionForm);
           if (editState.isNew) {
-            await questionApi.createSection(sectionForm as CreateSectionDto);
+            await questionApi.createSection(payload as CreateSectionDto);
           } else if (editState.id) {
-            await questionApi.updateSection(editState.id, sectionForm as UpdateSectionDto);
+            await questionApi.updateSection(editState.id, payload);
           }
-          await loadData();
+          if (selectedModelId) {
+            await loadData(selectedModelId);
+          }
           setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
           cancelEdit();
         } catch (err: any) {
           setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
-          alert('Errore nel salvataggio: ' + (err.message || 'Errore sconosciuto'));
+          toastError(err.message || 'Errore nel salvataggio');
         }
       },
     });
@@ -194,9 +269,11 @@ export default function AdminCheckupQuestionsPage() {
     }
     try {
       await questionApi.deleteSection(id);
-      await loadData();
+      if (selectedModelId) {
+        await loadData(selectedModelId);
+      }
     } catch (err: any) {
-      alert('Errore nell\'eliminazione: ' + (err.message || 'Errore sconosciuto'));
+      toastError(err.message || 'Errore nell\'eliminazione');
     }
   };
 
@@ -216,6 +293,7 @@ export default function AdminCheckupQuestionsPage() {
         type: 'text',
         help: '',
         required: false,
+        allowDocuments: true,
         sectionId,
         sortOrder,
       });
@@ -232,17 +310,20 @@ export default function AdminCheckupQuestionsPage() {
         : `Vuoi salvare le modifiche al campo "${fieldForm.label}"?`,
       onConfirm: async () => {
         try {
+          const payload = buildFieldDto(fieldForm);
           if (editState.isNew) {
-            await questionApi.createField(fieldForm as CreateFieldDto);
+            await questionApi.createField(payload as CreateFieldDto);
           } else if (editState.id) {
-            await questionApi.updateField(editState.id, fieldForm as UpdateFieldDto);
+            await questionApi.updateField(editState.id, payload);
           }
-          await loadData();
+          if (selectedModelId) {
+            await loadData(selectedModelId);
+          }
           setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
           cancelEdit();
         } catch (err: any) {
           setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
-          alert('Errore nel salvataggio: ' + (err.message || 'Errore sconosciuto'));
+          toastError(err.message || 'Errore nel salvataggio');
         }
       },
     });
@@ -254,37 +335,20 @@ export default function AdminCheckupQuestionsPage() {
     }
     try {
       await questionApi.deleteField(id);
-      await loadData();
+      if (selectedModelId) {
+        await loadData(selectedModelId);
+      }
     } catch (err: any) {
-      alert('Errore nell\'eliminazione: ' + (err.message || 'Errore sconosciuto'));
+      toastError(err.message || 'Errore nell\'eliminazione');
     }
   };
 
   const cancelEdit = () => {
-    const hasChanges =
-      Object.keys(macroForm).length > 0 ||
-      Object.keys(sectionForm).length > 0 ||
-      Object.keys(fieldForm).length > 0;
-
-    if (hasChanges) {
-      setConfirmModal({
-        show: true,
-        title: 'Conferma annullamento',
-        message: 'Ci sono modifiche non salvate. Vuoi davvero annullare?',
-        onConfirm: () => {
-          setEditState({ mode: null, id: null, isNew: false });
-          setMacroForm({});
-          setSectionForm({});
-          setFieldForm({});
-          setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
-        },
-      });
-    } else {
-      setEditState({ mode: null, id: null, isNew: false });
-      setMacroForm({});
-      setSectionForm({});
-      setFieldForm({});
-    }
+    setEditState({ mode: null, id: null, isNew: false });
+    setMacroForm({});
+    setSectionForm({});
+    setFieldForm({});
+    setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
   };
 
   if (loading) {
@@ -305,9 +369,14 @@ export default function AdminCheckupQuestionsPage() {
 
   return (
     <div className="max-w-7xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col gap-4 mb-6 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Gestione Domande Checkup</h1>
+          <p className="text-gray-600 mt-1">
+            {selectedModelId
+              ? `Modello: ${models.find((m) => m.id === selectedModelId)?.label || '—'}`
+              : 'Seleziona un modello per iniziare.'}
+          </p>
           <p className="text-gray-600 mt-1">
             {macroAreas.length} macro-aree •{' '}
             {macroAreas.reduce((sum, m) => sum + (m.sections?.length || 0), 0)} sezioni •{' '}
@@ -319,13 +388,47 @@ export default function AdminCheckupQuestionsPage() {
             campi
           </p>
         </div>
-        <button
-          onClick={() => startEditMacro()}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-        >
-          <Plus size={20} />
-          Nuova Macro Area
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <CustomSelect
+              value={selectedModelId}
+              onChange={(val) => setSelectedModelId(val)}
+              options={models
+                .filter((model) =>
+                  [model.label, model.code, model.description]
+                    .filter(Boolean)
+                    .some((v) => String(v).toLowerCase().includes(modelFilter.trim().toLowerCase()))
+                )
+                .map((model) => ({
+                  value: model.id,
+                  label: model.label,
+                  sublabel: [model.code, model.attivo ? 'Attivo' : 'Disattivo'].join(' · '),
+                }))}
+              placeholder="Seleziona modello"
+              searchable
+              searchPlaceholder="Cerca modello..."
+            />
+          </div>
+          <button
+            onClick={() => startEditMacro()}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            <Plus size={20} />
+            Nuova Macro Area
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <div className="relative w-full md:max-w-md">
+          <input
+            type="text"
+            value={modelFilter}
+            onChange={(e) => setModelFilter(e.target.value)}
+            placeholder="Filtra modelli per nome, codice o descrizione..."
+            className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900"
+          />
+        </div>
       </div>
 
       {/* Confirmation Modal - Above everything */}
@@ -524,6 +627,15 @@ export default function AdminCheckupQuestionsPage() {
                   <div className="flex items-center">
                     <input
                       type="checkbox"
+                      checked={fieldForm.allowDocuments ?? true}
+                      onChange={(e) => setFieldForm({ ...fieldForm, allowDocuments: e.target.checked })}
+                      className="mr-2"
+                    />
+                    <label className="text-sm font-medium text-gray-700">Consenti allegati</label>
+                  </div>
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
                       checked={fieldForm.required || false}
                       onChange={(e) => setFieldForm({ ...fieldForm, required: e.target.checked })}
                       className="mr-2"
@@ -571,6 +683,7 @@ export default function AdminCheckupQuestionsPage() {
           </div>
         </BodyPortal>
       )}
+
 
       {/* Macro Areas List */}
       <div className="space-y-4">

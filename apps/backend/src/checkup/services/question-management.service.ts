@@ -1,10 +1,13 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QuestionMacroArea } from '../entities/question-macro-area.entity';
 import { QuestionSection } from '../entities/question-section.entity';
 import { QuestionField } from '../entities/question-field.entity';
+import { QuestionModel } from '../entities/question-model.entity';
 import {
+  CreateQuestionModelDto,
+  UpdateQuestionModelDto,
   CreateMacroAreaDto,
   UpdateMacroAreaDto,
   CreateSectionDto,
@@ -22,12 +25,149 @@ export class QuestionManagementService {
     private sectionRepo: Repository<QuestionSection>,
     @InjectRepository(QuestionField)
     private fieldRepo: Repository<QuestionField>,
+    @InjectRepository(QuestionModel)
+    private modelRepo: Repository<QuestionModel>,
   ) {}
+
+  // ==================== MODELS ====================
+
+  async getAllModels() {
+    return this.modelRepo.find({ order: { createdAt: 'ASC' } });
+  }
+
+  async getModelById(id: string) {
+    const model = await this.modelRepo.findOne({ where: { id } });
+    if (!model) {
+      throw new NotFoundException(`Model with ID ${id} not found`);
+    }
+    return model;
+  }
+
+  async createModel(dto: CreateQuestionModelDto) {
+    const existing = await this.modelRepo.findOne({ where: { code: dto.code } });
+    if (existing) {
+      throw new ConflictException(`Model with code "${dto.code}" already exists`);
+    }
+    const model = this.modelRepo.create(dto);
+    return this.modelRepo.save(model);
+  }
+
+  async updateModel(id: string, dto: UpdateQuestionModelDto) {
+    const model = await this.getModelById(id);
+    if (model.status === 'published') {
+      throw new ForbiddenException('Il modello è pubblicato e non può essere modificato. Crea una nuova versione.');
+    }
+    if (dto.code && dto.code !== model.code) {
+      const existing = await this.modelRepo.findOne({ where: { code: dto.code } });
+      if (existing) {
+        throw new ConflictException(`Model with code "${dto.code}" already exists`);
+      }
+    }
+    Object.assign(model, dto);
+    return this.modelRepo.save(model);
+  }
+
+  async deleteModel(id: string) {
+    const model = await this.getModelById(id);
+    if (model.status === 'published') {
+      throw new ForbiddenException('Il modello è pubblicato e non può essere eliminato. Archivialo prima.');
+    }
+    await this.modelRepo.remove(model);
+    return { message: 'Model deleted successfully' };
+  }
+
+  async publishModel(id: string) {
+    const model = await this.getModelById(id);
+    if (model.status === 'published') {
+      throw new ConflictException('Il modello è già pubblicato');
+    }
+    model.status = 'published';
+    return this.modelRepo.save(model);
+  }
+
+  async archiveModel(id: string) {
+    const model = await this.getModelById(id);
+    model.status = 'archived';
+    return this.modelRepo.save(model);
+  }
+
+  async createNewModelVersion(id: string) {
+    const parent = await this.modelRepo.findOne({
+      where: { id },
+      relations: ['macroAreas', 'macroAreas.sections', 'macroAreas.sections.fields'],
+    });
+    if (!parent) throw new NotFoundException(`Model with ID ${id} not found`);
+    if (parent.status !== 'published') {
+      throw new ConflictException('Solo i modelli pubblicati possono generare una nuova versione');
+    }
+
+    const newCode = `${parent.code}_v${parent.version + 1}`;
+    const existing = await this.modelRepo.findOne({ where: { code: newCode } });
+    if (existing) {
+      throw new ConflictException(`Una nuova versione esiste già (${newCode})`);
+    }
+
+    const newModel = this.modelRepo.create({
+      code: newCode,
+      label: parent.label,
+      description: parent.description,
+      attivo: true,
+      status: 'draft',
+      version: parent.version + 1,
+      parentModelId: parent.id,
+    });
+    const savedModel = await this.modelRepo.save(newModel);
+
+    // Deep-clone all macro areas → sections → fields
+    const sortedMacros = [...(parent.macroAreas || [])].sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const macro of sortedMacros) {
+      const newMacro = this.macroAreaRepo.create({
+        modelId: savedModel.id,
+        code: macro.code,
+        label: macro.label,
+        color: macro.color,
+        sortOrder: macro.sortOrder,
+      });
+      const savedMacro = await this.macroAreaRepo.save(newMacro);
+
+      const sortedSections = [...(macro.sections || [])].sort((a, b) => a.sortOrder - b.sortOrder);
+      for (const section of sortedSections) {
+        const newSection = this.sectionRepo.create({
+          macroAreaId: savedMacro.id,
+          code: section.code,
+          title: section.title,
+          description: section.description,
+          sortOrder: section.sortOrder,
+        });
+        const savedSection = await this.sectionRepo.save(newSection);
+
+        const sortedFields = [...(section.fields || [])].sort((a, b) => a.sortOrder - b.sortOrder);
+        for (const field of sortedFields) {
+          const newField = this.fieldRepo.create({
+            sectionId: savedSection.id,
+            fieldId: field.fieldId,
+            label: field.label,
+            type: field.type,
+            options: field.options,
+            required: field.required,
+            help: field.help,
+            allowDocuments: field.allowDocuments,
+            weight: field.weight,
+            sortOrder: field.sortOrder,
+          });
+          await this.fieldRepo.save(newField);
+        }
+      }
+    }
+
+    return this.modelRepo.findOne({ where: { id: savedModel.id } });
+  }
 
   // ==================== MACRO AREAS ====================
 
-  async getAllMacroAreas() {
+  async getAllMacroAreas(modelId?: string) {
     return this.macroAreaRepo.find({
+      where: modelId ? { modelId } : undefined,
       order: { sortOrder: 'ASC', id: 'ASC' },
       relations: ['sections'],
     });
@@ -45,9 +185,10 @@ export class QuestionManagementService {
   }
 
   async createMacroArea(dto: CreateMacroAreaDto) {
+    await this.getModelById(dto.modelId);
     // Check if code already exists
     const existing = await this.macroAreaRepo.findOne({
-      where: { code: dto.code },
+      where: { code: dto.code, modelId: dto.modelId },
     });
     if (existing) {
       throw new ConflictException(`Macro area with code "${dto.code}" already exists`);
@@ -60,10 +201,14 @@ export class QuestionManagementService {
   async updateMacroArea(id: number, dto: UpdateMacroAreaDto) {
     const macroArea = await this.getMacroAreaById(id);
 
+    if (dto.modelId && dto.modelId !== macroArea.modelId) {
+      await this.getModelById(dto.modelId);
+    }
+
     // Check code uniqueness if changing
     if (dto.code && dto.code !== macroArea.code) {
       const existing = await this.macroAreaRepo.findOne({
-        where: { code: dto.code },
+        where: { code: dto.code, modelId: dto.modelId ?? macroArea.modelId },
       });
       if (existing) {
         throw new ConflictException(`Macro area with code "${dto.code}" already exists`);
@@ -207,8 +352,9 @@ export class QuestionManagementService {
 
   // ==================== COMPLETE STRUCTURE ====================
 
-  async getCompleteStructure() {
+  async getCompleteStructure(modelId?: string) {
     const macroAreas = await this.macroAreaRepo.find({
+      where: modelId ? { modelId } : undefined,
       order: { sortOrder: 'ASC', id: 'ASC' },
       relations: ['sections', 'sections.fields'],
     });

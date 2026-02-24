@@ -25,6 +25,11 @@ export class CheckupPreassessmentController {
     return this.preassessmentService.update(user, dto);
   }
 
+  @Post('complete')
+  complete(@CheckupCurrentUser() user: CheckupCurrentUserData) {
+    return this.preassessmentService.complete(user);
+  }
+
   @UseGuards(CheckupStaffGuard)
   @Get('clients')
   listClients(@CheckupCurrentUser() user: CheckupCurrentUserData) {
@@ -48,6 +53,24 @@ export class CheckupPreassessmentController {
     @Body() dto: UpdatePreassessmentDto,
   ) {
     return this.preassessmentService.updateClient(clientId, dto, user);
+  }
+
+  @UseGuards(CheckupStaffGuard)
+  @Post('clients/:clientId/new-version')
+  createNewVersion(
+    @Param('clientId') clientId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.preassessmentService.createNewVersion(clientId, user);
+  }
+
+  @UseGuards(CheckupStaffGuard)
+  @Get('clients/:clientId/history')
+  getHistory(
+    @Param('clientId') clientId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.preassessmentService.getHistory(clientId, user);
   }
 
   @Post('pdf')

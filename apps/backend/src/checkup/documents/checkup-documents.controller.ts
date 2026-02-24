@@ -10,6 +10,7 @@ import {
   UseInterceptors,
   UploadedFile,
   Body,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -22,6 +23,30 @@ import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 
 const uploadDir = path.join(process.cwd(), 'uploads', 'checkup');
+
+const ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'text/plain',
+  'text/csv',
+]);
+
+const fileFilter = (req: any, file: Express.Multer.File, callback: (err: Error | null, accept: boolean) => void) => {
+  if (ALLOWED_MIME_TYPES.has(file.mimetype)) {
+    callback(null, true);
+  } else {
+    callback(new BadRequestException(`Tipo di file non consentito: ${file.mimetype}`), false);
+  }
+};
 
 @Controller('checkup')
 @UseGuards(CheckupJwtAuthGuard)
@@ -42,7 +67,8 @@ export class CheckupDocumentsController {
           cb(null, `${uuidv4()}${ext}`);
         },
       }),
-      limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+      limits: { fileSize: 20 * 1024 * 1024 },
+      fileFilter,
     }),
   )
   upload(

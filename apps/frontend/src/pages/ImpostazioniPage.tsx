@@ -277,7 +277,7 @@ export function ImpostazioniPage() {
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Ruolo</p>
                 <p className="text-sm text-slate-700 dark:text-slate-200">
-                  {user ? (user.isAdmin && user.ruolo !== 'superuser' ? 'Admin' : user.ruolo) : 'N/D'}
+                  {user ? (user.isAdmin && user.ruolo !== 'superadmin' ? 'Admin' : user.ruolo) : 'N/D'}
                 </p>
               </div>
             </div>

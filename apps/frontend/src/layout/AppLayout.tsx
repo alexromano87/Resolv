@@ -25,6 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
   KeyRound,
+  Layers,
 } from 'lucide-react';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -113,7 +114,8 @@ const adminCheckupNav: NavItem[] = [
   { path: '/admin/checkup-users', label: 'Utenti checkup', icon: Users },
   { path: '/admin/checkup-clients', label: 'Clienti checkup', icon: Building2 },
   { path: '/admin/checkup-licenses', label: 'Gestione licenze', icon: KeyRound },
-  { path: '/admin/checkup-sublicenses', label: 'Gestione sottolicenze', icon: KeyRound },
+  { path: '/admin/checkup-sublicenses', label: 'Gestione sublicenze', icon: KeyRound },
+  { path: '/admin/checkup-models', label: 'Gestione modelli', icon: Layers },
   { path: '/admin/checkup-questions', label: 'Gestione domande', icon: FileText },
 ];
 
@@ -177,9 +179,11 @@ export function AppLayout({ children }: AppLayoutProps) {
   } else if (location.pathname === '/admin/checkup-licenses') {
     pageTitle = 'Gestione licenze checkup';
   } else if (location.pathname === '/admin/checkup-sublicenses') {
-    pageTitle = 'Gestione sottolicenze checkup';
+    pageTitle = 'Gestione sublicenze checkup';
   } else if (location.pathname === '/admin/checkup-studios') {
     pageTitle = 'Gestione studi checkup';
+  } else if (location.pathname === '/admin/checkup-models') {
+    pageTitle = 'Gestione modelli checkup';
   } else if (location.pathname === '/admin/checkup-questions') {
     pageTitle = 'Gestione domande checkup';
   } else if (location.pathname === '/admin/checkup-dashboard') {
@@ -322,7 +326,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const getRelevantPratiche = (pratiche: Pratica[]) => {
     if (!user) return [];
 
-    if (user.ruolo === 'superuser') return pratiche;
+    if (user.ruolo === 'superadmin') return pratiche;
 
     if (user.ruolo === 'avvocato' || user.ruolo === 'collaboratore') {
       return pratiche;
@@ -430,7 +434,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   }, [user]);
 
   useEffect(() => {
-    if (!user || user.ruolo === 'superuser') {
+    if (!user || user.ruolo === 'superadmin') {
       setChatNotifications([]);
       setPracticeNotifications([]);
       return;
@@ -626,7 +630,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   }, [user?.ruolo, user?.studioId, user?.currentStudioId, user?.clienteId]);
 
   useEffect(() => {
-    if (!user || user.ruolo === 'superuser') return;
+    if (!user || user.ruolo === 'superadmin') return;
     let cancelled = false;
 
     const checkAlerts = async () => {
@@ -698,10 +702,10 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const getRuoloLabel = () => {
     if (!user) return 'Utente';
-    if (user.isAdmin && user.ruolo !== 'superuser') return 'Admin';
+    if (user.isAdmin && user.ruolo !== 'superadmin') return 'Admin';
     switch (user.ruolo) {
-      case 'superuser':
-        return 'Superuser';
+      case 'superadmin':
+        return 'Superadmin';
       case 'titolare_studio':
         return 'Titolare Studio';
       case 'avvocato':
@@ -717,10 +721,10 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   };
 
-  const isSuperuser = user?.ruolo === 'superuser';
+  const isSuperadmin = user?.ruolo === 'superadmin';
   const [isAdminView, setIsAdminView] = useState(() => {
     if (!user) return false;
-    if (user.ruolo === 'superuser') return true;
+    if (user.ruolo === 'superadmin') return true;
     if (!user.isAdmin) return false;
     return localStorage.getItem('admin_view') !== 'user';
   });
@@ -743,17 +747,17 @@ export function AppLayout({ children }: AppLayoutProps) {
   });
 
   useEffect(() => {
-    if (!isAdminView || !isSuperuser) return;
+    if (!isAdminView || !isSuperadmin) return;
     const next = location.pathname.startsWith('/admin/checkup') ? 'checkup' : 'resolv';
     setAdminArea(next);
     localStorage.setItem('admin_area', next);
-  }, [location.pathname, isAdminView, isSuperuser]);
+  }, [location.pathname, isAdminView, isSuperadmin]);
 
   useEffect(() => {
-    if (!isAdminView || isSuperuser) return;
+    if (!isAdminView || isSuperadmin) return;
     setAdminArea('resolv');
     localStorage.setItem('admin_area', 'resolv');
-  }, [isAdminView, isSuperuser]);
+  }, [isAdminView, isSuperadmin]);
 
   const adminNavItems = adminArea === 'checkup' ? adminCheckupNav : adminResolvNav;
 
@@ -765,7 +769,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   useEffect(() => {
     if (!user) return;
-    if (user.ruolo === 'superuser') {
+    if (user.ruolo === 'superadmin') {
       setIsAdminView(true);
       localStorage.setItem('admin_view', 'admin');
       return;
@@ -793,7 +797,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const visibleStudioNav = isStudioManagement ? studioNav : [];
 
-  const canSwitchArea = Boolean(user && user.isAdmin && user.ruolo !== 'superuser');
+  const canSwitchArea = Boolean(user && user.isAdmin && user.ruolo !== 'superadmin');
   const handleSwitchArea = () => {
     if (!canSwitchArea) return;
     const nextIsAdminView = !isAdminView;
@@ -1003,7 +1007,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
             {isAdminView && (
               <div>
-                {isSuperuser && (
+                {isSuperadmin && (
                   <div className={`flex ${sidebarCollapsed ? 'flex-col' : 'flex-row'} gap-2`}>
                     <button
                       type="button"
@@ -1340,7 +1344,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                   : 'Aggiorna'}
               </button>
 
-              {isSuperuser && (
+              {isSuperadmin && (
                 <NavLink
                   to="/admin/impostazioni"
                   className={({ isActive }) =>

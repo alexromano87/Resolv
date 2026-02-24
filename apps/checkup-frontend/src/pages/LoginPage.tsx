@@ -13,6 +13,15 @@ export default function LoginPage() {
   const [twoFactorUserId, setTwoFactorUserId] = useState<string | null>(null);
   const [twoFactorChannel, setTwoFactorChannel] = useState<'email' | 'sms' | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [showRecoverModal, setShowRecoverModal] = useState(false);
+  const [recoverStep, setRecoverStep] = useState<'request' | 'confirm'>('request');
+  const [recoverEmail, setRecoverEmail] = useState('');
+  const [recoverCode, setRecoverCode] = useState('');
+  const [recoverPassword, setRecoverPassword] = useState('');
+  const [recoverConfirm, setRecoverConfirm] = useState('');
+  const [recoverLoading, setRecoverLoading] = useState(false);
+  const [recoverError, setRecoverError] = useState('');
+  const [recoverInfo, setRecoverInfo] = useState('');
   const { setSession } = useAuth();
   const navigate = useNavigate();
 
@@ -25,7 +34,7 @@ export default function LoginPage() {
       const res = await authApi.login(email, password);
       if ('access_token' in res) {
         setSession(res.access_token, res.user);
-        navigate('/checkup/');
+        navigate('/checkup/', { replace: true });
       } else {
         setTwoFactorUserId(res.userId);
         setTwoFactorChannel(res.channel);
@@ -45,11 +54,55 @@ export default function LoginPage() {
     try {
       const res = await authApi.verifyTwoFactorLogin(twoFactorUserId, twoFactorCode.trim());
       setSession(res.access_token, res.user);
-      navigate('/checkup/');
+      navigate('/checkup/', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Codice 2FA non valido');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRequestReset = async () => {
+    if (!recoverEmail.trim()) return;
+    setRecoverError('');
+    setRecoverInfo('');
+    setRecoverLoading(true);
+    try {
+      await authApi.requestPasswordReset({ email: recoverEmail.trim() });
+      setRecoverStep('confirm');
+      setRecoverInfo('Codice inviato via email');
+    } catch (err) {
+      setRecoverError(err instanceof Error ? err.message : 'Errore durante la richiesta');
+    } finally {
+      setRecoverLoading(false);
+    }
+  };
+
+  const handleConfirmReset = async () => {
+    if (!recoverEmail.trim() || !recoverCode.trim() || !recoverPassword) return;
+    if (recoverPassword !== recoverConfirm) {
+      setRecoverError('Le password non coincidono');
+      return;
+    }
+    setRecoverError('');
+    setRecoverInfo('');
+    setRecoverLoading(true);
+    try {
+      await authApi.confirmPasswordReset({
+        email: recoverEmail.trim(),
+        token: recoverCode.trim(),
+        newPassword: recoverPassword,
+      });
+      setShowRecoverModal(false);
+      setRecoverStep('request');
+      setRecoverEmail('');
+      setRecoverCode('');
+      setRecoverPassword('');
+      setRecoverConfirm('');
+    } catch (err) {
+      setRecoverError(err instanceof Error ? err.message : 'Errore durante il reset');
+    } finally {
+      setRecoverLoading(false);
     }
   };
 
@@ -79,7 +132,7 @@ export default function LoginPage() {
           <div className="mt-8 space-y-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1">
               <div className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
-              <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-cyan-300">Checkup Platform</span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-cyan-300">Governance &amp; Risk &amp; Compliance Platform</span>
             </div>
             <h1 className="text-3xl font-bold text-white leading-tight" style={{ fontVariationSettings: "'wght' 700, 'opsz' 32" }}>
               Profilazione Aziendale<br />
@@ -128,7 +181,7 @@ export default function LoginPage() {
         {/* Bottom — Footer */}
         <div className="relative z-10 flex items-center justify-between">
           <p className="text-xs text-blue-400/60">
-            &copy; {new Date().getFullYear()} Resolv. Tutti i diritti riservati.
+            &reg; Resolv è un marchio R&amp;S Italy srl - Tutti i diritti riservati
           </p>
           <div className="flex items-center gap-1.5 text-xs text-blue-400/60">
             <Lock className="w-3 h-3" />
@@ -145,7 +198,7 @@ export default function LoginPage() {
             <img src="/logo_resolv.png" alt="RESOLV" className="h-12 mx-auto" />
             <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1">
               <div className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
-              <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-blue-700">Checkup Platform</span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-blue-700">Governance &amp; Risk &amp; Compliance Platform</span>
             </div>
           </div>
 
@@ -284,6 +337,22 @@ export default function LoginPage() {
                     </button>
                   </div>
                 </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400"> </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecoverEmail(email);
+                      setShowRecoverModal(true);
+                      setRecoverStep('request');
+                      setRecoverError('');
+                      setRecoverInfo('');
+                    }}
+                    className="font-semibold text-blue-600 hover:text-blue-800"
+                  >
+                    Password dimenticata?
+                  </button>
+                </div>
 
                 <button
                   type="submit"
@@ -319,10 +388,120 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p className="mt-10 text-center text-xs text-slate-400">
-            Powered by <span className="font-semibold text-slate-500">Resolv</span> &middot; Piattaforma sicura
+            Powered by <span className="font-semibold text-slate-500">R&amp;S Italy srl</span> &middot; Piattaforma sicura
           </p>
         </div>
       </div>
+
+      {showRecoverModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowRecoverModal(false)}
+          />
+          <div className="relative z-10 w-full max-w-sm mx-4 rounded-xl bg-white p-6 shadow-2xl border border-slate-200">
+            <h3 className="text-lg font-bold text-slate-900">
+              Recupera password
+            </h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Ti invieremo un codice via email.
+            </p>
+            {recoverError && (
+              <div className="mt-3 rounded-lg border border-danger-200 bg-danger-50 px-3 py-2 text-xs text-danger-700">
+                {recoverError}
+              </div>
+            )}
+            {recoverInfo && (
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                {recoverInfo}
+              </div>
+            )}
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={recoverEmail}
+                  onChange={(e) => setRecoverEmail(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
+                  placeholder="nome@azienda.it"
+                />
+              </div>
+              {recoverStep === 'confirm' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      Codice
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={recoverCode}
+                      onChange={(e) => setRecoverCode(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
+                      placeholder="Codice ricevuto"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      Nuova password
+                    </label>
+                    <input
+                      type="password"
+                      value={recoverPassword}
+                      onChange={(e) => setRecoverPassword(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
+                      placeholder="Nuova password"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      Conferma password
+                    </label>
+                    <input
+                      type="password"
+                      value={recoverConfirm}
+                      onChange={(e) => setRecoverConfirm(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
+                      placeholder="Conferma password"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowRecoverModal(false)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
+              >
+                Annulla
+              </button>
+              {recoverStep === 'request' ? (
+                <button
+                  type="button"
+                  disabled={recoverLoading || !recoverEmail.trim()}
+                  onClick={handleRequestReset}
+                  className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {recoverLoading ? 'Invio...' : 'Invia codice'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={recoverLoading || !recoverEmail.trim() || !recoverCode.trim() || !recoverPassword}
+                  onClick={handleConfirmReset}
+                  className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {recoverLoading ? 'Conferma...' : 'Reset password'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

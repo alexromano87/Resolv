@@ -169,15 +169,15 @@ export default function AdminCheckupClientsPage() {
 
   const ensureSublicenseAssignable = (sublicense: CheckupSublicense) => {
     if (!sublicense.tipo || !sublicense.dataInizioValidita || !sublicense.dataScadenza) {
-      toastError('Completa la sottolicenza prima di assegnarla');
+      toastError('Completa la sublicenza prima di assegnarla');
       return false;
     }
     if (!sublicense.attiva) {
-      toastError('La sottolicenza selezionata è disattivata');
+      toastError('La sublicenza selezionata è disattivata');
       return false;
     }
     if (isExpired(sublicense.dataScadenza)) {
-      toastError('La sottolicenza selezionata è scaduta');
+      toastError('La sublicenza selezionata è scaduta');
       return false;
     }
     return true;
@@ -201,7 +201,7 @@ export default function AdminCheckupClientsPage() {
 
     const next = sublicenses.find((s) => s.id === newSublicenseId);
     if (!next) {
-      toastError('Sottolicenza non trovata');
+      toastError('Sublicenza non trovata');
       return;
     }
     if (!ensureSublicenseAssignable(next)) return;
@@ -229,7 +229,7 @@ export default function AdminCheckupClientsPage() {
       return;
     }
     if (!selectedSublicenseId) {
-      toastError('Seleziona una sottolicenza');
+      toastError('Seleziona una sublicenza');
       return;
     }
 
@@ -330,7 +330,7 @@ export default function AdminCheckupClientsPage() {
           <span className="wow-chip">Checkup</span>
           <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione Clienti</h1>
           <p className="text-sm text-slate-600 mt-1">
-            Crea i clienti e associa le sottolicenze disponibili.
+            Crea i clienti e associa le sublicenze disponibili.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -387,7 +387,7 @@ export default function AdminCheckupClientsPage() {
                 <tr>
                   <th className="px-4 py-3 text-left">Cliente</th>
                   <th className="px-4 py-3 text-left">Email</th>
-                  <th className="px-4 py-3 text-left">Sottolicenza</th>
+                  <th className="px-4 py-3 text-left">Sublicenza</th>
                   <th className="px-4 py-3 text-left">Stato</th>
                   <th className="px-4 py-3 text-right">Azioni</th>
                 </tr>
@@ -493,18 +493,18 @@ export default function AdminCheckupClientsPage() {
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <h3 className="text-sm font-semibold text-slate-800">Sottolicenza associata</h3>
+                  <h3 className="text-sm font-semibold text-slate-800">Sublicenza associata</h3>
                   <div className="mt-3">
                     <CustomSelect
                       value={selectedSublicenseId}
                       onChange={setSelectedSublicenseId}
                       options={sublicenseOptions}
-                      placeholder="Seleziona sottolicenza"
+                      placeholder="Seleziona sublicenza"
                       searchable
-                      searchPlaceholder="Cerca sottolicenza..."
+                      searchPlaceholder="Cerca sublicenza..."
                     />
                     <p className="mt-2 text-xs text-slate-500">
-                      Sono selezionabili solo sottolicenze attive e non scadute.
+                      Sono selezionabili solo sublicenze attive e non scadute.
                     </p>
                   </div>
                 </div>

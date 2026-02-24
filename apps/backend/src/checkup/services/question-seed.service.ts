@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { QuestionMacroArea } from '../entities/question-macro-area.entity';
 import { QuestionSection } from '../entities/question-section.entity';
 import { QuestionField } from '../entities/question-field.entity';
+import { QuestionModel } from '../entities/question-model.entity';
 
 // Import static data from frontend
 const MACRO_AREAS = [
@@ -28,6 +29,8 @@ export class QuestionSeedService implements OnModuleInit {
     private sectionRepo: Repository<QuestionSection>,
     @InjectRepository(QuestionField)
     private fieldRepo: Repository<QuestionField>,
+    @InjectRepository(QuestionModel)
+    private modelRepo: Repository<QuestionModel>,
   ) {}
 
   async onModuleInit() {
@@ -49,10 +52,20 @@ export class QuestionSeedService implements OnModuleInit {
       // Seed only macro areas initially
       // The full data will be loaded by the superadmin using the seed script if needed
       const macroAreaMap = new Map<string, QuestionMacroArea>();
+      const existingModel = await this.modelRepo.findOne({ where: { code: 'preassessment' } });
+      const defaultModel = existingModel || await this.modelRepo.save(
+        this.modelRepo.create({
+          code: 'preassessment',
+          label: 'Pre-Assessment',
+          description: 'Modello standard pre-assessment',
+          attivo: true,
+        }),
+      );
 
       for (let i = 0; i < MACRO_AREAS.length; i++) {
         const macro = MACRO_AREAS[i];
         const entity = this.macroAreaRepo.create({
+          modelId: defaultModel.id,
           code: macro.id,
           label: macro.label,
           color: macro.color,

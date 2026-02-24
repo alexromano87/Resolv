@@ -100,7 +100,7 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
         return {
           value: s.id,
           label: licenseOwner,
-          description: `Licenza ${licenseNumber}${licenseType} · Sottolicenza ${s.numeroSublicenza || '—'} · Utenze ${s.numeroUtenze}${expiry}`,
+          description: `Licenza ${licenseNumber}${licenseType} · Sublicenza ${s.numeroSublicenza || '—'} · Utenze ${s.numeroUtenze}${expiry}`,
           disabled,
         };
       }),
@@ -165,7 +165,7 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
       return;
     }
     if (!selectedSublicenseId) {
-      setError('Seleziona una sottolicenza');
+      setError('Seleziona una sublicenza');
       return;
     }
 
@@ -265,7 +265,7 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
           <div>
             <span className="wow-chip">Checkup</span>
             <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione Clienti</h1>
-            <p className="text-sm text-slate-600 mt-1">Crea i clienti e associa le sottolicenze disponibili.</p>
+            <p className="text-sm text-slate-600 mt-1">Crea i clienti e associa le sublicenze disponibili.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -324,7 +324,7 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
                 <tr>
                   <th className="px-4 py-3 text-left">Cliente</th>
                   <th className="px-4 py-3 text-left">Ragione sociale</th>
-                  <th className="px-4 py-3 text-left">Sottolicenza</th>
+                  <th className="px-4 py-3 text-left">Sublicenza</th>
                   <th className="px-4 py-3 text-left">Stato</th>
                   <th className="px-4 py-3 text-right">Azioni</th>
                 </tr>
@@ -341,7 +341,7 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
                         {sublicense ? (
                           <div className="flex flex-col">
                             <span className="font-medium text-slate-700">
-                              {sublicense.numeroSublicenza || 'Sottolicenza'}
+                              {sublicense.numeroSublicenza || 'Sublicenza'}
                             </span>
                             <span className="text-xs text-slate-400">
                               {sublicense.numeroUtenze} utenze · {sublicense.dataScadenza || '—'}
@@ -471,15 +471,15 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
                     value={selectedSublicenseId}
                     onChange={(value) => setSelectedSublicenseId(value)}
                     options={sublicenseOptions}
-                    placeholder="Seleziona sottolicenza"
+                    placeholder="Seleziona sublicenza"
                     searchable
-                    searchPlaceholder="Filtra sottolicenze..."
-                    noOptionsText="Nessuna sottolicenza disponibile"
+                    searchPlaceholder="Filtra sublicenze..."
+                    noOptionsText="Nessuna sublicenza disponibile"
                     triggerClassName="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm"
                   />
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  Selezionabili solo sottolicenze attive e non scadute.
+                  Selezionabili solo sublicenze attive e non scadute.
                 </p>
               </div>
               <div className="flex justify-end gap-3">

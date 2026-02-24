@@ -11,8 +11,7 @@ import { RATE_LIMIT_KEY, type RateLimitOptions } from './rate-limit.decorator';
 @Injectable()
 export class RateLimitGuard implements CanActivate {
   readonly store = new Map<string, { count: number; resetAt: number }>();
-  // Limiti più alti per evitare problemi con E2E tests
-  private readonly defaultLimit = 1000;
+  private readonly defaultLimit = 100;
   private readonly defaultWindowMs = 60_000;
 
   constructor(private readonly reflector: Reflector) {}

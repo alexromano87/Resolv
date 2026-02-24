@@ -1,18 +1,20 @@
-import { Body, ConflictException, Controller, Get, NotFoundException, Post, UseGuards, Param, Put, Patch, Delete } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, NotFoundException, Post, UseGuards, Param, Put, Patch, Delete, Query } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { SuperuserGuard } from '../auth/superuser.guard';
+import { SuperadminGuard } from '../auth/superadmin.guard';
 import { CheckupStudio } from '../checkup/studios/checkup-studio.entity';
 import { CheckupClient } from '../checkup/clients/checkup-client.entity';
 import { CheckupUser } from '../checkup/users/checkup-user.entity';
 import { CheckupLicense } from '../checkup/licenses/checkup-license.entity';
 import { CheckupSublicense } from '../checkup/licenses/checkup-sublicense.entity';
+import { CheckupPreassessment } from '../checkup/preassessment/checkup-preassessment.entity';
 import { QuestionMacroArea } from '../checkup/entities/question-macro-area.entity';
 import { QuestionSection } from '../checkup/entities/question-section.entity';
 import { QuestionField } from '../checkup/entities/question-field.entity';
+import { QuestionModel } from '../checkup/entities/question-model.entity';
 import { QuestionManagementService } from '../checkup/services/question-management.service';
 import { CreateCheckupStudioDto } from './dto/create-checkup-studio.dto';
 import { CreateCheckupLicenseDto } from './dto/create-checkup-license.dto';
@@ -23,16 +25,18 @@ import { UpdateCheckupUserDto } from '../checkup/users/dto/update-checkup-user.d
 import { CreateCheckupClientDto } from '../checkup/studios/dto/create-checkup-client.dto';
 import { UpdateCheckupClientDto } from '../checkup/studios/dto/update-checkup-client.dto';
 import {
+  CreateQuestionModelDto,
+  UpdateQuestionModelDto,
   CreateMacroAreaDto,
   UpdateMacroAreaDto,
   CreateSectionDto,
   UpdateSectionDto,
   CreateFieldDto,
-  UpdateFieldDto
+  UpdateFieldDto,
 } from '../checkup/dto/question-management.dto';
 
 @Controller('admin/checkup')
-@UseGuards(JwtAuthGuard, SuperuserGuard)
+@UseGuards(JwtAuthGuard, SuperadminGuard)
 export class CheckupAdminController {
   constructor(
     @InjectRepository(CheckupStudio)
@@ -45,8 +49,108 @@ export class CheckupAdminController {
     private licenseRepository: Repository<CheckupLicense>,
     @InjectRepository(CheckupSublicense)
     private sublicenseRepository: Repository<CheckupSublicense>,
+    @InjectRepository(CheckupPreassessment)
+    private preassessmentRepository: Repository<CheckupPreassessment>,
+    @InjectRepository(QuestionModel)
+    private questionModelRepository: Repository<QuestionModel>,
     private questionManagementService: QuestionManagementService,
   ) {}
+
+  private static OWNER_FIELDS_BY_MACRO: Record<string, { name: string; role: string; email: string }> = {
+    a: { name: 'owner_a_nome', role: 'owner_a_ruolo', email: 'owner_a_email' },
+    b: { name: 'owner_b_nome', role: 'owner_b_ruolo', email: 'owner_b_email' },
+    c: { name: 'owner_c_nome', role: 'owner_c_ruolo', email: 'owner_c_email' },
+    d: { name: 'owner_d_nome', role: 'owner_d_ruolo', email: 'owner_d_email' },
+    e: { name: 'owner_e_nome', role: 'owner_e_ruolo', email: 'owner_e_email' },
+    f: { name: 'owner_f_nome', role: 'owner_f_ruolo', email: 'owner_f_email' },
+    g: { name: 'owner_g_nome', role: 'owner_g_ruolo', email: 'owner_g_email' },
+    h: { name: 'owner_h_nome', role: 'owner_h_ruolo', email: 'owner_h_email' },
+    i: { name: 'owner_i_nome', role: 'owner_i_ruolo', email: 'owner_i_email' },
+    j: { name: 'owner_j_nome', role: 'owner_j_ruolo', email: 'owner_j_email' },
+  };
+
+  private isOwnerMacroArea(code: string, label?: string | null) {
+    if (code === 'k') return true;
+    if (label && label.toLowerCase().includes('owner')) return true;
+    return false;
+  }
+
+  private normalizeMacroOwnerList(list?: string[] | null) {
+    if (!list) return [];
+    return Array.from(new Set(list.map((item) => item.trim()).filter(Boolean)));
+  }
+
+  private async validateMacroOwnerSelection(modelId: string | null | undefined, macroIds?: string[] | null) {
+    const normalized = this.normalizeMacroOwnerList(macroIds);
+    if (normalized.length === 0) {
+      throw new ConflictException('Seleziona la macro area owner');
+    }
+    if (!modelId) {
+      throw new ConflictException('La licenza non ha un modello associato');
+    }
+    const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
+    const allowed = macroAreas.filter((m) => !this.isOwnerMacroArea(m.code, m.label));
+    const allowedSet = new Set(allowed.map((m) => m.code));
+    const invalid = normalized.filter((macroId) => !allowedSet.has(macroId));
+    if (invalid.length) {
+      throw new ConflictException('Macro area owner non valida');
+    }
+  }
+
+  private async getOrCreatePreassessment(clientId: string, ownerUserId: string) {
+    const existing = await this.preassessmentRepository.findOne({ where: { clientId } });
+    if (existing) return existing;
+    const created = this.preassessmentRepository.create({
+      userId: ownerUserId,
+      clientId,
+      data: {},
+      notes: {},
+      fieldNotes: {},
+      naFields: {},
+      macroValidations: {},
+      studioCanEdit: false,
+      status: 'in_progress',
+    });
+    return this.preassessmentRepository.save(created);
+  }
+
+  private async updateMacroOwnerData(
+    clientId: string,
+    macroIds: string[],
+    user: CheckupUser | null,
+  ) {
+    const normalized = this.normalizeMacroOwnerList(macroIds);
+    if (!normalized.length || !user) return;
+
+    const record = await this.getOrCreatePreassessment(clientId, user.id);
+    const data = { ...(record.data || {}) };
+    normalized.forEach((macroId) => {
+      const fields = CheckupAdminController.OWNER_FIELDS_BY_MACRO[macroId];
+      if (!fields) return;
+      data[fields.name] = `${user.nome} ${user.cognome}`.trim();
+      data[fields.role] = 'Cliente';
+      data[fields.email] = user.email;
+    });
+    record.data = data;
+    await this.preassessmentRepository.save(record);
+  }
+
+  private async clearMacroOwnerData(clientId: string, macroIds: string[]) {
+    const normalized = this.normalizeMacroOwnerList(macroIds);
+    if (!normalized.length) return;
+    const record = await this.preassessmentRepository.findOne({ where: { clientId } });
+    if (!record) return;
+    const data = { ...(record.data || {}) };
+    normalized.forEach((macroId) => {
+      const fields = CheckupAdminController.OWNER_FIELDS_BY_MACRO[macroId];
+      if (!fields) return;
+      data[fields.name] = '';
+      data[fields.role] = '';
+      data[fields.email] = '';
+    });
+    record.data = data;
+    await this.preassessmentRepository.save(record);
+  }
 
   @Get('studios')
   async listStudios(): Promise<CheckupStudio[]> {
@@ -243,6 +347,7 @@ export class CheckupAdminController {
     }
 
     let resolvedSublicenseId: string | null = null;
+    let resolvedModelId: string | null = null;
     if (dto.ruolo === 'cliente') {
       if (!dto.clientId) {
         throw new ConflictException('Seleziona il cliente per l\'utente');
@@ -253,6 +358,9 @@ export class CheckupAdminController {
       }
       const clientSublicense = await this.resolveClientSublicense(dto.clientId, dto.sublicenseId);
       resolvedSublicenseId = clientSublicense.id;
+      const license = await this.licenseRepository.findOne({ where: { id: clientSublicense.licenseId }, relations: ['model'] });
+      resolvedModelId = license?.modelId ?? null;
+      await this.validateMacroOwnerSelection(resolvedModelId, dto.macroAreaOwner);
       await this.ensureClientCapacity(dto.clientId, clientSublicense.id);
     } else {
       if (!dto.studioId) {
@@ -281,11 +389,17 @@ export class CheckupAdminController {
       clientId: dto.ruolo === 'cliente' ? dto.clientId ?? null : null,
       sublicenseId: dto.ruolo === 'cliente' ? resolvedSublicenseId : null,
       azienda: dto.azienda?.trim() || null,
+      macroAreaOwner: dto.ruolo === 'cliente' ? this.normalizeMacroOwnerList(dto.macroAreaOwner) : null,
       mustChangePassword: true,
       attivo: true,
     });
 
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+    if (dto.ruolo === 'cliente' && dto.clientId) {
+      const macroOwners = this.normalizeMacroOwnerList(dto.macroAreaOwner);
+      await this.updateMacroOwnerData(dto.clientId, macroOwners, saved);
+    }
+    return saved;
   }
 
   @Put('users/:id')
@@ -318,6 +432,11 @@ export class CheckupAdminController {
     const nextClientId = dto.clientId !== undefined ? dto.clientId || null : user.clientId;
     const nextStudioId = dto.studioId !== undefined ? dto.studioId || null : user.studioId;
     const nextSublicenseId = dto.sublicenseId !== undefined ? dto.sublicenseId || null : user.sublicenseId;
+    const prevMacroOwner = this.normalizeMacroOwnerList(user.macroAreaOwner || undefined);
+    const nextMacroOwner = dto.macroAreaOwner !== undefined
+      ? this.normalizeMacroOwnerList(dto.macroAreaOwner)
+      : prevMacroOwner;
+    const prevClientId = user.clientId;
 
     if (nextRole === 'cliente') {
       if (!nextClientId) {
@@ -331,6 +450,9 @@ export class CheckupAdminController {
         throw new ConflictException('Seleziona la sottolicenza per l\'utente');
       }
       const clientSublicense = await this.resolveClientSublicense(nextClientId, nextSublicenseId);
+      const license = await this.licenseRepository.findOne({ where: { id: clientSublicense.licenseId }, relations: ['model'] });
+      const modelId = license?.modelId ?? null;
+      await this.validateMacroOwnerSelection(modelId, nextMacroOwner);
       const activating = dto.attivo === true && !user.attivo;
       const movingClient = nextClientId !== user.clientId;
       const becomingClient = nextRole !== user.ruolo;
@@ -344,6 +466,7 @@ export class CheckupAdminController {
       user.clientId = nextClientId;
       user.studioId = null;
       user.sublicenseId = clientSublicense.id;
+      user.macroAreaOwner = nextMacroOwner;
     } else {
       if (!nextStudioId) {
         throw new ConflictException('Seleziona lo studio per l\'utente');
@@ -364,12 +487,61 @@ export class CheckupAdminController {
       user.studioId = nextStudioId;
       user.clientId = null;
       user.sublicenseId = null;
+      user.macroAreaOwner = null;
     }
 
     if (dto.ruolo !== undefined) user.ruolo = dto.ruolo;
     if (dto.attivo !== undefined) user.attivo = Boolean(dto.attivo);
 
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+
+    if (nextRole === 'cliente' && nextClientId) {
+      const removed = prevMacroOwner.filter((m) => !nextMacroOwner.includes(m));
+      const added = nextMacroOwner.filter((m) => !prevMacroOwner.includes(m));
+
+      if (removed.length > 0) {
+        const otherUsers = await this.userRepository.find({
+          where: {
+            id: Not(saved.id),
+            clientId: nextClientId,
+            attivo: true,
+          },
+        });
+        const stillOwned = new Set<string>();
+        otherUsers.forEach((u) => {
+          (u.macroAreaOwner || []).forEach((macro) => stillOwned.add(macro));
+        });
+        const toClear = removed.filter((macro) => !stillOwned.has(macro));
+        if (toClear.length) {
+          await this.clearMacroOwnerData(nextClientId, toClear);
+        }
+      }
+
+      if (added.length) {
+        await this.updateMacroOwnerData(nextClientId, added, saved);
+      }
+    }
+
+    if (prevClientId && prevClientId !== nextClientId && prevMacroOwner.length) {
+      const otherUsers = await this.userRepository.find({
+        where: {
+          clientId: prevClientId,
+          attivo: true,
+        },
+      });
+      const stillOwned = new Set<string>();
+      otherUsers
+        .filter((u) => u.id !== saved.id)
+        .forEach((u) => {
+          (u.macroAreaOwner || []).forEach((macro) => stillOwned.add(macro));
+        });
+      const toClear = prevMacroOwner.filter((macro) => !stillOwned.has(macro));
+      if (toClear.length) {
+        await this.clearMacroOwnerData(prevClientId, toClear);
+      }
+    }
+
+    return saved;
   }
 
   @Patch('users/:id/deactivate')
@@ -486,7 +658,7 @@ export class CheckupAdminController {
   @Get('licenses')
   async listLicenses(): Promise<CheckupLicense[]> {
     return this.licenseRepository.find({
-      relations: ['studio', 'sublicenses', 'sublicenses.clienteStudio', 'sublicenses.client'],
+      relations: ['studio', 'model', 'sublicenses', 'sublicenses.clienteStudio', 'sublicenses.client'],
       order: { updatedAt: 'DESC' },
     });
   }
@@ -494,7 +666,7 @@ export class CheckupAdminController {
   @Get('sublicenses')
   async listSublicenses(): Promise<CheckupSublicense[]> {
     return this.sublicenseRepository.find({
-      relations: ['license', 'license.studio', 'clienteStudio', 'client'],
+      relations: ['license', 'license.model', 'license.studio', 'clienteStudio', 'client'],
       order: { updatedAt: 'DESC' },
     });
   }
@@ -516,8 +688,31 @@ export class CheckupAdminController {
       }
     }
 
+    const resolveModel = async (id?: string | null) => {
+      if (id) {
+        const model = await this.questionModelRepository.findOne({ where: { id } });
+        if (!model) {
+          throw new NotFoundException('Modello non trovato');
+        }
+        return model;
+      }
+
+      const existing = await this.questionModelRepository.findOne({ where: { code: 'preassessment' } });
+      if (existing) return existing;
+      const created = this.questionModelRepository.create({
+        code: 'preassessment',
+        label: 'Pre-Assessment',
+        description: 'Modello standard pre-assessment',
+        attivo: true,
+      });
+      return this.questionModelRepository.save(created);
+    };
+
+    const model = await resolveModel(dto.modelId?.trim() || null);
+
     const payload = {
       studioId: studio?.id ?? null,
+      modelId: model.id,
       intestatario: dto.intestatario?.trim() || studio?.ragioneSociale?.trim() || studio?.nome || 'Licenza',
       tipo: dto.tipo.trim(),
       numeroUtenze: Number(dto.numeroUtenze),
@@ -533,6 +728,7 @@ export class CheckupAdminController {
       }
       this.licenseRepository.merge(existing, {
         ...payload,
+        modelId: dto.modelId ? model.id : existing.modelId,
         numeroSottolicenze: existing.numeroSottolicenze ?? 0,
       });
       if (!existing.numeroLicenza) {
@@ -619,13 +815,13 @@ export class CheckupAdminController {
   // ==================== QUESTION MANAGEMENT ====================
 
   @Get('questions/structure')
-  async getQuestionsStructure() {
-    return this.questionManagementService.getCompleteStructure();
+  async getQuestionsStructure(@Query('modelId') modelId?: string) {
+    return this.questionManagementService.getCompleteStructure(modelId);
   }
 
   @Get('questions/macro-areas')
-  async getAllMacroAreas() {
-    return this.questionManagementService.getAllMacroAreas();
+  async getAllMacroAreas(@Query('modelId') modelId?: string) {
+    return this.questionManagementService.getAllMacroAreas(modelId);
   }
 
   @Get('questions/sections')
@@ -636,6 +832,33 @@ export class CheckupAdminController {
   @Get('questions/fields')
   async getAllFields() {
     return this.questionManagementService.getAllFields();
+  }
+
+  // Models CRUD
+  @Get('questions/models')
+  async getAllModels() {
+    return this.questionManagementService.getAllModels();
+  }
+
+  @Get('questions/models/:id')
+  async getModelById(@Param('id') id: string) {
+    return this.questionManagementService.getModelById(id);
+  }
+
+  @Post('questions/models')
+  async createModel(@Body() dto: CreateQuestionModelDto) {
+    return this.questionManagementService.createModel(dto);
+  }
+
+  @Put('questions/models/:id')
+  async updateModel(@Param('id') id: string, @Body() dto: UpdateQuestionModelDto) {
+    return this.questionManagementService.updateModel(id, dto);
+  }
+
+  @Delete('questions/models/:id')
+  async deleteModel(@Param('id') id: string) {
+    await this.questionManagementService.deleteModel(id);
+    return { success: true, message: 'Modello eliminato' };
   }
 
   // Macro Areas CRUD
