@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   FileText,
   Plus,
@@ -38,7 +38,7 @@ export default function AdminCheckupQuestionsPage() {
   const { error: toastError } = useToast();
   const [models, setModels] = useState<questionApi.QuestionModel[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
-  const [modelFilter, setModelFilter] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [macroAreas, setMacroAreas] = useState<MacroArea[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,6 +105,35 @@ export default function AdminCheckupQuestionsPage() {
     }
     loadData(selectedModelId);
   }, [selectedModelId]);
+
+  const filteredMacroAreas = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return macroAreas;
+    const includesTerm = (value?: string | null) => (value || '').toLowerCase().includes(term);
+    return macroAreas
+      .map((macro) => {
+        const macroMatch = includesTerm(macro.label) || includesTerm(macro.code);
+        if (macroMatch) return macro;
+        const matchedSections = (macro.sections || [])
+          .map((section) => {
+            const sectionMatch =
+              includesTerm(section.title) || includesTerm(section.code) || includesTerm(section.description || '');
+            const matchedFields = (section.fields || []).filter(
+              (field) =>
+                includesTerm(field.label) ||
+                includesTerm(field.fieldId) ||
+                includesTerm(field.help || ''),
+            );
+            if (sectionMatch) return section;
+            if (matchedFields.length) return { ...section, fields: matchedFields };
+            return null;
+          })
+          .filter(Boolean) as Section[];
+        if (!matchedSections.length) return null;
+        return { ...macro, sections: matchedSections };
+      })
+      .filter(Boolean) as MacroArea[];
+  }, [macroAreas, searchTerm]);
 
   const loadModels = async () => {
     try {
@@ -393,17 +422,11 @@ export default function AdminCheckupQuestionsPage() {
             <CustomSelect
               value={selectedModelId}
               onChange={(val) => setSelectedModelId(val)}
-              options={models
-                .filter((model) =>
-                  [model.label, model.code, model.description]
-                    .filter(Boolean)
-                    .some((v) => String(v).toLowerCase().includes(modelFilter.trim().toLowerCase()))
-                )
-                .map((model) => ({
-                  value: model.id,
-                  label: model.label,
-                  sublabel: [model.code, model.attivo ? 'Attivo' : 'Disattivo'].join(' · '),
-                }))}
+              options={models.map((model) => ({
+                value: model.id,
+                label: model.label,
+                sublabel: [model.code, model.attivo ? 'Attivo' : 'Disattivo'].join(' · '),
+              }))}
               placeholder="Seleziona modello"
               searchable
               searchPlaceholder="Cerca modello..."
@@ -423,9 +446,9 @@ export default function AdminCheckupQuestionsPage() {
         <div className="relative w-full md:max-w-md">
           <input
             type="text"
-            value={modelFilter}
-            onChange={(e) => setModelFilter(e.target.value)}
-            placeholder="Filtra modelli per nome, codice o descrizione..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Cerca macro-aree, sezioni o campi..."
             className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900"
           />
         </div>
@@ -687,7 +710,7 @@ export default function AdminCheckupQuestionsPage() {
 
       {/* Macro Areas List */}
       <div className="space-y-4">
-        {macroAreas.map((macro) => (
+        {filteredMacroAreas.map((macro) => (
           <div key={macro.id} className="border border-gray-200 rounded-lg overflow-hidden">
             <div
               className="p-4 bg-gray-50 flex items-center justify-between cursor-pointer hover:bg-gray-100"

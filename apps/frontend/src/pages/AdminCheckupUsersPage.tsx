@@ -24,6 +24,8 @@ export default function AdminCheckupUsersPage() {
   const [resetPasswordValue, setResetPasswordValue] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStudioId, setFilterStudioId] = useState('');
   const [formData, setFormData] = useState({
     nome: '',
     cognome: '',
@@ -142,7 +144,7 @@ export default function AdminCheckupUsersPage() {
       return;
     }
     if (!formData.sublicenseId) {
-      toastError('Seleziona la sottolicenza per l\'utente');
+      toastError('Seleziona la sublicenza per l\'utente');
       return;
     }
     if (!formData.macroAreaOwner.length) {
@@ -154,7 +156,7 @@ export default function AdminCheckupUsersPage() {
       return;
     }
     if (!isEditing && selectedClientLimitReached) {
-      toastError('Limite utenti sottolicenza raggiunto');
+      toastError('Limite utenti sublicenza raggiunto');
       return;
     }
     try {
@@ -250,6 +252,7 @@ export default function AdminCheckupUsersPage() {
     }
     return acc;
   }, {});
+  const sublicensesById = new Map(sublicenses.map((s) => [s.id, s]));
   const sublicensesByStudio = sublicenses.filter(
     (s) => s.license?.studioId && s.license?.studioId === formData.studioId,
   );
@@ -310,7 +313,25 @@ export default function AdminCheckupUsersPage() {
     }
   });
   const submitLimitReached = selectedClientLimitReached;
-  const filteredUsers = hideInactive ? clientUsers.filter((u) => u.attivo) : clientUsers;
+  const filteredUsers = clientUsers.filter((u) => {
+    if (hideInactive && !u.attivo) return false;
+    if (filterStudioId) {
+      const studioId = u.sublicenseId ? sublicensesById.get(u.sublicenseId)?.license?.studio?.id : undefined;
+      if (studioId !== filterStudioId) return false;
+    }
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return true;
+    return [
+      u.nome,
+      u.cognome,
+      u.email,
+      u.client?.nome,
+      u.azienda,
+      u.sublicense?.numeroSublicenza,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(term));
+  });
   const paginatedUsers = filteredUsers.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
   const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
 
@@ -319,7 +340,7 @@ export default function AdminCheckupUsersPage() {
       <div className="wow-card p-6 md:p-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <span className="wow-chip">Amministrazione</span>
-          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Utenti checkup</h1>
+          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione utenti</h1>
           <p className="text-sm text-slate-600 mt-1">Gestisci gli utenti cliente collegati agli studi checkup.</p>
         </div>
         <div className="flex items-center gap-3">
@@ -340,6 +361,36 @@ export default function AdminCheckupUsersPage() {
         </div>
       </div>
 
+      <div className="wow-panel p-4 md:p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="relative w-full md:max-w-md">
+          <input
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="Cerca per nome, email, cliente o sublicenza"
+            className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="min-w-[240px]">
+          <CustomSelect
+            value={filterStudioId}
+            onChange={(val) => {
+              setFilterStudioId(val);
+              setCurrentPage(1);
+            }}
+            options={[
+              { value: '', label: 'Tutti gli studi' },
+              ...licenziatariStudios.map((s) => ({ value: s.id, label: s.nome })),
+            ]}
+            placeholder="Filtra per studio"
+            searchable
+            searchPlaceholder="Cerca studio..."
+          />
+        </div>
+      </div>
+
       {loading ? (
         <div className="wow-panel p-10 text-center text-slate-500">Caricamento...</div>
       ) : (
@@ -354,7 +405,7 @@ export default function AdminCheckupUsersPage() {
                   <th className="px-4 py-3 text-left">Email</th>
                   <th className="px-4 py-3 text-left">Ruolo</th>
                   <th className="px-4 py-3 text-left">Cliente</th>
-                  <th className="px-4 py-3 text-left">Sottolicenza</th>
+                  <th className="px-4 py-3 text-left">Sublicenza</th>
                   <th className="px-4 py-3 text-left">Stato</th>
                   <th className="px-4 py-3 text-right">Azioni</th>
                 </tr>
@@ -519,7 +570,7 @@ export default function AdminCheckupUsersPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Sottolicenza</label>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Sublicenza</label>
                     <div className="mt-1">
                       <CustomSelect
                         value={formData.sublicenseId}
@@ -529,7 +580,7 @@ export default function AdminCheckupUsersPage() {
                           label: s.numeroSublicenza ? `#${s.numeroSublicenza}` : 'Senza numero',
                           sublabel: `Utenze ${s.numeroUtenze} · ${s.dataInizioValidita || '—'} → ${s.dataScadenza || '—'}`,
                         }))}
-                        placeholder="Seleziona sottolicenza"
+                        placeholder="Seleziona sublicenza"
                       />
                     </div>
                     {formData.sublicenseId && selectedSublicense ? (
@@ -545,7 +596,7 @@ export default function AdminCheckupUsersPage() {
                       </div>
                     ) : formData.clientId ? (
                       <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                        Nessuna sottolicenza disponibile per il cliente selezionato.
+                        Nessuna sublicenza disponibile per il cliente selezionato.
                       </div>
                     ) : null}
                   </div>

@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class CreateCheckupSublicenseDto {
   @IsOptional()
@@ -11,6 +11,10 @@ export class CreateCheckupSublicenseDto {
   @IsOptional()
   @IsString()
   tipo?: string;
+
+  @IsOptional()
+  @IsUUID()
+  modelId?: string;
 
   @IsInt()
   @Min(1)
@@ -27,6 +31,10 @@ export class CreateCheckupSublicenseDto {
   @IsOptional()
   @IsBoolean()
   attiva?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowDocuments?: boolean;
 
   @IsOptional()
   @IsString()

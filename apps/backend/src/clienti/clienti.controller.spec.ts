@@ -27,7 +27,7 @@ describe('ClientiController', () => {
     email: 'admin@example.com',
     nome: 'Admin',
     cognome: 'User',
-    ruolo: 'admin',
+    ruolo: 'superadmin',
     clienteId: null,
     studioId: null,
   };

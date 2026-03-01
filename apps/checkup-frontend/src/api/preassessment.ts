@@ -4,8 +4,10 @@ export interface PreassessmentPayload {
   data?: Record<string, string>;
   notes?: Record<string, string>;
   fieldNotes?: Record<string, string>;
+  userFieldNotes?: Record<string, string>;
   naFields?: Record<string, boolean>;
   macroValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>;
+  sectionValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>;
   studioCanEdit?: boolean;
 }
 
@@ -18,8 +20,10 @@ export interface PreassessmentRecord {
   data: Record<string, string> | null;
   notes: Record<string, string> | null;
   fieldNotes: Record<string, string> | null;
+  userFieldNotes: Record<string, string> | null;
   naFields?: Record<string, boolean> | null;
   macroValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }> | null;
+  sectionValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }> | null;
   fieldMeta?: Record<string, { updatedAt: string; updatedBy: { id: string; name: string; ruolo: string } }> | null;
   studioCanEdit: boolean;
   version: number;
@@ -50,6 +54,11 @@ export interface PreassessmentClientEntry {
     ragioneSociale?: string | null;
     studioId?: string | null;
     studioNome?: string | null;
+    sublicense?: {
+      id: string;
+      modelId?: string | null;
+      allowDocuments?: boolean;
+    } | null;
   };
   preassessment: {
     id: string;

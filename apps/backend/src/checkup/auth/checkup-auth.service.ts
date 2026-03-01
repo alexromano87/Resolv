@@ -31,6 +31,7 @@ export class CheckupAuthService {
       tipo: license.tipo,
       numeroUtenze: license.numeroUtenze,
       numeroSottolicenze: license.numeroSottolicenze,
+      modelIds: license.modelIds && license.modelIds.length ? license.modelIds : (license.model ? [license.model.id] : []),
       model: license.model
         ? {
             id: license.model.id,
@@ -56,6 +57,13 @@ export class CheckupAuthService {
       mustChangePassword: user.mustChangePassword,
       twoFactorEnabled: user.twoFactorEnabled,
       twoFactorChannel: user.twoFactorChannel,
+      sublicense: clientSublicense
+        ? {
+            id: clientSublicense.id,
+            modelId: clientSublicense.modelId,
+            allowDocuments: clientSublicense.allowDocuments,
+          }
+        : null,
       license: user.studio?.license
         ? mapLicense(user.studio.license)
         : clientLicense

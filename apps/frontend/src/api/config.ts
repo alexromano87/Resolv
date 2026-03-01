@@ -51,6 +51,7 @@ function getApiBaseUrl(): string {
 }
 
 export const API_BASE_URL = getApiBaseUrl();
+const DEFAULT_TIMEOUT_MS = 20000;
 
 // Debug: mostra in console quale URL viene usato (solo in development)
 if (metaEnv.DEV) {
@@ -92,16 +93,32 @@ class ApiClient {
     return headers;
   }
 
+  private async fetchWithTimeout(input: RequestInfo, init: RequestInit, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new ApiError(408, 'Tempo di risposta scaduto. Riprova tra qualche istante.');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   private async handleResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
       let errorMessage = `Errore ${response.status}`;
       let errorData: unknown = null;
+      const isTimeout = response.status === 408 || response.status === 504;
 
       // Errori del server (5xx)
       if (response.status >= 500) {
         throw new ApiError(
           response.status,
-          'Il server non è al momento disponibile. Riprova più tardi.',
+          isTimeout ? 'Tempo di risposta scaduto. Riprova tra qualche istante.' : 'Il server non è al momento disponibile. Riprova più tardi.',
           errorData,
         );
       }
@@ -128,6 +145,9 @@ class ApiClient {
         errorMessage = raw;
       }
 
+      if (isTimeout && (!errorMessage || errorMessage === `Errore ${response.status}`)) {
+        errorMessage = 'Tempo di risposta scaduto. Riprova tra qualche istante.';
+      }
       throw new ApiError(response.status, errorMessage, errorData);
     }
 
@@ -167,7 +187,7 @@ class ApiClient {
     }
 
     try {
-      const response = await fetch(url.toString(), {
+      const response = await this.fetchWithTimeout(url.toString(), {
         headers: this.getHeaders(),
       });
       return this.handleResponse<T>(response);
@@ -185,7 +205,7 @@ class ApiClient {
 
   async post<T>(path: string, data?: unknown): Promise<T> {
     try {
-      const response = await fetch(`${this.baseUrl}${path}`, {
+      const response = await this.fetchWithTimeout(`${this.baseUrl}${path}`, {
         method: 'POST',
         headers: this.getHeaders(),
         body: data ? JSON.stringify(data) : undefined,
@@ -205,7 +225,7 @@ class ApiClient {
 
   async put<T>(path: string, data?: unknown): Promise<T> {
     try {
-      const response = await fetch(`${this.baseUrl}${path}`, {
+      const response = await this.fetchWithTimeout(`${this.baseUrl}${path}`, {
         method: 'PUT',
         headers: this.getHeaders(),
         body: data ? JSON.stringify(data) : undefined,
@@ -225,7 +245,7 @@ class ApiClient {
 
   async patch<T>(path: string, data?: unknown): Promise<T> {
     try {
-      const response = await fetch(`${this.baseUrl}${path}`, {
+      const response = await this.fetchWithTimeout(`${this.baseUrl}${path}`, {
         method: 'PATCH',
         headers: this.getHeaders(),
         body: data ? JSON.stringify(data) : undefined,
@@ -245,7 +265,7 @@ class ApiClient {
 
   async delete<T>(path: string): Promise<T> {
     try {
-      const response = await fetch(`${this.baseUrl}${path}`, {
+      const response = await this.fetchWithTimeout(`${this.baseUrl}${path}`, {
         method: 'DELETE',
         headers: this.getHeaders(),
       });

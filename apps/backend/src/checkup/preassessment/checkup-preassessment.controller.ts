@@ -6,11 +6,15 @@ import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decora
 import { CheckupPreassessmentService } from './checkup-preassessment.service';
 import { UpdatePreassessmentDto } from './dto/update-preassessment.dto';
 import { CheckupStaffGuard } from '../auth/checkup-staff.guard';
+import { CheckupPreassessmentReportsService } from './checkup-preassessment-reports.service';
 
 @Controller('checkup/preassessment')
 @UseGuards(CheckupJwtAuthGuard)
 export class CheckupPreassessmentController {
-  constructor(private readonly preassessmentService: CheckupPreassessmentService) {}
+  constructor(
+    private readonly preassessmentService: CheckupPreassessmentService,
+    private readonly reportsService: CheckupPreassessmentReportsService,
+  ) {}
 
   @Get()
   get(@CheckupCurrentUser() user: CheckupCurrentUserData) {
@@ -82,6 +86,50 @@ export class CheckupPreassessmentController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="pre_assessment.pdf"');
     res.send(pdf);
+  }
+
+  @UseGuards(CheckupStaffGuard)
+  @Post(':preassessmentId/report/salva')
+  async saveReport(
+    @Param('preassessmentId') preassessmentId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+    @Body('html') html: string,
+  ) {
+    if (!html || typeof html !== 'string') {
+      throw new BadRequestException('HTML mancante');
+    }
+    const { preassessment, client } = await this.preassessmentService.getPreassessmentForReport(preassessmentId, user);
+    const pdf = await this.preassessmentService.renderHtmlToPdf(html);
+    const filename = `report-preassessment-${client.id}-${new Date().toISOString().split('T')[0]}.pdf`;
+    return this.reportsService.save(preassessment.id, client.id, filename, pdf);
+  }
+
+  @UseGuards(CheckupStaffGuard)
+  @Get('clients/:clientId/reports')
+  async listReports(
+    @Param('clientId') clientId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    await this.preassessmentService.getClient(clientId, user);
+    return this.reportsService.listByClient(clientId);
+  }
+
+  @UseGuards(CheckupStaffGuard)
+  @Get('reports/:reportId/pdf')
+  async downloadReport(
+    @Param('reportId') reportId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+    @Res() res: Response,
+  ) {
+    const report = await this.reportsService.getPdf(reportId);
+    if (!report) {
+      throw new BadRequestException('Report non trovato');
+    }
+    await this.preassessmentService.getClient(report.clientId, user);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${report.filename}"`);
+    res.setHeader('Content-Length', report.pdf.length);
+    res.send(report.pdf);
   }
 
   @Get(':preassessmentId/presence')

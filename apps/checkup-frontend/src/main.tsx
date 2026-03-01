@@ -5,6 +5,17 @@ import App from './App';
 import './index.css';
 import { AuthProvider } from './contexts/AuthContext';
 
+document.addEventListener(
+  'submit',
+  (event) => {
+    const form = event.target;
+    if (form instanceof HTMLFormElement) {
+      form.classList.add('form-submitted');
+    }
+  },
+  true,
+);
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>

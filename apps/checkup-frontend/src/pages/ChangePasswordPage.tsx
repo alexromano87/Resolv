@@ -1,12 +1,15 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, AlertCircle, Lock } from 'lucide-react';
+import { Shield, ClipboardCheck, BarChart3, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 export default function ChangePasswordPage() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { changePassword } = useAuth();
@@ -21,15 +24,15 @@ export default function ChangePasswordPage() {
       return;
     }
 
-    if (newPassword.length < 8) {
-      setError('La nuova password deve avere almeno 8 caratteri');
+    if (newPassword.length < 12) {
+      setError('La nuova password deve avere almeno 12 caratteri');
       return;
     }
 
     setLoading(true);
     try {
       await changePassword(currentPassword, newPassword);
-      navigate('/checkup/');
+      navigate('/checkup/', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore durante il cambio password');
     } finally {
@@ -38,72 +41,243 @@ export default function ChangePasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 via-white to-cyan-50 px-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-700 rounded-2xl mb-4">
-            <FileText className="h-8 w-8 text-white" />
+    <div className="min-h-screen flex">
+      {/* LEFT SIDE — Branding Panel */}
+      <div className="hidden lg:flex lg:w-[52%] bg-gradient-to-br from-blue-950 via-blue-900 to-slate-900 p-12 flex-col justify-between relative overflow-hidden">
+        {/* Decorative glows */}
+        <div className="pointer-events-none absolute -top-24 -right-24 h-[500px] w-[500px] rounded-full bg-cyan-500/15 blur-[100px]" />
+        <div className="pointer-events-none absolute -bottom-32 -left-32 h-[400px] w-[400px] rounded-full bg-blue-600/20 blur-[80px]" />
+        <div className="pointer-events-none absolute top-1/2 left-1/3 h-[200px] w-[200px] rounded-full bg-cyan-400/10 blur-[60px]" />
+
+        {/* Grid pattern overlay */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+            backgroundSize: '60px 60px',
+          }}
+        />
+
+        {/* Top — Logo & Title */}
+        <div className="relative z-10">
+          <div className="flex items-center gap-4">
+            <img src="/logo_resolv.png" alt="RESOLV" className="h-16 w-auto" />
           </div>
-          <h1 className="text-2xl font-bold text-primary-900">Cambio Password</h1>
-          <p className="text-gray-500 mt-1">
-            Al primo accesso devi cambiare la password
-          </p>
+          <div className="mt-8 space-y-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1">
+              <div className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-cyan-300">Governance &amp; Risk &amp; Compliance Platform</span>
+            </div>
+            <h1 className="text-3xl font-bold text-white leading-tight" style={{ fontVariationSettings: "'wght' 700, 'opsz' 32" }}>
+              Profilazione Aziendale<br />
+              <span className="text-blue-300">Intelligente</span>
+            </h1>
+            <p className="mt-3 text-[15px] text-blue-200/80 max-w-sm leading-relaxed">
+              Analisi strutturata della compliance, del rischio e della salute organizzativa della tua azienda.
+            </p>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-lg p-8 space-y-5">
-          {error && (
-            <div className="flex items-center gap-2 p-3 bg-danger-50 border border-danger-200 rounded-lg text-danger-700 text-sm">
-              <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              {error}
+        {/* Middle — Feature highlights */}
+        <div className="relative z-10 space-y-5">
+          {[
+            {
+              icon: <ClipboardCheck className="w-5 h-5" />,
+              color: 'bg-emerald-500/15 text-emerald-400',
+              title: 'Questionari Strutturati',
+              desc: 'Assessment guidati con template personalizzabili per area aziendale',
+            },
+            {
+              icon: <Shield className="w-5 h-5" />,
+              color: 'bg-cyan-500/15 text-cyan-400',
+              title: 'Compliance & Risk Assessment',
+              desc: 'Valutazione conformità normativa con scoring automatico',
+            },
+            {
+              icon: <BarChart3 className="w-5 h-5" />,
+              color: 'bg-blue-500/15 text-blue-400',
+              title: 'Report & Analytics',
+              desc: 'Dashboard executive con indicatori di rischio in tempo reale',
+            },
+          ].map((feature, i) => (
+            <div key={i} className="flex items-start gap-4 group">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${feature.color} transition-transform group-hover:scale-110`}>
+                {feature.icon}
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">{feature.title}</h3>
+                <p className="text-[13px] text-blue-300/70 leading-relaxed">{feature.desc}</p>
+              </div>
             </div>
-          )}
+          ))}
+        </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password attuale</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                required
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
-              />
+        {/* Bottom — Footer */}
+        <div className="relative z-10 flex items-center justify-between">
+          <p className="text-xs text-blue-400/60">
+            &reg; Resolv è un marchio R&amp;S Italy srl - Tutti i diritti riservati
+          </p>
+          <div className="flex items-center gap-1.5 text-xs text-blue-400/60">
+            <Lock className="w-3 h-3" />
+            <span>Connessione cifrata</span>
+          </div>
+        </div>
+      </div>
+
+      {/* RIGHT SIDE — Form */}
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-8 bg-gradient-to-b from-slate-50 to-white">
+        <div className="w-full max-w-[420px]">
+          {/* Mobile logo */}
+          <div className="lg:hidden text-center mb-10">
+            <img src="/logo_resolv.png" alt="RESOLV" className="h-12 mx-auto" />
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1">
+              <div className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-blue-700">Governance &amp; Risk &amp; Compliance Platform</span>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nuova password</label>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              required
-              minLength={8}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
-            />
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900" style={{ fontVariationSettings: "'wght' 700" }}>
+                Imposta la password
+              </h2>
+              <p className="mt-2 text-sm text-slate-500 leading-relaxed">
+                Al primo accesso è necessario impostare una nuova password sicura per proteggere il tuo account.
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {error && (
+                <div className="flex items-start gap-3 rounded-xl border border-danger-200 bg-danger-50 p-4">
+                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-danger-100 flex-shrink-0 mt-0.5">
+                    <span className="text-danger-600 text-xs font-bold">!</span>
+                  </div>
+                  <p className="text-sm text-danger-700">{error}</p>
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="current-password" className="block text-sm font-semibold text-slate-700 mb-2">
+                  Password attuale
+                </label>
+                <div className="relative">
+                  <input
+                    id="current-password"
+                    type={showCurrent ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    required
+                    className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition-all text-sm"
+                    placeholder="Password temporanea ricevuta"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrent(!showCurrent)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showCurrent ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="new-password" className="block text-sm font-semibold text-slate-700 mb-2">
+                  Nuova password
+                </label>
+                <div className="relative">
+                  <input
+                    id="new-password"
+                    type={showNew ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition-all text-sm"
+                    placeholder="Minimo 12 caratteri"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNew(!showNew)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {newPassword.length > 0 && newPassword.length < 12 && (
+                  <p className="mt-1.5 text-xs text-amber-600">
+                    Ancora {12 - newPassword.length} caratteri per raggiungere il minimo
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="confirm-password" className="block text-sm font-semibold text-slate-700 mb-2">
+                  Conferma nuova password
+                </label>
+                <div className="relative">
+                  <input
+                    id="confirm-password"
+                    type={showConfirm ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition-all text-sm"
+                    placeholder="Ripeti la nuova password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirm(!showConfirm)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {confirmPassword.length > 0 && newPassword !== confirmPassword && (
+                  <p className="mt-1.5 text-xs text-danger-600">Le password non coincidono</p>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading || newPassword.length < 12 || newPassword !== confirmPassword}
+                className="w-full relative rounded-xl bg-blue-700 px-5 py-3.5 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(30,64,175,0.25)] transition-all hover:bg-blue-800 hover:shadow-[0_12px_32px_rgba(30,64,175,0.35)] active:bg-blue-900 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+              >
+                {loading ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Aggiornamento in corso...
+                  </span>
+                ) : (
+                  'Imposta nuova password'
+                )}
+              </button>
+            </form>
+
+            {/* Trust indicators */}
+            <div className="pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-center gap-6 text-[11px] text-slate-400">
+                <span className="inline-flex items-center gap-1.5">
+                  <Lock className="h-3 w-3" />
+                  SSL/TLS
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Shield className="h-3 w-3" />
+                  GDPR Compliant
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Conferma nuova password</label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              minLength={8}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2.5 px-4 bg-primary-700 hover:bg-primary-800 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
-          >
-            {loading ? 'Aggiornamento...' : 'Cambia Password'}
-          </button>
-        </form>
+          {/* Footer */}
+          <p className="mt-10 text-center text-xs text-slate-400">
+            Powered by <span className="font-semibold text-slate-500">R&amp;S Italy srl</span> &middot; Piattaforma sicura
+          </p>
+        </div>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { KeyRound, Pencil, X } from 'lucide-react';
 import { checkupAdminApi, type CheckupLicense, type CheckupSublicense } from '../api/checkupAdmin';
+import * as questionApi from '../api/checkupQuestions';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
@@ -14,17 +15,22 @@ export default function AdminCheckupSublicensesPage() {
   const { success, error: toastError } = useToast();
   const [sublicenses, setSublicenses] = useState<CheckupSublicense[]>([]);
   const [licenses, setLicenses] = useState<CheckupLicense[]>([]);
+  const [models, setModels] = useState<questionApi.QuestionModel[]>([]);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [selectedLicenseId, setSelectedLicenseId] = useState('');
+  const [filterStudioId, setFilterStudioId] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     licenseId: '',
+    modelId: '',
     tipo: '',
     numeroUtenze: 1,
     dataInizioValidita: '',
     dataScadenza: '',
     attiva: true,
+    allowDocuments: true,
   });
 
   const inputClassName =
@@ -33,12 +39,14 @@ export default function AdminCheckupSublicensesPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sublicensesData, licensesData] = await Promise.all([
+      const [sublicensesData, licensesData, modelsData] = await Promise.all([
         checkupAdminApi.getSublicenses(),
         checkupAdminApi.getLicenses(),
+        questionApi.getModels(),
       ]);
       setSublicenses(sublicensesData);
       setLicenses(licensesData);
+      setModels(modelsData);
     } catch (err: any) {
       toastError(err.message || 'Errore durante il caricamento');
     } finally {
@@ -52,23 +60,30 @@ export default function AdminCheckupSublicensesPage() {
 
   const licenseOptions = useMemo(
     () =>
-      licenses.map((l) => ({
-        value: l.id,
-        label: l.studio?.nome || 'Studio',
-        sublabel: `Licenza ${l.numeroLicenza || '—'} · Utenze ${l.numeroUtenze}`,
-      })),
-    [licenses],
+      [
+        { value: '', label: 'Tutte le licenze' },
+        ...licenses
+          .filter((l) => !filterStudioId || l.studio?.id === filterStudioId)
+          .map((l) => ({
+            value: l.id,
+            label: l.studio?.nome || 'Studio',
+            sublabel: `Licenza ${l.numeroLicenza || '—'} · Utenze ${l.numeroUtenze}`,
+          })),
+      ],
+    [licenses, filterStudioId],
   );
 
   const handleOpenCreate = () => {
     setEditingId(null);
     setFormData({
       licenseId: selectedLicenseId,
+      modelId: '',
       tipo: '',
       numeroUtenze: 1,
       dataInizioValidita: '',
       dataScadenza: '',
       attiva: true,
+      allowDocuments: true,
     });
     setShowModal(true);
   };
@@ -77,11 +92,13 @@ export default function AdminCheckupSublicensesPage() {
     setEditingId(sublicense.id);
     setFormData({
       licenseId: sublicense.licenseId,
+      modelId: sublicense.modelId || '',
       tipo: sublicense.tipo || '',
       numeroUtenze: sublicense.numeroUtenze,
       dataInizioValidita: sublicense.dataInizioValidita || '',
       dataScadenza: sublicense.dataScadenza || '',
       attiva: sublicense.attiva,
+      allowDocuments: sublicense.allowDocuments ?? true,
     });
     setShowModal(true);
   };
@@ -96,22 +113,26 @@ export default function AdminCheckupSublicensesPage() {
       await checkupAdminApi.upsertSublicense({
         id: editingId ?? undefined,
         licenseId: formData.licenseId,
+        modelId: formData.modelId || undefined,
         tipo: formData.tipo.trim(),
         numeroUtenze: Number(formData.numeroUtenze),
         dataInizioValidita: formData.dataInizioValidita,
         dataScadenza: formData.dataScadenza,
         attiva: formData.attiva,
+        allowDocuments: formData.allowDocuments,
       });
       success(editingId ? 'Sublicenza aggiornata' : 'Sublicenza creata');
       setShowModal(false);
       setEditingId(null);
       setFormData({
         licenseId: '',
+        modelId: '',
         tipo: '',
         numeroUtenze: 1,
         dataInizioValidita: '',
         dataScadenza: '',
         attiva: true,
+        allowDocuments: true,
       });
       loadData();
     } catch (err: any) {
@@ -119,9 +140,72 @@ export default function AdminCheckupSublicensesPage() {
     }
   };
 
-  const filteredSublicenses = selectedLicenseId
-    ? sublicenses.filter((s) => s.licenseId === selectedLicenseId)
-    : sublicenses;
+  const studioOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    licenses.forEach((license) => {
+      if (license.studio?.id) {
+        map.set(license.studio.id, license.studio.nome);
+      }
+    });
+    return [
+      { value: '', label: 'Tutti gli studi' },
+      ...Array.from(map.entries()).map(([value, label]) => ({ value, label })),
+    ];
+  }, [licenses]);
+
+  const filteredSublicenses = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return sublicenses.filter((s) => {
+      if (filterStudioId && s.license?.studio?.id !== filterStudioId) return false;
+      if (selectedLicenseId && s.licenseId !== selectedLicenseId) return false;
+      if (!term) return true;
+      return [
+        s.numeroSublicenza,
+        s.tipo,
+        s.license?.numeroLicenza,
+        s.license?.studio?.nome,
+        s.client?.nome,
+        s.clienteStudio?.nome,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term));
+    });
+  }, [sublicenses, filterStudioId, selectedLicenseId, searchTerm]);
+
+  const selectedLicense = useMemo(
+    () => licenses.find((license) => license.id === formData.licenseId),
+    [licenses, formData.licenseId],
+  );
+
+  const allowedModelIds = useMemo(() => {
+    if (!selectedLicense) return [];
+    if (selectedLicense.modelIds && selectedLicense.modelIds.length) return selectedLicense.modelIds;
+    return selectedLicense.modelId ? [selectedLicense.modelId] : [];
+  }, [selectedLicense]);
+
+  const modelOptions = useMemo(() => {
+    if (!allowedModelIds.length) return [];
+    return models
+      .filter((model) => allowedModelIds.includes(model.id))
+      .map((model) => ({
+        value: model.id,
+        label: model.label,
+        sublabel: model.code,
+      }));
+  }, [allowedModelIds, models]);
+
+  useEffect(() => {
+    if (!formData.licenseId) {
+      if (formData.modelId) {
+        setFormData((p) => ({ ...p, modelId: '' }));
+      }
+      return;
+    }
+    if (!allowedModelIds.length) return;
+    if (!formData.modelId || !allowedModelIds.includes(formData.modelId)) {
+      setFormData((p) => ({ ...p, modelId: allowedModelIds[0] || '' }));
+    }
+  }, [formData.licenseId, formData.modelId, allowedModelIds]);
 
   return (
     <div className="space-y-6 wow-stagger">
@@ -134,6 +218,19 @@ export default function AdminCheckupSublicensesPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="min-w-[220px]">
+            <CustomSelect
+              value={filterStudioId}
+              onChange={(val) => {
+                setFilterStudioId(val);
+                setSelectedLicenseId('');
+              }}
+              options={studioOptions}
+              placeholder="Filtra per studio"
+              searchable
+              searchPlaceholder="Cerca studio..."
+            />
+          </div>
           <div className="min-w-[260px]">
             <CustomSelect
               value={selectedLicenseId}
@@ -151,6 +248,15 @@ export default function AdminCheckupSublicensesPage() {
         </div>
       </div>
 
+      <div className="wow-panel p-4 md:p-6">
+        <input
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Cerca per sublicenza, tipo, studio o cliente"
+          className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900"
+        />
+      </div>
+
       {loading ? (
         <div className="wow-panel p-10 text-center text-slate-500">Caricamento...</div>
       ) : (
@@ -162,7 +268,8 @@ export default function AdminCheckupSublicensesPage() {
               <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
                 <tr>
                   <th className="px-4 py-3 text-left">Licenza</th>
-                  <th className="px-4 py-3 text-left">Numero</th>
+                  <th className="px-4 py-3 text-left">Sublicenza</th>
+                  <th className="px-4 py-3 text-left">Sublicenziatario</th>
                   <th className="px-4 py-3 text-left">Tipo</th>
                   <th className="px-4 py-3 text-left">Utenze</th>
                   <th className="px-4 py-3 text-left">Validità</th>
@@ -178,6 +285,9 @@ export default function AdminCheckupSublicensesPage() {
                       <div className="text-xs text-slate-500">#{s.license?.numeroLicenza || '—'}</div>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{s.numeroSublicenza || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                      {s.client?.nome || s.clienteStudio?.nome || '—'}
+                    </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{s.tipo || '—'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{s.numeroUtenze}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">
@@ -235,6 +345,23 @@ export default function AdminCheckupSublicensesPage() {
                     />
                   </div>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Modello associato</label>
+                  <div className="mt-1">
+                    <CustomSelect
+                      value={formData.modelId}
+                      onChange={(val) => setFormData((p) => ({ ...p, modelId: val }))}
+                      options={modelOptions}
+                      placeholder="Seleziona modello"
+                      searchable
+                      searchPlaceholder="Cerca modello..."
+                      disabled={!formData.licenseId || modelOptions.length === 0}
+                    />
+                  </div>
+                  {!formData.licenseId && (
+                    <p className="mt-1 text-xs text-slate-500">Seleziona prima una licenza per vedere i modelli.</p>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-slate-700">Tipo sublicenza</label>
@@ -284,6 +411,14 @@ export default function AdminCheckupSublicensesPage() {
                     onChange={(e) => setFormData((p) => ({ ...p, attiva: e.target.checked }))}
                   />
                   Sublicenza attiva
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={formData.allowDocuments}
+                    onChange={(e) => setFormData((p) => ({ ...p, allowDocuments: e.target.checked }))}
+                  />
+                  Consenti caricamento documenti
                 </label>
                 <div className="flex justify-end gap-3 pt-2">
                   <button type="button" onClick={() => setShowModal(false)} className="wow-button-ghost">

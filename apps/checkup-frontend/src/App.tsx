@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
@@ -7,6 +8,8 @@ import SettingsPage from './pages/SettingsPage';
 import AdminWorkspacePage from './pages/AdminWorkspacePage';
 import ManageQuestionsPage from './pages/ManageQuestionsPage';
 import QuestionnairePage from './pages/QuestionnairePage';
+import SavedReportsPage from './pages/SavedReportsPage';
+import StudioDashboardPage from './pages/StudioDashboardPage';
 import { useAuth } from './contexts/AuthContext';
 import { CheckupAppLayout } from './layout/CheckupAppLayout';
 
@@ -17,6 +20,40 @@ function CheckupHome() {
 }
 
 export default function App() {
+  useEffect(() => {
+    const flagKey = 'asset_reload_once';
+    const shouldReload = (message: string) =>
+      /loading chunk|chunkloaderror|module script failed|importing a module script failed/i.test(message);
+
+    const onError = (event: ErrorEvent) => {
+      const msg = String(event?.message || '');
+      if (!shouldReload(msg)) return;
+      if (sessionStorage.getItem(flagKey) === '1') return;
+      sessionStorage.setItem(flagKey, '1');
+      window.location.reload();
+    };
+
+    const onRejection = (event: PromiseRejectionEvent) => {
+      const reason = event?.reason;
+      const msg = String(reason?.message || reason || '');
+      if (!shouldReload(msg)) return;
+      if (sessionStorage.getItem(flagKey) === '1') return;
+      sessionStorage.setItem(flagKey, '1');
+      window.location.reload();
+    };
+
+    if (sessionStorage.getItem(flagKey) === '1') {
+      sessionStorage.removeItem(flagKey);
+    }
+
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection);
+    };
+  }, []);
+
   return (
     <Routes>
       <Route path="/checkup/login" element={<LoginPage />} />
@@ -28,6 +65,28 @@ export default function App() {
           <ProtectedRoute>
             <CheckupAppLayout>
               <CheckupHome />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/checkup/dashboard-studio"
+        element={
+          <ProtectedRoute requiredRole="admin_studio">
+            <CheckupAppLayout>
+              <StudioDashboardPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/checkup/ricerca-clienti"
+        element={
+          <ProtectedRoute>
+            <CheckupAppLayout>
+              <PreassessmentPage />
             </CheckupAppLayout>
           </ProtectedRoute>
         }
@@ -83,6 +142,17 @@ export default function App() {
           <ProtectedRoute>
             <CheckupAppLayout>
               <SettingsPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/checkup/report-salvati"
+        element={
+          <ProtectedRoute>
+            <CheckupAppLayout>
+              <SavedReportsPage />
             </CheckupAppLayout>
           </ProtectedRoute>
         }

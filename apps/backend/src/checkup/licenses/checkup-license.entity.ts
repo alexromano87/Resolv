@@ -24,6 +24,9 @@ export class CheckupLicense {
   @Column({ type: 'uuid' })
   modelId: string;
 
+  @Column({ type: 'json', nullable: true })
+  modelIds: string[] | null;
+
   @Column({ length: 255 })
   intestatario: string;
 

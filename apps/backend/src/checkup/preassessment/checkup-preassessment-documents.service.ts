@@ -38,7 +38,7 @@ export class CheckupPreassessmentDocumentsService {
 
   private canEdit(preassessment: { clientId: string; studioCanEdit: boolean }, user: CheckupCurrentUserData) {
     if (user.clientId && user.clientId === preassessment.clientId) return true;
-    if (user.ruolo !== 'cliente' && preassessment.studioCanEdit) return true;
+    if (user.ruolo !== 'cliente') return true;
     return false;
   }
 
@@ -52,9 +52,15 @@ export class CheckupPreassessmentDocumentsService {
     if (!fieldId) {
       throw new NotFoundException('Campo non specificato');
     }
-    const { preassessment } = await this.preassessmentService.getPreassessmentForDocuments(preassessmentId, user);
+    const { preassessment, allowDocuments } = await this.preassessmentService.getPreassessmentForDocuments(
+      preassessmentId,
+      user,
+    );
     if (!this.canEdit(preassessment, user)) {
       throw new ForbiddenException('Modifiche non autorizzate');
+    }
+    if (!allowDocuments) {
+      throw new ForbiddenException('Caricamento documenti non consentito');
     }
 
     const ext = path.extname(file.originalname);

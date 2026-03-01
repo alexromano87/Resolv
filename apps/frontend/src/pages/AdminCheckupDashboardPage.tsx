@@ -114,8 +114,8 @@ export default function AdminCheckupDashboardPage() {
       <div className="wow-card p-6 md:p-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <span className="wow-chip">Checkup</span>
-          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Dashboard Checkup</h1>
-          <p className="text-sm text-slate-600 mt-1">Panoramica globale di licenze, clienti e utenze.</p>
+          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Dashboard pre-assessment</h1>
+          <p className="text-sm text-slate-600 mt-1">Panoramica globale di licenze, sublicenze e utenze.</p>
         </div>
       </div>
 
@@ -143,7 +143,7 @@ export default function AdminCheckupDashboardPage() {
                 <p className="text-lg font-semibold text-slate-900">{studioStats.licenziatari}</p>
               </div>
               <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-xs uppercase text-slate-400">Studi cliente</p>
+                <p className="text-xs uppercase text-slate-400">Sublicenziatari</p>
                 <p className="text-lg font-semibold text-slate-900">{studioStats.clientiStudio}</p>
               </div>
               <div className="rounded-lg bg-slate-50 p-3">
@@ -173,11 +173,11 @@ export default function AdminCheckupDashboardPage() {
                 <p className="text-lg font-semibold text-slate-900">{licenseStats.available}</p>
               </div>
               <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-xs uppercase text-slate-400">Sottolicenze</p>
+                <p className="text-xs uppercase text-slate-400">Sublicenze</p>
                 <p className="text-lg font-semibold text-slate-900">{sublicenseStats.total}</p>
               </div>
               <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-xs uppercase text-slate-400">Sottolicenze libere</p>
+                <p className="text-xs uppercase text-slate-400">Sublicenze libere</p>
                 <p className="text-lg font-semibold text-slate-900">{sublicenseStats.available}</p>
               </div>
             </div>
@@ -221,7 +221,7 @@ export default function AdminCheckupDashboardPage() {
                 <AlertTriangle className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm text-slate-500">Sottolicenze critiche</p>
+                <p className="text-sm text-slate-500">Sublicenze critiche</p>
                 <p className="text-2xl font-semibold text-slate-900">{sublicenseStats.expiringSoon}</p>
               </div>
             </div>

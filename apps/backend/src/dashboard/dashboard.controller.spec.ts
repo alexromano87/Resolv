@@ -19,7 +19,7 @@ describe('DashboardController', () => {
     email: 'admin@example.com',
     nome: 'Admin',
     cognome: 'User',
-    ruolo: 'admin',
+    ruolo: 'superadmin',
     clienteId: null,
     studioId: null,
   };
@@ -72,8 +72,8 @@ describe('DashboardController', () => {
       const result = { totalStudi: 10, totalPratiche: 100 };
       mockDashboardService.getAdminDashboard.mockResolvedValue(result);
 
-      expect(await controller.getAdminDashboard()).toBe(result);
-      expect(service.getAdminDashboard).toHaveBeenCalled();
+      expect(await controller.getAdminDashboard(adminUser)).toBe(result);
+      expect(service.getAdminDashboard).toHaveBeenCalledWith(undefined);
     });
   });
 

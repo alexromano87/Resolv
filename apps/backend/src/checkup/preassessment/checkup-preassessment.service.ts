@@ -72,6 +72,21 @@ export class CheckupPreassessmentService {
     return false;
   }
 
+  private async getSectionMetaByModel(modelId: string) {
+    const structure = await this.questionManagementService.getCompleteStructure(modelId);
+    const map = new Map<string, { macroId: string; requiredFields: string[] }>();
+    structure.forEach((macro) => {
+      const macroId = macro.code;
+      (macro.sections || []).forEach((section) => {
+        const requiredFields = (section.fields || [])
+          .filter((field) => field.required)
+          .map((field) => field.fieldId);
+        map.set(section.code, { macroId, requiredFields });
+      });
+    });
+    return map;
+  }
+
   private isOwnerForMacro(record: CheckupPreassessment, user: CheckupCurrentUserData, macroId: string) {
     if (user.ruolo !== 'cliente') return false;
     const field = CheckupPreassessmentService.OWNER_EMAIL_BY_MACRO[macroId];
@@ -94,8 +109,10 @@ export class CheckupPreassessmentService {
       data: {},
       notes: {},
       fieldNotes: {},
+      userFieldNotes: {},
       naFields: {},
       macroValidations: {},
+      sectionValidations: {},
       studioCanEdit: false,
       status: 'in_progress',
       completedAt: null,
@@ -125,8 +142,10 @@ export class CheckupPreassessmentService {
       data: {},
       notes: {},
       fieldNotes: {},
+      userFieldNotes: {},
       naFields: {},
       macroValidations: {},
+      sectionValidations: {},
       studioCanEdit: false,
       status: 'in_progress',
       completedAt: null,
@@ -231,7 +250,12 @@ export class CheckupPreassessmentService {
       }
     }
     if (dto.notes !== undefined) record.notes = dto.notes;
-    if (dto.fieldNotes !== undefined) record.fieldNotes = dto.fieldNotes;
+    if (dto.fieldNotes !== undefined && user.ruolo !== 'cliente') {
+      record.fieldNotes = dto.fieldNotes;
+    }
+    if (dto.userFieldNotes !== undefined && user.ruolo === 'cliente') {
+      record.userFieldNotes = dto.userFieldNotes;
+    }
     if (dto.naFields !== undefined) record.naFields = dto.naFields;
     if (dto.macroValidations !== undefined && user.ruolo === 'cliente') {
       const prev = record.macroValidations || {};
@@ -253,6 +277,54 @@ export class CheckupPreassessmentService {
       }
       record.macroValidations = next;
     }
+    if (dto.sectionValidations !== undefined && user.ruolo === 'cliente') {
+      const prev = record.sectionValidations || {};
+      const next = dto.sectionValidations || {};
+      const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+      const { modelId } = await this.resolveModelIdForClient(record.clientId);
+      const sectionMeta = await this.getSectionMetaByModel(modelId);
+      const recordForOwnerCheck = {
+        ...record,
+        data: { ...(record.data || {}), ...frozenOwnerEmails },
+      } as CheckupPreassessment;
+
+      for (const key of keys) {
+        const prevVal = prev[key];
+        const nextVal = next[key];
+        if (JSON.stringify(prevVal) === JSON.stringify(nextVal)) continue;
+        const meta = sectionMeta.get(key);
+        if (!meta) {
+          throw new NotFoundException('Sezione non trovata per la validazione');
+        }
+        if (!this.isOwnerForMacro(recordForOwnerCheck, user, meta.macroId)) {
+          throw new ForbiddenException('Solo l\'owner può validare la sezione');
+        }
+        if (nextVal) {
+          const data = record.data || {};
+          const naFields = record.naFields || {};
+          const required = meta.requiredFields || [];
+          const total = required.filter((fieldId) => !naFields[fieldId]).length;
+          const done = required.filter((fieldId) => !naFields[fieldId] && (data[fieldId] || '').trim() !== '').length;
+          if (total > 0 && done < total) {
+            throw new ForbiddenException('La sezione non è completa');
+          }
+        }
+      }
+
+      record.sectionValidations = next;
+
+      const sectionsToValidate = Array.from(sectionMeta.entries())
+        .filter(([_, meta]) => !this.isOwnerMacroArea(meta.macroId))
+        .map(([sectionId]) => sectionId);
+      if (sectionsToValidate.length > 0) {
+        const allValidated = sectionsToValidate.every((sectionId) => next[sectionId]);
+        if (allValidated) {
+          record.status = 'concluso';
+          record.completedAt = new Date();
+          record.completedById = user.id;
+        }
+      }
+    }
     if (dto.studioCanEdit !== undefined) record.studioCanEdit = dto.studioCanEdit;
 
     return this.preassessmentRepository.save(record);
@@ -269,10 +341,11 @@ export class CheckupPreassessmentService {
       where: { id: sublicense.licenseId },
       relations: ['model', 'studio'],
     });
-    if (!license || !license.modelId) {
+    const modelId = sublicense.modelId || license?.modelId || null;
+    if (!license || !modelId) {
       throw new ConflictException('Licenza senza modello associato');
     }
-    return { modelId: license.modelId, studioId: license.studioId, license };
+    return { modelId, studioId: license.studioId, license };
   }
 
   private async notifyCompletion(
@@ -384,8 +457,21 @@ export class CheckupPreassessmentService {
     return { preassessment, client };
   }
 
-  async getPreassessmentForDocuments(preassessmentId: string, currentUser: CheckupCurrentUserData) {
+  async getPreassessmentForReport(preassessmentId: string, currentUser: CheckupCurrentUserData) {
     return this.ensureAccessByPreassessment(currentUser, preassessmentId);
+  }
+
+  private async resolveAllowDocuments(clientId: string): Promise<boolean> {
+    const sublicense = await this.sublicenseRepository.findOne({
+      where: { clientId, attiva: true },
+    });
+    return sublicense?.allowDocuments ?? true;
+  }
+
+  async getPreassessmentForDocuments(preassessmentId: string, currentUser: CheckupCurrentUserData) {
+    const { preassessment, client } = await this.ensureAccessByPreassessment(currentUser, preassessmentId);
+    const allowDocuments = await this.resolveAllowDocuments(client.id);
+    return { preassessment, client, allowDocuments };
   }
 
   private cleanupPresence(preassessmentId: string) {
@@ -491,6 +577,9 @@ export class CheckupPreassessmentService {
 
     await this.ensureAccess(currentUser, client.id);
     const preassessment = await this.getOrCreateByClientId(client.id, currentUser);
+    const sublicense = await this.sublicenseRepository.findOne({
+      where: { clientId: client.id, attiva: true },
+    });
     return {
       client: {
         id: client.id,
@@ -500,6 +589,13 @@ export class CheckupPreassessmentService {
         azienda: client.ragioneSociale || client.nome,
         studioId: null,
         studioNome: null,
+        sublicense: sublicense
+          ? {
+              id: sublicense.id,
+              modelId: sublicense.modelId,
+              allowDocuments: sublicense.allowDocuments,
+            }
+          : null,
       },
       preassessment,
     };
@@ -515,13 +611,28 @@ export class CheckupPreassessmentService {
     const record = await this.getOrCreateByClientId(client.id, currentUser);
 
     if (!record.studioCanEdit) {
-      throw new ForbiddenException('Modifiche non autorizzate dal cliente');
+      const hasOtherUpdates =
+        dto.data !== undefined ||
+        dto.notes !== undefined ||
+        dto.naFields !== undefined ||
+        dto.macroValidations !== undefined ||
+        dto.studioCanEdit !== undefined ||
+        dto.userFieldNotes !== undefined;
+      if (hasOtherUpdates) {
+        throw new ForbiddenException('Modifiche non autorizzate dal cliente');
+      }
+      if (dto.fieldNotes === undefined) {
+        throw new ForbiddenException('Modifiche non autorizzate dal cliente');
+      }
     }
 
     this.applyFieldMeta(record, dto.data, dto.naFields, currentUser);
     if (dto.data !== undefined) record.data = dto.data;
     if (dto.notes !== undefined) record.notes = dto.notes;
     if (dto.fieldNotes !== undefined) record.fieldNotes = dto.fieldNotes;
+    if (dto.userFieldNotes !== undefined) {
+      throw new ForbiddenException('Solo il cliente può modificare le note utente');
+    }
     if (dto.naFields !== undefined) record.naFields = dto.naFields;
     if (dto.studioCanEdit !== undefined) {
       throw new ForbiddenException('Solo il cliente può modificare questa autorizzazione');
@@ -559,6 +670,7 @@ export class CheckupPreassessmentService {
 
     return clients.map((client) => {
       const pre = byClientId.get(client.id) || null;
+      const sublicense = sublicenses.find((s) => s.clientId === client.id) || null;
       const azienda = client.ragioneSociale || client.nome;
       return {
         client: {
@@ -569,6 +681,13 @@ export class CheckupPreassessmentService {
           azienda,
           studioId: null,
           studioNome: null,
+          sublicense: sublicense
+            ? {
+                id: sublicense.id,
+                modelId: sublicense.modelId,
+                allowDocuments: sublicense.allowDocuments,
+              }
+            : null,
         },
         preassessment: pre
           ? {

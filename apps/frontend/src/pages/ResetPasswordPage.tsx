@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { authApi } from '../api/auth';
 import { useToast } from '../components/ui/ToastProvider';
@@ -17,6 +18,9 @@ export default function ResetPasswordPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const canSubmit = useMemo(() => {
     return email.trim() && token.trim() && newPassword.trim() && newPassword === confirmPassword;
@@ -41,47 +45,87 @@ export default function ResetPasswordPage() {
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-              Email
+              Email <span className="text-rose-600">*</span>
             </label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              className={[
+                'w-full rounded-2xl border bg-white/90 px-4 py-3 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+                submitAttempted && !email.trim()
+                  ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200/60'
+                  : 'border-white/70 focus:border-indigo-500 focus:ring-indigo-200/60',
+              ].join(' ')}
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-              Token
+              Token <span className="text-rose-600">*</span>
             </label>
             <input
               type="text"
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              className="w-full rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              className={[
+                'w-full rounded-2xl border bg-white/90 px-4 py-3 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+                submitAttempted && !token.trim()
+                  ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200/60'
+                  : 'border-white/70 focus:border-indigo-500 focus:ring-indigo-200/60',
+              ].join(' ')}
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-              Nuova password
+              Nuova password <span className="text-rose-600">*</span>
             </label>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-            />
+            <div className="relative">
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className={[
+                  'w-full rounded-2xl border bg-white/90 px-4 py-3 pr-11 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+                  submitAttempted && !newPassword.trim()
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200/60'
+                    : 'border-white/70 focus:border-indigo-500 focus:ring-indigo-200/60',
+                ].join(' ')}
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
+                tabIndex={-1}
+              >
+                {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-              Conferma password
+              Conferma password <span className="text-rose-600">*</span>
             </label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-            />
+            <div className="relative">
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className={[
+                  'w-full rounded-2xl border bg-white/90 px-4 py-3 pr-11 text-sm text-slate-900 shadow-[0_12px_28px_rgba(15,23,42,0.12)] outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+                  submitAttempted && !confirmPassword.trim()
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200/60'
+                    : 'border-white/70 focus:border-indigo-500 focus:ring-indigo-200/60',
+                ].join(' ')}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
+                tabIndex={-1}
+              >
+                {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -97,6 +141,7 @@ export default function ResetPasswordPage() {
             type="button"
             disabled={!canSubmit || loading}
             onClick={async () => {
+              setSubmitAttempted(true);
               if (!canSubmit) return;
               if (newPassword !== confirmPassword) {
                 error('Le password non coincidono');

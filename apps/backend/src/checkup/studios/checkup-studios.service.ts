@@ -64,26 +64,26 @@ export class CheckupStudiosService {
     clientId?: string,
   ) {
     if (sublicense.licenseId !== licenseId) {
-      throw new ForbiddenException('Sottolicenza non valida per questa licenza');
+      throw new ForbiddenException('Sublicenza non valida per questa licenza');
     }
     if (!sublicense.tipo || !sublicense.dataInizioValidita || !sublicense.dataScadenza) {
-      throw new ConflictException('Completa la sottolicenza prima di assegnarla');
+      throw new ConflictException('Completa la sublicenza prima di assegnarla');
     }
     if (!sublicense.attiva) {
-      throw new ConflictException('La sottolicenza non è attiva');
+      throw new ConflictException('La sublicenza non è attiva');
     }
     if (this.isExpired(sublicense.dataScadenza)) {
-      throw new ConflictException('La sottolicenza è scaduta');
+      throw new ConflictException('La sublicenza è scaduta');
     }
     if (sublicense.clientId && sublicense.clientId !== clientId) {
-      throw new ConflictException('La sottolicenza è già assegnata');
+      throw new ConflictException('La sublicenza è già assegnata');
     }
     if (clientId) {
       const alreadyAssigned = await this.sublicenseRepository.findOne({
         where: { licenseId, clientId },
       });
       if (alreadyAssigned && alreadyAssigned.id !== sublicense.id) {
-        throw new ConflictException('Il cliente ha già una sottolicenza associata');
+        throw new ConflictException('Il cliente ha già una sublicenza associata');
       }
     }
   }
@@ -259,7 +259,7 @@ export class CheckupStudiosService {
     const license = await this.getLicenseForAdmin(currentUser);
     const sublicense = await this.sublicenseRepository.findOne({ where: { id: dto.sublicenseId } });
     if (!sublicense) {
-      throw new NotFoundException('Sottolicenza non trovata');
+      throw new NotFoundException('Sublicenza non trovata');
     }
     await this.ensureSublicenseAssignable(sublicense, license.id);
 
@@ -350,7 +350,7 @@ export class CheckupStudiosService {
     if (dto.sublicenseId && dto.sublicenseId !== existingSublicense.id) {
       const target = await this.sublicenseRepository.findOne({ where: { id: dto.sublicenseId } });
       if (!target) {
-        throw new NotFoundException('Sottolicenza non trovata');
+        throw new NotFoundException('Sublicenza non trovata');
       }
       await this.ensureSublicenseAssignable(target, license.id, client.id);
       existingSublicense.clientId = null;

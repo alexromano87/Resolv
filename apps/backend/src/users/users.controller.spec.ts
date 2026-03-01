@@ -6,6 +6,15 @@ import { NotFoundException } from '@nestjs/common';
 describe('UsersController', () => {
   let controller: UsersController;
   let service: UsersService;
+  const superadminUser = {
+    id: 'super-1',
+    email: 'admin@resolv.legal',
+    nome: 'Super',
+    cognome: 'Admin',
+    ruolo: 'superadmin',
+    clienteId: null,
+    studioId: null,
+  };
 
   const mockUser = {
     id: 'user-1',
@@ -55,7 +64,7 @@ describe('UsersController', () => {
 
       mockUsersService.create.mockResolvedValue(mockUser);
 
-      const result = await controller.create(createDto);
+      const result = await controller.create(superadminUser, createDto);
 
       expect(service.create).toHaveBeenCalledWith(createDto);
       expect(result).toEqual(mockUser);
@@ -73,7 +82,7 @@ describe('UsersController', () => {
 
       mockUsersService.findAll.mockResolvedValue(mockResult);
 
-      const result = await controller.findAll(1, 10, undefined, undefined);
+      const result = await controller.findAll(superadminUser, undefined, undefined, undefined, '1', '10');
 
       expect(service.findAll).toHaveBeenCalled();
       expect(result).toEqual(mockResult);
@@ -84,16 +93,16 @@ describe('UsersController', () => {
     it('should return a single user', async () => {
       mockUsersService.findOne.mockResolvedValue(mockUser);
 
-      const result = await controller.findOne('user-1');
+      const result = await controller.findOne(superadminUser, 'user-1');
 
-      expect(service.findOne).toHaveBeenCalledWith('user-1');
+      expect(service.findOne).toHaveBeenCalledWith('user-1', false);
       expect(result).toEqual(mockUser);
     });
 
     it('should throw NotFoundException when user not found', async () => {
       mockUsersService.findOne.mockRejectedValue(new NotFoundException());
 
-      await expect(controller.findOne('invalid-id')).rejects.toThrow(NotFoundException);
+      await expect(controller.findOne(superadminUser, 'invalid-id')).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -102,9 +111,10 @@ describe('UsersController', () => {
       const updateDto = { nome: 'Updated' };
       const updatedUser = { ...mockUser, ...updateDto };
 
+      mockUsersService.findOne.mockResolvedValue(mockUser);
       mockUsersService.update.mockResolvedValue(updatedUser);
 
-      const result = await controller.update('user-1', updateDto);
+      const result = await controller.update(superadminUser, 'user-1', updateDto);
 
       expect(service.update).toHaveBeenCalledWith('user-1', updateDto);
       expect(result.nome).toBe('Updated');
@@ -115,7 +125,7 @@ describe('UsersController', () => {
     it('should remove a user', async () => {
       mockUsersService.remove.mockResolvedValue(undefined);
 
-      await controller.remove('user-1');
+      await controller.remove(superadminUser, 'user-1');
 
       expect(service.remove).toHaveBeenCalledWith('user-1');
     });

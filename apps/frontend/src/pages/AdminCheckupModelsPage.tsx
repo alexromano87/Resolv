@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search, Pencil, Trash2, Layers, FileText, CheckCircle2, X, Save, Eye } from 'lucide-react';
 import { BodyPortal } from '../components/ui/BodyPortal';
+import { CustomSelect } from '../components/ui/CustomSelect';
 import { useToast } from '../components/ui/ToastProvider';
 import * as questionApi from '../api/checkupQuestions';
 
@@ -47,7 +48,7 @@ export default function AdminCheckupModelsPage() {
   }, [models, query, status]);
 
   const handleOpenCreate = () => {
-    setEditingModel({ code: '', label: '', description: '', attivo: true });
+    setEditingModel({ code: '', label: '', description: '', attivo: true, importFromModelId: '' });
   };
 
   const handleOpenEdit = (model: questionApi.QuestionModel) => {
@@ -81,6 +82,7 @@ export default function AdminCheckupModelsPage() {
           code: editingModel.code.trim(),
           label: editingModel.label.trim(),
           description: editingModel.description?.trim(),
+          importFromModelId: editingModel.importFromModelId?.trim() || undefined,
         });
         success('Modello creato');
       }
@@ -297,6 +299,30 @@ export default function AdminCheckupModelsPage() {
                     placeholder="Breve descrizione del questionario"
                   />
                 </div>
+                {!editingModel.id && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Importa struttura da</label>
+                    <div className="mt-1">
+                      <CustomSelect
+                        value={editingModel.importFromModelId || ''}
+                        onChange={(val) => setEditingModel({ ...editingModel, importFromModelId: val })}
+                        options={models
+                          .filter((model) => model.id !== editingModel.id)
+                          .map((model) => ({
+                            value: model.id,
+                            label: model.label,
+                            sublabel: model.code,
+                          }))}
+                        placeholder="Nessun modello (struttura vuota)"
+                        searchable
+                        searchPlaceholder="Cerca modello..."
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Seleziona un modello di partenza per copiare macro-aree, sezioni e campi.
+                    </p>
+                  </div>
+                )}
                 <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
                   <input
                     type="checkbox"

@@ -6,6 +6,7 @@ import { JwtService } from '@nestjs/jwt';
 import { EmailService } from '../notifications/email.service';
 import * as bcrypt from 'bcrypt';
 import { UnauthorizedException, ConflictException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 // Mock bcrypt at module level
 jest.mock('bcrypt');
@@ -20,7 +21,8 @@ const makeQueryBuilder = (result: any) => {
     where: jest.fn().mockReturnThis(),
     orWhere: jest.fn().mockReturnThis(),
     leftJoinAndSelect: jest.fn().mockReturnThis(),
-    getOne: jest.fn().mockResolvedValue(result),
+    getOne: jest.fn().mockResolvedValue(Array.isArray(result) ? result[0] : result),
+    getMany: jest.fn().mockResolvedValue(Array.isArray(result) ? result : [result]),
   };
   return builder;
 };
@@ -31,6 +33,7 @@ describe('AuthService', () => {
   let clienteRepository: MockRepo<Cliente>;
   let jwtService: JwtService;
   let emailService: EmailService;
+  let configService: ConfigService;
 
   beforeEach(() => {
     // Reset all bcrypt mocks
@@ -53,12 +56,16 @@ describe('AuthService', () => {
     emailService = {
       sendEmail: jest.fn(),
     } as unknown as EmailService;
+    configService = {
+      get: jest.fn().mockReturnValue('false'),
+    } as unknown as ConfigService;
 
     service = new AuthService(
       userRepository as Repository<User>,
       clienteRepository as Repository<Cliente>,
       jwtService,
       emailService,
+      configService,
     );
   });
 

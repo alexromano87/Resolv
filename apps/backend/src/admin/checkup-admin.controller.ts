@@ -1,8 +1,12 @@
-import { Body, ConflictException, Controller, Get, NotFoundException, Post, UseGuards, Param, Put, Patch, Delete, Query } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, NotFoundException, Post, UseGuards, Param, Put, Patch, Delete, Query, BadRequestException, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
+import { Repository, Not, In } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import type { Express } from 'express';
+import * as ExcelJS from 'exceljs';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SuperadminGuard } from '../auth/superadmin.guard';
 import { CheckupStudio } from '../checkup/studios/checkup-studio.entity';
@@ -290,10 +294,10 @@ export class CheckupAdminController {
         relations: ['client'],
       });
       if (!sublicense || !sublicense.clientId) {
-        throw new ConflictException('Sottolicenza non trovata');
+        throw new ConflictException('Sublicenza non trovata');
       }
       if (sublicense.clientId !== clientId) {
-        throw new ConflictException('La sottolicenza selezionata non è assegnata al cliente');
+        throw new ConflictException('La sublicenza selezionata non è assegnata al cliente');
       }
       return sublicense;
     }
@@ -302,10 +306,10 @@ export class CheckupAdminController {
       where: { clientId, attiva: true },
     });
     if (!sublicenses.length) {
-      throw new ConflictException('Sottolicenza non trovata o non attiva');
+      throw new ConflictException('Sublicenza non trovata o non attiva');
     }
     if (sublicenses.length > 1) {
-      throw new ConflictException('Seleziona la sottolicenza da assegnare');
+      throw new ConflictException('Seleziona la sublicenza da assegnare');
     }
     return sublicenses[0];
   }
@@ -313,20 +317,20 @@ export class CheckupAdminController {
   private async ensureClientCapacity(clientId: string, sublicenseId: string, excludeUserId?: string) {
     const sublicense = await this.resolveClientSublicense(clientId, sublicenseId);
     if (!sublicense.tipo || !sublicense.dataInizioValidita || !sublicense.dataScadenza) {
-      throw new ConflictException('Completa la sottolicenza prima di assegnarla');
+      throw new ConflictException('Completa la sublicenza prima di assegnarla');
     }
     if (!sublicense.attiva) {
-      throw new ConflictException('La sottolicenza non è attiva');
+      throw new ConflictException('La sublicenza non è attiva');
     }
     if (this.isExpired(sublicense.dataScadenza)) {
-      throw new ConflictException('La sottolicenza è scaduta');
+      throw new ConflictException('La sublicenza è scaduta');
     }
 
     const where: any = { sublicenseId, attivo: true };
     if (excludeUserId) where.id = Not(excludeUserId);
     const activeCount = await this.userRepository.count({ where });
     if (activeCount >= sublicense.numeroUtenze) {
-      throw new ConflictException('Limite utenti sottolicenza raggiunto');
+      throw new ConflictException('Limite utenti sublicenza raggiunto');
     }
   }
 
@@ -447,7 +451,7 @@ export class CheckupAdminController {
         throw new NotFoundException('Cliente non trovato');
       }
       if (!nextSublicenseId) {
-        throw new ConflictException('Seleziona la sottolicenza per l\'utente');
+        throw new ConflictException('Seleziona la sublicenza per l\'utente');
       }
       const clientSublicense = await this.resolveClientSublicense(nextClientId, nextSublicenseId);
       const license = await this.licenseRepository.findOne({ where: { id: clientSublicense.licenseId }, relations: ['model'] });
@@ -577,19 +581,19 @@ export class CheckupAdminController {
   async createClient(@Body() dto: CreateCheckupClientDto): Promise<CheckupClient> {
     const sublicense = await this.sublicenseRepository.findOne({ where: { id: dto.sublicenseId } });
     if (!sublicense) {
-      throw new NotFoundException('Sottolicenza non trovata');
+      throw new NotFoundException('Sublicenza non trovata');
     }
     if (sublicense.clientId) {
-      throw new ConflictException('La sottolicenza è già assegnata');
+      throw new ConflictException('La sublicenza è già assegnata');
     }
     if (!sublicense.attiva) {
-      throw new ConflictException('La sottolicenza non è attiva');
+      throw new ConflictException('La sublicenza non è attiva');
     }
     if (!sublicense.tipo || !sublicense.dataInizioValidita || !sublicense.dataScadenza) {
-      throw new ConflictException('Completa la sottolicenza prima di assegnarla');
+      throw new ConflictException('Completa la sublicenza prima di assegnarla');
     }
     if (this.isExpired(sublicense.dataScadenza)) {
-      throw new ConflictException('La sottolicenza è scaduta');
+      throw new ConflictException('La sublicenza è scaduta');
     }
 
     const client = this.clientRepository.create({
@@ -657,9 +661,22 @@ export class CheckupAdminController {
 
   @Get('licenses')
   async listLicenses(): Promise<CheckupLicense[]> {
-    return this.licenseRepository.find({
+    const licenses = await this.licenseRepository.find({
       relations: ['studio', 'model', 'sublicenses', 'sublicenses.clienteStudio', 'sublicenses.client'],
       order: { updatedAt: 'DESC' },
+    });
+    const activeCounts = await this.sublicenseRepository
+      .createQueryBuilder('sublicense')
+      .select('sublicense.licenseId', 'licenseId')
+      .addSelect('COUNT(*)', 'count')
+      .where('sublicense.attiva = :attiva', { attiva: true })
+      .groupBy('sublicense.licenseId')
+      .getRawMany<{ licenseId: string; count: string }>();
+    const countMap = new Map(activeCounts.map((row) => [row.licenseId, Number(row.count)]));
+    return licenses.map((license) => {
+      const fallbackCount = license.sublicenses?.filter((s) => s.attiva).length ?? 0;
+      license.numeroSottolicenze = countMap.get(license.id) ?? fallbackCount;
+      return license;
     });
   }
 
@@ -708,15 +725,38 @@ export class CheckupAdminController {
       return this.questionModelRepository.save(created);
     };
 
-    const model = await resolveModel(dto.modelId?.trim() || null);
+    const requestedIds = Array.from(
+      new Set(
+        (dto.modelIds?.length ? dto.modelIds : dto.modelId ? [dto.modelId] : [])
+          .map((id) => id?.trim())
+          .filter(Boolean) as string[],
+      ),
+    );
+
+    const model = await resolveModel(requestedIds[0] || null);
+    let modelIds = requestedIds.length ? requestedIds : [model.id];
+    if (modelIds.length) {
+      const existingModels = await this.questionModelRepository.find({
+        where: { id: In(modelIds) },
+      });
+      if (existingModels.length !== modelIds.length) {
+        throw new NotFoundException('Uno o più modelli non trovati');
+      }
+      const existingSet = new Set(existingModels.map((m) => m.id));
+      modelIds = modelIds.filter((id) => existingSet.has(id));
+      if (!modelIds.length) {
+        modelIds = [model.id];
+      }
+    }
 
     const payload = {
       studioId: studio?.id ?? null,
       modelId: model.id,
+      modelIds,
       intestatario: dto.intestatario?.trim() || studio?.ragioneSociale?.trim() || studio?.nome || 'Licenza',
       tipo: dto.tipo.trim(),
       numeroUtenze: Number(dto.numeroUtenze),
-      numeroSottolicenze: 0,
+      numeroSublicenze: 0,
       dataInizioValidita: dto.dataInizioValidita,
       dataScadenza: dto.dataScadenza,
     };
@@ -726,9 +766,11 @@ export class CheckupAdminController {
       if (!existing) {
         throw new NotFoundException('Licenza non trovata');
       }
+      const shouldUpdateModels = Boolean(dto.modelId || (dto.modelIds && dto.modelIds.length));
       this.licenseRepository.merge(existing, {
         ...payload,
-        modelId: dto.modelId ? model.id : existing.modelId,
+        modelId: shouldUpdateModels ? model.id : existing.modelId,
+        modelIds: shouldUpdateModels ? modelIds : existing.modelIds ?? modelIds,
         numeroSottolicenze: existing.numeroSottolicenze ?? 0,
       });
       if (!existing.numeroLicenza) {
@@ -763,6 +805,13 @@ export class CheckupAdminController {
       throw new ConflictException('Compila tutti i campi obbligatori');
     }
 
+    const allowedModels = (license.modelIds && license.modelIds.length)
+      ? new Set(license.modelIds)
+      : new Set([license.modelId]);
+    if (dto.modelId && !allowedModels.has(dto.modelId)) {
+      throw new BadRequestException('Modello non associato alla licenza');
+    }
+
     const payload: Partial<CheckupSublicense> = {
       licenseId: license.id,
       numeroUtenze: Number(dto.numeroUtenze),
@@ -770,6 +819,8 @@ export class CheckupAdminController {
       dataInizioValidita: dto.dataInizioValidita,
       dataScadenza: dto.dataScadenza,
       attiva: dto.attiva ?? true,
+      allowDocuments: dto.allowDocuments ?? true,
+      modelId: dto.modelId || license.modelId,
     };
 
     if (dto.clientId !== undefined) {
@@ -788,20 +839,31 @@ export class CheckupAdminController {
     if (dto.id) {
       const existing = await this.sublicenseRepository.findOne({ where: { id: dto.id } });
       if (!existing) {
-        throw new NotFoundException('Sottolicenza non trovata');
+        throw new NotFoundException('Sublicenza non trovata');
       }
       this.sublicenseRepository.merge(existing, payload);
       if (!existing.numeroSublicenza) {
         existing.numeroSublicenza = await this.generateSublicenseNumber();
       }
-      return this.sublicenseRepository.save(existing);
+      const saved = await this.sublicenseRepository.save(existing);
+      await this.refreshLicenseSublicenseCount(license.id);
+      return saved;
     }
 
     const sublicense = this.sublicenseRepository.create({
       ...payload,
       numeroSublicenza: await this.generateSublicenseNumber(),
     });
-    return this.sublicenseRepository.save(sublicense);
+    const saved = await this.sublicenseRepository.save(sublicense);
+    await this.refreshLicenseSublicenseCount(license.id);
+    return saved;
+  }
+
+  private async refreshLicenseSublicenseCount(licenseId: string) {
+    const count = await this.sublicenseRepository.count({
+      where: { licenseId, attiva: true },
+    });
+    await this.licenseRepository.update(licenseId, { numeroSottolicenze: count });
   }
 
   private async generateSublicenseNumber(): Promise<string> {
@@ -832,6 +894,50 @@ export class CheckupAdminController {
   @Get('questions/fields')
   async getAllFields() {
     return this.questionManagementService.getAllFields();
+  }
+
+  @Post('questions/import')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async importQuestionsExcel(
+    @Body('modelId') modelId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!modelId) {
+      throw new BadRequestException('ModelId mancante');
+    }
+    if (!file) {
+      throw new BadRequestException('File mancante');
+    }
+    const model = await this.questionModelRepository.findOne({ where: { id: modelId } });
+    if (!model) {
+      throw new NotFoundException('Modello non trovato');
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const fileBuffer = file.buffer as any;
+    await workbook.xlsx.load(fileBuffer);
+    const worksheet = workbook.worksheets[0];
+    const headerRow = worksheet?.getRow(1);
+    const headerValues = Array.isArray(headerRow?.values) ? headerRow!.values : [];
+    const columns = headerValues
+      .slice(1)
+      .map((v) => String(v || '').trim())
+      .filter(Boolean);
+    const rows = worksheet ? Math.max(0, worksheet.rowCount - 1) : 0;
+
+    return {
+      ok: true,
+      modelId,
+      filename: file.originalname,
+      rows,
+      columns,
+      message: 'Import ricevuto. Mappatura colonne in definizione.',
+    };
   }
 
   // Models CRUD

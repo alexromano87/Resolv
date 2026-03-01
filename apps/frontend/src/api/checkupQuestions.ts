@@ -72,6 +72,7 @@ export interface CreateQuestionModelDto {
   code: string;
   label: string;
   description?: string;
+  importFromModelId?: string;
 }
 
 export interface UpdateQuestionModelDto {

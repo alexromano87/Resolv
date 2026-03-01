@@ -31,6 +31,10 @@ import { NazioniModule } from './nazioni/nazioni.module';
 import { LicenseRequestsModule } from './license-requests/license-requests.module';
 import { CheckupModule } from './checkup/checkup.module';
 import { CheckupAdminModule } from './admin/checkup-admin.module';
+import { CheckupAuditLogModule } from './checkup/audit/checkup-audit-log.module';
+import { CheckupExportModule } from './checkup/export/checkup-export.module';
+import { CheckupImportModule } from './checkup/import/checkup-import.module';
+import { CheckupBackupModule } from './checkup/backup/checkup-backup.module';
 import { APP_GUARD } from '@nestjs/core';
 import { RedisRateLimitGuard } from './common/redis-rate-limit.guard';
 import { HealthController } from './health/health.controller';
@@ -103,6 +107,10 @@ import { CacheService } from './common/cache.service';
     LicenseRequestsModule,
     CheckupModule,
     CheckupAdminModule,
+    CheckupAuditLogModule,
+    CheckupExportModule,
+    CheckupImportModule,
+    CheckupBackupModule,
   ],
   controllers: [HealthController],
   providers: [

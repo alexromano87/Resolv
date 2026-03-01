@@ -8,6 +8,17 @@ import { ToastProvider } from './components/ui/ToastProvider';
 import { AuthProvider } from './contexts/AuthContext';
 import { SettingsSync } from './components/ui/SettingsSync';
 
+document.addEventListener(
+  'submit',
+  (event) => {
+    const form = event.target;
+    if (form instanceof HTMLFormElement) {
+      form.classList.add('form-submitted');
+    }
+  },
+  true,
+);
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider>

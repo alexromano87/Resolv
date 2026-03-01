@@ -27,11 +27,17 @@ export interface CheckupUser {
     tipo: string;
     numeroUtenze: number;
     numeroSottolicenze: number;
+    modelIds?: string[] | null;
     model?: {
       id: string;
       code: string;
       label: string;
     } | null;
+  } | null;
+  sublicense?: {
+    id: string;
+    modelId?: string | null;
+    allowDocuments?: boolean;
   } | null;
 }
 

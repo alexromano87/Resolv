@@ -19,11 +19,19 @@ export default function LoginPage() {
   const [recoverCode, setRecoverCode] = useState('');
   const [recoverPassword, setRecoverPassword] = useState('');
   const [recoverConfirm, setRecoverConfirm] = useState('');
+  const [showRecoverPassword, setShowRecoverPassword] = useState(false);
+  const [showRecoverConfirm, setShowRecoverConfirm] = useState(false);
   const [recoverLoading, setRecoverLoading] = useState(false);
   const [recoverError, setRecoverError] = useState('');
   const [recoverInfo, setRecoverInfo] = useState('');
   const { setSession } = useAuth();
   const navigate = useNavigate();
+
+  const forceClientDashboard = (user: { ruolo?: string; clientId?: string | null }) => {
+    if (user?.ruolo !== 'cliente' || !user.clientId) return;
+    const key = `checkup_preassessment_view_${user.clientId}`;
+    localStorage.setItem(key, JSON.stringify({ view: 'dashboard', panel: null }));
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -34,6 +42,7 @@ export default function LoginPage() {
       const res = await authApi.login(email, password);
       if ('access_token' in res) {
         setSession(res.access_token, res.user);
+        forceClientDashboard(res.user);
         navigate('/checkup/', { replace: true });
       } else {
         setTwoFactorUserId(res.userId);
@@ -54,6 +63,7 @@ export default function LoginPage() {
     try {
       const res = await authApi.verifyTwoFactorLogin(twoFactorUserId, twoFactorCode.trim());
       setSession(res.access_token, res.user);
+      forceClientDashboard(res.user);
       navigate('/checkup/', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Codice 2FA non valido');
@@ -425,6 +435,7 @@ export default function LoginPage() {
                   type="email"
                   value={recoverEmail}
                   onChange={(e) => setRecoverEmail(e.target.value)}
+                  required
                   className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
                   placeholder="nome@azienda.it"
                 />
@@ -440,6 +451,7 @@ export default function LoginPage() {
                       inputMode="numeric"
                       value={recoverCode}
                       onChange={(e) => setRecoverCode(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                      required
                       className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
                       placeholder="Codice ricevuto"
                     />
@@ -448,25 +460,47 @@ export default function LoginPage() {
                     <label className="block text-sm font-semibold text-slate-700 mb-2">
                       Nuova password
                     </label>
-                    <input
-                      type="password"
-                      value={recoverPassword}
-                      onChange={(e) => setRecoverPassword(e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
-                      placeholder="Nuova password"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showRecoverPassword ? 'text' : 'password'}
+                        value={recoverPassword}
+                        onChange={(e) => setRecoverPassword(e.target.value)}
+                        required
+                        className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 pr-12 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
+                        placeholder="Nuova password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRecoverPassword((prev) => !prev)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                        tabIndex={-1}
+                      >
+                        {showRecoverPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-2">
                       Conferma password
                     </label>
-                    <input
-                      type="password"
-                      value={recoverConfirm}
-                      onChange={(e) => setRecoverConfirm(e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
-                      placeholder="Conferma password"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showRecoverConfirm ? 'text' : 'password'}
+                        value={recoverConfirm}
+                        onChange={(e) => setRecoverConfirm(e.target.value)}
+                        required
+                        className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 pr-12 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
+                        placeholder="Conferma password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRecoverConfirm((prev) => !prev)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                        tabIndex={-1}
+                      >
+                        {showRecoverConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
                 </>
               )}

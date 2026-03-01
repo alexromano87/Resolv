@@ -174,3 +174,27 @@ html.theme-transition *::after {
 .modal-content {
   animation: none;
 }
+
+.form-submitted input:invalid,
+.form-submitted select:invalid,
+.form-submitted textarea:invalid {
+  border-color: rgba(239, 68, 68, 0.75) !important;
+  box-shadow: 0 0 0 3px rgba(252, 165, 165, 0.35) !important;
+}
+
+.form-submitted input:invalid:focus,
+.form-submitted select:invalid:focus,
+.form-submitted textarea:invalid:focus {
+  border-color: rgba(239, 68, 68, 0.9) !important;
+  box-shadow: 0 0 0 3px rgba(252, 165, 165, 0.45) !important;
+}
+
+label:has(+ input[required])::after,
+label:has(+ textarea[required])::after,
+label:has(+ select[required])::after,
+label:has(+ div input[required])::after,
+label:has(+ div textarea[required])::after,
+label:has(+ div select[required])::after {
+  content: ' *';
+  color: #ef4444;
+}

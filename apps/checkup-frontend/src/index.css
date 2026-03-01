@@ -96,6 +96,17 @@ textarea:disabled {
 }
 
 @layer components {
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+
   .wow-card {
     @apply rounded-2xl border border-blue-200/40 bg-white shadow-[0_16px_48px_rgba(15,23,42,0.1)] transition duration-200 hover:shadow-[0_24px_64px_rgba(15,23,42,0.14)] hover:border-blue-300/50 dark:border-slate-700 dark:bg-slate-900/80 dark:shadow-none;
   }
@@ -116,8 +127,43 @@ textarea:disabled {
     @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:border-slate-400;
   }
 
-  .wow-stagger > *,
-  .wow-stagger-rows tbody tr {
-    animation: none;
-  }
+.form-submitted input:invalid,
+.form-submitted select:invalid,
+.form-submitted textarea:invalid {
+  border-color: rgba(239, 68, 68, 0.75);
+  box-shadow: 0 0 0 3px rgba(252, 165, 165, 0.35);
+}
+
+.form-submitted input:invalid:focus,
+.form-submitted select:invalid:focus,
+.form-submitted textarea:invalid:focus {
+  border-color: rgba(239, 68, 68, 0.9);
+  box-shadow: 0 0 0 3px rgba(252, 165, 165, 0.45);
+}
+
+label:has(+ input[required])::after,
+label:has(+ textarea[required])::after,
+label:has(+ select[required])::after,
+label:has(+ div input[required])::after,
+label:has(+ div textarea[required])::after,
+label:has(+ div select[required])::after {
+  content: ' *';
+  color: #ef4444;
+}
+
+.wow-stagger > *,
+.wow-stagger-rows tbody tr {
+  animation: none;
+}
+
+.body-portal-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 999;
+}
+
+.body-portal-root > * {
+  pointer-events: auto;
+}
 }

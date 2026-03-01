@@ -1,4 +1,4 @@
-import { IsDateString, IsInt, IsOptional, IsString, Min, MinLength, IsUUID } from 'class-validator';
+import { IsArray, IsDateString, IsInt, IsOptional, IsString, Min, MinLength, IsUUID } from 'class-validator';
 
 export class CreateCheckupLicenseDto {
   @IsOptional()
@@ -12,6 +12,11 @@ export class CreateCheckupLicenseDto {
   @IsOptional()
   @IsUUID()
   modelId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  modelIds?: string[];
 
   @IsOptional()
   @IsString()

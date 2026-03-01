@@ -328,7 +328,7 @@ export default function AdminCheckupClientsPage() {
       <div className="wow-card p-6 md:p-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <span className="wow-chip">Checkup</span>
-          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione Clienti</h1>
+          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione sublicenziatari</h1>
           <p className="text-sm text-slate-600 mt-1">
             Crea i clienti e associa le sublicenze disponibili.
           </p>
@@ -341,7 +341,10 @@ export default function AdminCheckupClientsPage() {
                 setFilterStudioId(val);
                 setCurrentPage(1);
               }}
-              options={licenziatariStudios.map((s) => ({ value: s.id, label: s.nome }))}
+              options={[
+                { value: '', label: 'Tutti gli studi' },
+                ...licenziatariStudios.map((s) => ({ value: s.id, label: s.nome })),
+              ]}
               placeholder="Filtra per studio"
               searchable
               searchPlaceholder="Cerca studio..."

@@ -21,6 +21,9 @@ export class CheckupSublicense {
   licenseId: string;
 
   @Column({ type: 'uuid', nullable: true })
+  modelId: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
   clienteStudioId: string | null;
 
   @Column({ type: 'uuid', nullable: true })
@@ -44,6 +47,9 @@ export class CheckupSublicense {
 
   @Column({ default: true })
   attiva: boolean;
+
+  @Column({ default: true })
+  allowDocuments: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

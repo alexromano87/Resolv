@@ -13,6 +13,10 @@ export class CreateQuestionModelDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsUUID()
+  importFromModelId?: string;
 }
 
 export class UpdateQuestionModelDto {

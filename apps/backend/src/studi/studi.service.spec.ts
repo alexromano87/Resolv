@@ -10,6 +10,7 @@ import { User } from '../users/user.entity';
 import { Avvocato } from '../avvocati/avvocato.entity';
 import { Pratica } from '../pratiche/pratica.entity';
 import { BackupService } from './backup.service';
+import { UsersService } from '../users/users.service';
 
 describe('StudiService', () => {
   let service: StudiService;
@@ -33,7 +34,8 @@ describe('StudiService', () => {
         { provide: getRepositoryToken(User), useValue: mockRepository() },
         { provide: getRepositoryToken(Avvocato), useValue: mockRepository() },
         { provide: getRepositoryToken(Pratica), useValue: mockRepository() },
-        { provide: BackupService, useValue: { createBackup: jest.fn() } },
+        { provide: BackupService, useValue: { createStudioBackup: jest.fn() } },
+        { provide: UsersService, useValue: { create: jest.fn() } },
       ],
     }).compile();
 

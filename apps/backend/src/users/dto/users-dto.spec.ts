@@ -19,7 +19,7 @@ describe('Users DTOs', () => {
     });
 
     it('should accept all valid roles', async () => {
-      const roles = ['superuser', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'];
+      const roles = ['superadmin', 'titolare_studio', 'avvocato', 'collaboratore', 'segreteria', 'cliente'];
 
       for (const ruolo of roles) {
         const dto = plainToClass(CreateUserDto, {

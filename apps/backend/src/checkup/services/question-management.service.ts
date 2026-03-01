@@ -29,6 +29,109 @@ export class QuestionManagementService {
     private modelRepo: Repository<QuestionModel>,
   ) {}
 
+  private sanitizeCode(code: string) {
+    return code.replace(/[^a-zA-Z0-9_]/g, '');
+  }
+
+  private async generateUniqueMacroCode(
+    baseCode: string,
+    modelCode: string,
+  ) {
+    const sanitizedBase = this.sanitizeCode(baseCode) || 'm';
+    const sanitizedModel = this.sanitizeCode(modelCode) || 'model';
+    const limit = 10;
+
+    const makeCandidate = (suffix?: string) => {
+      if (!suffix) {
+        const raw = `${sanitizedModel}_${sanitizedBase}`;
+        return raw.length <= limit ? raw : raw.slice(0, limit);
+      }
+      const maxBase = Math.max(1, limit - (suffix.length + 1));
+      const base = `${sanitizedModel}_${sanitizedBase}`.slice(0, maxBase);
+      return `${base}_${suffix}`;
+    };
+
+    const firstCandidate = makeCandidate();
+    const firstExisting = await this.macroAreaRepo.findOne({ where: { code: firstCandidate } });
+    if (!firstExisting) return firstCandidate;
+
+    let counter = 1;
+    while (counter < 1000) {
+      const candidate = makeCandidate(String(counter));
+      const existing = await this.macroAreaRepo.findOne({ where: { code: candidate } });
+      if (!existing) return candidate;
+      counter += 1;
+    }
+
+    return makeCandidate(String(Date.now()).slice(-4));
+  }
+
+  private async generateUniqueSectionCode(
+    baseCode: string,
+    modelCode: string,
+  ) {
+    const sanitizedBase = this.sanitizeCode(baseCode) || 'section';
+    const sanitizedModel = this.sanitizeCode(modelCode) || 'model';
+    const limit = 50;
+
+    const makeCandidate = (suffix?: string) => {
+      if (!suffix) {
+        const raw = `${sanitizedModel}_${sanitizedBase}`;
+        return raw.length <= limit ? raw : raw.slice(0, limit);
+      }
+      const maxBase = Math.max(1, limit - (suffix.length + 1));
+      const base = `${sanitizedModel}_${sanitizedBase}`.slice(0, maxBase);
+      return `${base}_${suffix}`;
+    };
+
+    const firstCandidate = makeCandidate();
+    const firstExisting = await this.sectionRepo.findOne({ where: { code: firstCandidate } });
+    if (!firstExisting) return firstCandidate;
+
+    let counter = 1;
+    while (counter < 1000) {
+      const candidate = makeCandidate(String(counter));
+      const existing = await this.sectionRepo.findOne({ where: { code: candidate } });
+      if (!existing) return candidate;
+      counter += 1;
+    }
+
+    return makeCandidate(String(Date.now()).slice(-6));
+  }
+
+  private async generateUniqueFieldId(
+    baseFieldId: string,
+    modelCode: string,
+  ) {
+    const sanitizedBase = this.sanitizeCode(baseFieldId) || 'field';
+    const sanitizedModel = this.sanitizeCode(modelCode) || 'model';
+    const limit = 100;
+
+    const makeCandidate = (suffix?: string) => {
+      if (!suffix) {
+        const raw = `${sanitizedModel}_${sanitizedBase}`;
+        return raw.length <= limit ? raw : raw.slice(0, limit);
+      }
+      const maxBase = Math.max(1, limit - (suffix.length + 1));
+      const base = `${sanitizedModel}_${sanitizedBase}`.slice(0, maxBase);
+      return `${base}_${suffix}`;
+    };
+
+    const firstCandidate = makeCandidate();
+    const firstExisting = await this.fieldRepo.findOne({ where: { fieldId: firstCandidate } });
+    if (!firstExisting) return firstCandidate;
+
+    let counter = 1;
+    while (counter < 1000) {
+      const candidate = makeCandidate(String(counter));
+      const existing = await this.fieldRepo.findOne({ where: { fieldId: candidate } });
+      if (!existing) return candidate;
+      counter += 1;
+    }
+
+    return makeCandidate(String(Date.now()).slice(-6));
+  }
+
   // ==================== MODELS ====================
 
   async getAllModels() {
@@ -48,8 +151,76 @@ export class QuestionManagementService {
     if (existing) {
       throw new ConflictException(`Model with code "${dto.code}" already exists`);
     }
-    const model = this.modelRepo.create(dto);
-    return this.modelRepo.save(model);
+    const template = dto.importFromModelId
+      ? await this.modelRepo.findOne({
+          where: { id: dto.importFromModelId },
+          relations: ['macroAreas', 'macroAreas.sections', 'macroAreas.sections.fields'],
+        })
+      : null;
+    if (dto.importFromModelId && !template) {
+      throw new NotFoundException(`Model with ID ${dto.importFromModelId} not found`);
+    }
+
+    const model = this.modelRepo.create({
+      code: dto.code,
+      label: dto.label,
+      description: dto.description ?? null,
+      parentModelId: dto.importFromModelId ?? null,
+    });
+    const savedModel = await this.modelRepo.save(model);
+
+    if (!dto.importFromModelId) {
+      return savedModel;
+    }
+    if (!template) {
+      return savedModel;
+    }
+
+    const sortedMacros = [...(template.macroAreas || [])].sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const macro of sortedMacros) {
+      const macroCode = await this.generateUniqueMacroCode(macro.code, savedModel.code);
+      const newMacro = this.macroAreaRepo.create({
+        modelId: savedModel.id,
+        code: macroCode,
+        label: macro.label,
+        color: macro.color,
+        sortOrder: macro.sortOrder,
+      });
+      const savedMacro = await this.macroAreaRepo.save(newMacro);
+
+      const sortedSections = [...(macro.sections || [])].sort((a, b) => a.sortOrder - b.sortOrder);
+      for (const section of sortedSections) {
+        const sectionCode = await this.generateUniqueSectionCode(section.code, savedModel.code);
+        const newSection = this.sectionRepo.create({
+          macroAreaId: savedMacro.id,
+          code: sectionCode,
+          title: section.title,
+          description: section.description,
+          sortOrder: section.sortOrder,
+        });
+        const savedSection = await this.sectionRepo.save(newSection);
+
+        const sortedFields = [...(section.fields || [])].sort((a, b) => a.sortOrder - b.sortOrder);
+        for (const field of sortedFields) {
+          const fieldId = await this.generateUniqueFieldId(field.fieldId, savedModel.code);
+          const newField = this.fieldRepo.create({
+            sectionId: savedSection.id,
+            fieldId,
+            label: field.label,
+            type: field.type,
+            options: field.options,
+            required: field.required,
+            help: field.help,
+            allowDocuments: field.allowDocuments,
+            weight: field.weight,
+            sortOrder: field.sortOrder,
+          });
+          await this.fieldRepo.save(newField);
+        }
+      }
+    }
+
+    return this.modelRepo.findOne({ where: { id: savedModel.id } });
   }
 
   async updateModel(id: string, dto: UpdateQuestionModelDto) {
@@ -121,9 +292,10 @@ export class QuestionManagementService {
     // Deep-clone all macro areas → sections → fields
     const sortedMacros = [...(parent.macroAreas || [])].sort((a, b) => a.sortOrder - b.sortOrder);
     for (const macro of sortedMacros) {
+      const macroCode = await this.generateUniqueMacroCode(macro.code, newModel.code);
       const newMacro = this.macroAreaRepo.create({
         modelId: savedModel.id,
-        code: macro.code,
+        code: macroCode,
         label: macro.label,
         color: macro.color,
         sortOrder: macro.sortOrder,
@@ -132,9 +304,10 @@ export class QuestionManagementService {
 
       const sortedSections = [...(macro.sections || [])].sort((a, b) => a.sortOrder - b.sortOrder);
       for (const section of sortedSections) {
+        const sectionCode = await this.generateUniqueSectionCode(section.code, newModel.code);
         const newSection = this.sectionRepo.create({
           macroAreaId: savedMacro.id,
-          code: section.code,
+          code: sectionCode,
           title: section.title,
           description: section.description,
           sortOrder: section.sortOrder,
@@ -143,9 +316,10 @@ export class QuestionManagementService {
 
         const sortedFields = [...(section.fields || [])].sort((a, b) => a.sortOrder - b.sortOrder);
         for (const field of sortedFields) {
+          const fieldId = await this.generateUniqueFieldId(field.fieldId, newModel.code);
           const newField = this.fieldRepo.create({
             sectionId: savedSection.id,
-            fieldId: field.fieldId,
+            fieldId,
             label: field.label,
             type: field.type,
             options: field.options,

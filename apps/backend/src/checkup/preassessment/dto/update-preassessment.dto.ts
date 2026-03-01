@@ -15,11 +15,19 @@ export class UpdatePreassessmentDto {
 
   @IsOptional()
   @IsObject()
+  userFieldNotes?: Record<string, string>;
+
+  @IsOptional()
+  @IsObject()
   naFields?: Record<string, boolean>;
 
   @IsOptional()
   @IsObject()
   macroValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>;
+
+  @IsOptional()
+  @IsObject()
+  sectionValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>;
 
   @IsOptional()
   @IsBoolean()

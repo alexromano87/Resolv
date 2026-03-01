@@ -32,10 +32,16 @@ export class CheckupPreassessment {
   fieldNotes: Record<string, string> | null;
 
   @Column({ type: 'json', nullable: true })
+  userFieldNotes: Record<string, string> | null;
+
+  @Column({ type: 'json', nullable: true })
   naFields: Record<string, boolean> | null;
 
   @Column({ type: 'json', nullable: true })
   macroValidations: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }> | null;
+
+  @Column({ type: 'json', nullable: true })
+  sectionValidations: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }> | null;
 
   @Column({ type: 'json', nullable: true })
   fieldMeta: Record<string, { updatedAt: string; updatedBy: { id: string; name: string; ruolo: string } }> | null;

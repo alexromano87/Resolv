@@ -159,7 +159,7 @@ export default function StudioUsersPage({ embedded = false }: { embedded?: boole
     if (!isEditing && usage) {
       if (formData.ruolo === 'cliente') {
         if (clientLimitReached) {
-          setError('Limite utenti della sottolicenza raggiunto');
+          setError('Limite utenti della sublicenza raggiunto');
           return;
         }
       } else if (licenseLimitReached) {
@@ -389,7 +389,7 @@ export default function StudioUsersPage({ embedded = false }: { embedded?: boole
                           if (!s) return '—';
                           const licenseNumber = s.license?.numeroLicenza || '—';
                           const sublicenseNumber = s.numeroSublicenza || '—';
-                          return `Licenza ${licenseNumber} · Sottolicenza ${sublicenseNumber}`;
+                          return `Licenza ${licenseNumber} · Sublicenza ${sublicenseNumber}`;
                         }
                         if (licenseInfo) {
                           return `Licenza ${licenseInfo.numeroLicenza || '—'}`;

@@ -7,6 +7,15 @@ import { UpdateStudioDto } from './dto/update-studio.dto';
 describe('StudiController', () => {
   let controller: StudiController;
   let service: StudiService;
+  const superadminUser = {
+    id: 'super-1',
+    email: 'admin@resolv.legal',
+    nome: 'Super',
+    cognome: 'Admin',
+    ruolo: 'superadmin',
+    clienteId: null,
+    studioId: null,
+  };
 
   const mockStudiService = {
     findAll: jest.fn(),
@@ -51,7 +60,7 @@ describe('StudiController', () => {
       const result = [{ id: '1', ragioneSociale: 'Studio Test' }];
       mockStudiService.findAll.mockResolvedValue(result);
 
-      expect(await controller.findAll()).toBe(result);
+      expect(await controller.findAll(superadminUser)).toBe(result);
       expect(service.findAll).toHaveBeenCalled();
     });
   });
@@ -61,7 +70,7 @@ describe('StudiController', () => {
       const result = [{ id: '1', ragioneSociale: 'Studio Test', attivo: true }];
       mockStudiService.findAllActive.mockResolvedValue(result);
 
-      expect(await controller.findAllActive()).toBe(result);
+      expect(await controller.findAllActive(superadminUser)).toBe(result);
       expect(service.findAllActive).toHaveBeenCalled();
     });
   });
@@ -71,7 +80,7 @@ describe('StudiController', () => {
       const result = { id: '1', ragioneSociale: 'Studio Test' };
       mockStudiService.findOne.mockResolvedValue(result);
 
-      expect(await controller.findOne('1')).toBe(result);
+      expect(await controller.findOne('1', superadminUser)).toBe(result);
       expect(service.findOne).toHaveBeenCalledWith('1');
     });
   });
@@ -154,7 +163,7 @@ describe('StudiController', () => {
       };
       mockStudiService.getStudioStats.mockResolvedValue(result);
 
-      expect(await controller.getStudioStats('1')).toBe(result);
+      expect(await controller.getStudioStats('1', superadminUser)).toBe(result);
       expect(service.getStudioStats).toHaveBeenCalledWith('1');
     });
   });

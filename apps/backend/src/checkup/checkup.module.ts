@@ -20,6 +20,7 @@ import { CheckupPreassessmentTicket } from './preassessment/checkup-preassessmen
 import { CheckupPreassessmentTicketMessage } from './preassessment/checkup-preassessment-ticket-message.entity';
 import { CheckupPreassessmentAlert } from './preassessment/checkup-preassessment-alert.entity';
 import { CheckupPreassessmentDocument } from './preassessment/checkup-preassessment-document.entity';
+import { CheckupPreassessmentReport } from './preassessment/checkup-preassessment-report.entity';
 import { CheckupStudio } from './studios/checkup-studio.entity';
 import { CheckupLicense } from './licenses/checkup-license.entity';
 import { CheckupSublicense } from './licenses/checkup-sublicense.entity';
@@ -60,6 +61,7 @@ import { CheckupPreassessmentThreadsService } from './preassessment/checkup-prea
 import { CheckupPreassessmentThreadsController } from './preassessment/checkup-preassessment-threads.controller';
 import { CheckupPreassessmentDocumentsService } from './preassessment/checkup-preassessment-documents.service';
 import { CheckupPreassessmentDocumentsController } from './preassessment/checkup-preassessment-documents.controller';
+import { CheckupPreassessmentReportsService } from './preassessment/checkup-preassessment-reports.service';
 import { CheckupStudiosService } from './studios/checkup-studios.service';
 import { CheckupStudiosController } from './studios/checkup-studios.controller';
 import { CheckupClient } from './clients/checkup-client.entity';
@@ -90,6 +92,7 @@ import { QuestionSeedService } from './services/question-seed.service';
       CheckupPreassessmentTicketMessage,
       CheckupPreassessmentAlert,
       CheckupPreassessmentDocument,
+      CheckupPreassessmentReport,
       CheckupStudio,
       CheckupClient,
       CheckupLicense,
@@ -144,6 +147,7 @@ import { QuestionSeedService } from './services/question-seed.service';
     CheckupPreassessmentChatService,
     CheckupPreassessmentThreadsService,
     CheckupPreassessmentDocumentsService,
+    CheckupPreassessmentReportsService,
     CheckupStudiosService,
     QuestionManagementService,
     QuestionSeedService,

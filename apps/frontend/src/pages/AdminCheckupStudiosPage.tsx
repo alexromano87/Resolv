@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus, X, Edit2, Power, PowerOff, Eye, EyeOff, UserPlus, Key } from 'lucide-react';
 import { checkupAdminApi, type CheckupStudio, type CheckupLicense, type CheckupAdminUser } from '../api/checkupAdmin';
 import { CustomSelect } from '../components/ui/CustomSelect';
@@ -24,6 +24,8 @@ export default function AdminCheckupStudiosPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedStudio, setSelectedStudio] = useState<CheckupStudio | null>(null);
   const [hideInactive, setHideInactive] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterTipo, setFilterTipo] = useState<'all' | 'licenziatario' | 'cliente'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
@@ -310,7 +312,24 @@ export default function AdminCheckupStudiosPage() {
     ? users.filter((u) => u.studioId === selectedStudio.id && u.ruolo !== 'cliente')
     : [];
 
-  const filteredStudios = hideInactive ? studios.filter((s) => s.attivo) : studios;
+  const filteredStudios = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return studios.filter((studio) => {
+      if (hideInactive && !studio.attivo) return false;
+      if (filterTipo !== 'all' && studio.tipo !== filterTipo) return false;
+      if (!term) return true;
+      return [
+        studio.nome,
+        studio.ragioneSociale,
+        studio.email,
+        studio.partitaIva,
+        studio.codiceFiscale,
+        studio.citta,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term));
+    });
+  }, [studios, hideInactive, filterTipo, searchTerm]);
   const paginatedStudios = filteredStudios.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
   const totalPages = Math.ceil(filteredStudios.length / ITEMS_PER_PAGE);
 
@@ -319,8 +338,8 @@ export default function AdminCheckupStudiosPage() {
       <div className="wow-card p-6 md:p-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <span className="wow-chip">Checkup</span>
-          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione Studi</h1>
-          <p className="text-sm text-slate-600 mt-1">Gestisci gli studi licenziatari e clienti.</p>
+          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione licenziatari</h1>
+          <p className="text-sm text-slate-600 mt-1">Gestisci licenziatari e sublicenziatari.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -337,6 +356,35 @@ export default function AdminCheckupStudiosPage() {
             <Plus className="h-4 w-4" />
             Nuovo studio
           </button>
+        </div>
+      </div>
+
+      <div className="wow-panel p-4 md:p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="relative w-full md:max-w-md">
+          <input
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="Cerca per nome, email o P.IVA"
+            className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="min-w-[220px]">
+          <CustomSelect
+            value={filterTipo}
+            onChange={(val) => {
+              setFilterTipo(val as 'all' | 'licenziatario' | 'cliente');
+              setCurrentPage(1);
+            }}
+            options={[
+              { value: 'all', label: 'Tutti i tipi' },
+              { value: 'licenziatario', label: 'Licenziatari' },
+              { value: 'cliente', label: 'Sublicenziatari' },
+            ]}
+            placeholder="Filtra per tipo"
+          />
         </div>
       </div>
 

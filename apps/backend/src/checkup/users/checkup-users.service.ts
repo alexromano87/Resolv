@@ -79,10 +79,10 @@ export class CheckupUsersService {
         relations: ['license'],
       });
       if (!sublicense) {
-        throw new ConflictException('Sottolicenza non trovata per il cliente');
+        throw new ConflictException('Sublicenza non trovata per il cliente');
       }
       if (sublicense.license?.studioId !== studioId) {
-        throw new ForbiddenException('Sottolicenza non autorizzata');
+        throw new ForbiddenException('Sublicenza non autorizzata');
       }
       return sublicense;
     }
@@ -95,10 +95,10 @@ export class CheckupUsersService {
       where: { licenseId: license.id, clientId, attiva: true },
     });
     if (!sublicenses.length) {
-      throw new ForbiddenException('Sottolicenza non trovata');
+      throw new ForbiddenException('Sublicenza non trovata');
     }
     if (sublicenses.length > 1) {
-      throw new ConflictException('Seleziona la sottolicenza da assegnare');
+      throw new ConflictException('Seleziona la sublicenza da assegnare');
     }
     return sublicenses[0];
   }

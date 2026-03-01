@@ -1,6 +1,7 @@
 // apps/frontend/src/pages/LoginPage.tsx
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useAuth } from '../contexts/AuthContext';
 import { authApi, type LoginDto } from '../api/auth';
@@ -19,6 +20,9 @@ const LoginPage: React.FC = () => {
   const [twoFactorChannel, setTwoFactorChannel] = useState<'sms' | 'email' | null>(null);
   const [error, setError] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [twoFactorAttempted, setTwoFactorAttempted] = useState(false);
   const [loginMode, setLoginMode] = useState<'studio' | 'cliente' | null>(null);
   const [showRecoverModal, setShowRecoverModal] = useState(false);
   const [recoverEmail, setRecoverEmail] = useState('');
@@ -41,6 +45,11 @@ const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSubmitAttempted(true);
+    if (!formData.email.trim() || !formData.password) {
+      setError('Compila i campi obbligatori.');
+      return;
+    }
     setIsLoading(true);
 
     try {
@@ -67,7 +76,9 @@ const LoginPage: React.FC = () => {
       }
     } catch (err: any) {
       // Gestione errori specifici
-      if (err.status === 0) {
+      if (err.status === 408 || err.status === 504 || err.message?.toLowerCase().includes('tempo di risposta')) {
+        setError('Tempo di risposta scaduto. Riprova tra qualche istante.');
+      } else if (err.status === 0) {
         // Errore di rete - server non raggiungibile
         setError(
           'Impossibile contattare il server. Verifica la tua connessione internet o riprova più tardi.'
@@ -97,6 +108,7 @@ const LoginPage: React.FC = () => {
 
   const handleVerifyTwoFactor = async (e: React.FormEvent) => {
     e.preventDefault();
+    setTwoFactorAttempted(true);
     if (!twoFactorUserId || !twoFactorCode.trim()) return;
     setError('');
     setIsLoading(true);
@@ -113,7 +125,9 @@ const LoginPage: React.FC = () => {
       }
     } catch (err: any) {
       // Gestione errori specifici per 2FA
-      if (err.status === 0) {
+      if (err.status === 408 || err.status === 504 || err.message?.toLowerCase().includes('tempo di risposta')) {
+        setError('Tempo di risposta scaduto. Riprova tra qualche istante.');
+      } else if (err.status === 0) {
         setError(
           'Impossibile contattare il server. Verifica la tua connessione internet o riprova più tardi.'
         );
@@ -274,7 +288,12 @@ const LoginPage: React.FC = () => {
                 required
                 value={formData.email}
                 onChange={handleChange}
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
+                className={[
+                  'w-full rounded-lg border bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 transition',
+                  submitAttempted && !formData.email.trim()
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200/60'
+                    : 'border-slate-300 focus:border-blue-600 focus:ring-blue-200/50',
+                ].join(' ')}
                 placeholder={loginMode === 'studio' ? 'nome@studio.it' : 'nome@cliente.it'}
               />
             </div>
@@ -283,17 +302,32 @@ const LoginPage: React.FC = () => {
               <label htmlFor="password" className="block text-sm font-semibold text-slate-700 mb-2">
                 Password
               </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={formData.password}
-                onChange={handleChange}
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  required
+                  value={formData.password}
+                  onChange={handleChange}
+                  className={[
+                    'w-full rounded-lg border bg-white px-4 py-3 pr-11 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 transition',
+                    submitAttempted && !formData.password
+                      ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200/60'
+                      : 'border-slate-300 focus:border-blue-600 focus:ring-blue-200/50',
+                  ].join(' ')}
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center justify-between text-sm">
@@ -359,7 +393,12 @@ const LoginPage: React.FC = () => {
                 required
                 value={twoFactorCode}
                 onChange={(e) => setTwoFactorCode(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200/50 transition"
+                className={[
+                  'w-full rounded-lg border bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 transition',
+                  twoFactorAttempted && !twoFactorCode.trim()
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200/60'
+                    : 'border-slate-300 focus:border-blue-600 focus:ring-blue-200/50',
+                ].join(' ')}
                 placeholder="Inserisci il codice"
               />
             </div>

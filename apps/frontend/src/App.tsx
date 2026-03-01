@@ -60,6 +60,22 @@ const AdminCheckupDashboardPage = lazyNamed(
   () => import('./pages/AdminCheckupDashboardPage'),
   'default',
 );
+const AdminCheckupAuditLogsPage = lazyNamed(
+  () => import('./pages/AdminCheckupAuditLogsPage'),
+  'default',
+);
+const AdminCheckupExportPage = lazyNamed(
+  () => import('./pages/AdminCheckupExportPage'),
+  'default',
+);
+const AdminCheckupImportPage = lazyNamed(
+  () => import('./pages/AdminCheckupImportPage'),
+  'default',
+);
+const AdminCheckupBackupPage = lazyNamed(
+  () => import('./pages/AdminCheckupBackupPage'),
+  'default',
+);
 const AdminSuperSettingsPage = lazyNamed(
   () => import('./pages/AdminSuperSettingsPage'),
   'default',
@@ -175,6 +191,10 @@ function App() {
                     <Route path="/admin/checkup-models" element={<AdminCheckupModelsPage />} />
                     <Route path="/admin/checkup-questions" element={<AdminCheckupQuestionsPage />} />
                     <Route path="/admin/checkup-dashboard" element={<AdminCheckupDashboardPage />} />
+                    <Route path="/admin/checkup-audit-logs" element={<AdminCheckupAuditLogsPage />} />
+                    <Route path="/admin/checkup-export" element={<AdminCheckupExportPage />} />
+                    <Route path="/admin/checkup-import" element={<AdminCheckupImportPage />} />
+                    <Route path="/admin/checkup-backup" element={<AdminCheckupBackupPage />} />
                     <Route path="/admin/impostazioni" element={<AdminSuperSettingsPage />} />
                     <Route path="/admin/studi" element={<StudiPage />} />
                     <Route path="/admin/maintenance" element={<AdminMaintenancePage />} />

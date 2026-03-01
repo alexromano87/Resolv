@@ -5,11 +5,9 @@ import { usersApi } from '../api/users';
 import type { CheckupUser } from '../api/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { ModalPortal } from '../components/ModalPortal';
-import StudioDashboardPage from './StudioDashboardPage';
+type AdminTab = 'studio' | 'licenza' | 'sublicenze' | 'utenti';
 
-type AdminTab = 'dashboard' | 'studio' | 'licenza' | 'sublicenze' | 'utenti';
-
-export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initialTab?: AdminTab }) {
+export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialTab?: AdminTab }) {
   const { refreshProfile } = useAuth();
   const [profile, setProfile] = useState<CheckupStudioProfile | null>(null);
   const [formData, setFormData] = useState<UpdateCheckupStudioPayload>({});
@@ -263,7 +261,7 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
       )}
 
       <div className="wow-panel p-3 flex flex-wrap items-center gap-2">
-        {(['dashboard', 'studio', 'licenza', 'sublicenze', 'utenti'] as const).map((tab) => (
+        {(['studio', 'licenza', 'sublicenze', 'utenti'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => handleTabChange(tab)}
@@ -271,9 +269,7 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
               activeTab === tab ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-600'
             }`}
           >
-            {tab === 'dashboard'
-              ? 'Dashboard'
-              : tab === 'studio'
+            {tab === 'studio'
               ? 'Studio'
               : tab === 'licenza'
                 ? 'Licenza'
@@ -283,12 +279,6 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
           </button>
         ))}
       </div>
-
-      {activeTab === 'dashboard' && (
-        <div className="wow-panel p-6">
-          <StudioDashboardPage />
-        </div>
-      )}
 
       {activeTab === 'studio' && (
         <form ref={formRef} onSubmit={handleSave} className="space-y-6">
@@ -676,7 +666,10 @@ export default function AdminWorkspacePage({ initialTab = 'dashboard' }: { initi
                     {selectedSublicense.numeroSublicenza || 'Dettaglio sublicenza'}
                   </h2>
                   <p className="text-sm text-slate-500 mt-1">
-                    {selectedSublicense.license?.intestatario || 'Licenza'} · {selectedSublicense.license?.numeroLicenza || '—'}
+                    {selectedSublicense.license?.intestatario || 'Licenza'} · Licenza {selectedSublicense.license?.numeroLicenza || '—'}
+                  </p>
+                  <p className="text-sm text-slate-500">
+                    Intestatari: {selectedSublicense.license?.intestatario || 'Licenza'} · {selectedSublicense.clientId ? (clientNameById.get(selectedSublicense.clientId) || '—') : 'Non assegnata'}
                   </p>
                 </div>
                 <button

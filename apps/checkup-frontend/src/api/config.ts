@@ -1,13 +1,16 @@
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 export const apiBase = API_BASE;
 
+const DEFAULT_TIMEOUT_MS = 20000;
+
 interface RequestOptions extends RequestInit {
   params?: Record<string, string>;
   skipAuthRedirect?: boolean;
+  timeoutMs?: number;
 }
 
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-  const { params, skipAuthRedirect, ...fetchOptions } = options;
+  const { params, skipAuthRedirect, timeoutMs, ...fetchOptions } = options;
 
   let url = `${API_BASE}${endpoint}`;
   if (params) {
@@ -29,10 +32,27 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(url, {
-    ...fetchOptions,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs ?? DEFAULT_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...fetchOptions,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Tempo di risposta scaduto. Riprova tra qualche istante.');
+    }
+    if (error instanceof TypeError || (error as any)?.name === 'NetworkError') {
+      throw new Error('Impossibile contattare il server. Verifica la connessione o riprova più tardi.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (response.status === 401) {
     localStorage.removeItem('checkup_token');
@@ -45,7 +65,11 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Errore di rete' }));
-    throw new Error(error.message || `Errore ${response.status}`);
+    const isTimeout = response.status === 408 || response.status === 504;
+    const fallbackMessage = isTimeout
+      ? 'Tempo di risposta scaduto. Riprova tra qualche istante.'
+      : `Errore ${response.status}`;
+    throw new Error(error.message || fallbackMessage);
   }
 
   return response.json();

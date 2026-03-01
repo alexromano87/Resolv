@@ -108,15 +108,29 @@ const adminResolvNav: NavItem[] = [
   { path: '/admin/backup', label: 'Backup & Ripristino', icon: RefreshCw },
 ];
 
-const adminCheckupNav: NavItem[] = [
-  { path: '/admin/checkup-dashboard', label: 'Dashboard checkup', icon: BarChart3 },
-  { path: '/admin/checkup-studios', label: 'Gestione studi', icon: Building2 },
-  { path: '/admin/checkup-users', label: 'Utenti checkup', icon: Users },
-  { path: '/admin/checkup-clients', label: 'Clienti checkup', icon: Building2 },
-  { path: '/admin/checkup-licenses', label: 'Gestione licenze', icon: KeyRound },
-  { path: '/admin/checkup-sublicenses', label: 'Gestione sublicenze', icon: KeyRound },
-  { path: '/admin/checkup-models', label: 'Gestione modelli', icon: Layers },
-  { path: '/admin/checkup-questions', label: 'Gestione domande', icon: FileText },
+const adminCheckupNavSections: Array<{ title: string; items: NavItem[] }> = [
+  {
+    title: 'Gestione',
+    items: [
+      { path: '/admin/checkup-dashboard', label: 'Dashboard pre-assessment', icon: BarChart3 },
+      { path: '/admin/checkup-studios', label: 'Gestione licenziatari', icon: Building2 },
+      { path: '/admin/checkup-clients', label: 'Gestione sublicenziatari', icon: Building2 },
+      { path: '/admin/checkup-users', label: 'Gestione utenti', icon: Users },
+      { path: '/admin/checkup-licenses', label: 'Gestione licenze', icon: KeyRound },
+      { path: '/admin/checkup-sublicenses', label: 'Gestione sublicenze', icon: KeyRound },
+      { path: '/admin/checkup-models', label: 'Gestione modelli', icon: Layers },
+      { path: '/admin/checkup-questions', label: 'Gestione domande', icon: FileText },
+    ],
+  },
+  {
+    title: 'Sistema',
+    items: [
+      { path: '/admin/checkup-audit-logs', label: 'Log Audit pre-assessment', icon: ScrollText },
+      { path: '/admin/checkup-export', label: 'Esportazione pre-assessment', icon: Download },
+      { path: '/admin/checkup-import', label: 'Importazione pre-assessment', icon: UploadCloud },
+      { path: '/admin/checkup-backup', label: 'Backup pre-assessment', icon: RefreshCw },
+    ],
+  },
 ];
 
 
@@ -173,21 +187,29 @@ export function AppLayout({ children }: AppLayoutProps) {
   } else if (location.pathname === '/admin/users') {
     pageTitle = 'Gestione utenti';
   } else if (location.pathname === '/admin/checkup-users') {
-    pageTitle = 'Utenti checkup';
+    pageTitle = 'Gestione utenti';
   } else if (location.pathname === '/admin/checkup-clients') {
-    pageTitle = 'Clienti checkup';
+    pageTitle = 'Gestione sublicenziatari';
   } else if (location.pathname === '/admin/checkup-licenses') {
     pageTitle = 'Gestione licenze checkup';
   } else if (location.pathname === '/admin/checkup-sublicenses') {
     pageTitle = 'Gestione sublicenze checkup';
   } else if (location.pathname === '/admin/checkup-studios') {
-    pageTitle = 'Gestione studi checkup';
+    pageTitle = 'Gestione licenziatari';
   } else if (location.pathname === '/admin/checkup-models') {
     pageTitle = 'Gestione modelli checkup';
   } else if (location.pathname === '/admin/checkup-questions') {
     pageTitle = 'Gestione domande checkup';
   } else if (location.pathname === '/admin/checkup-dashboard') {
-    pageTitle = 'Dashboard checkup';
+    pageTitle = 'Dashboard pre-assessment';
+  } else if (location.pathname === '/admin/checkup-audit-logs') {
+    pageTitle = 'Log di Audit checkup';
+  } else if (location.pathname === '/admin/checkup-export') {
+    pageTitle = 'Esportazione dati checkup';
+  } else if (location.pathname === '/admin/checkup-import') {
+    pageTitle = 'Importazione dati checkup';
+  } else if (location.pathname === '/admin/checkup-backup') {
+    pageTitle = 'Backup checkup';
   } else if (location.pathname === '/admin/impostazioni') {
     pageTitle = 'Impostazioni superadmin';
   } else if (location.pathname === '/admin/studi') {
@@ -759,7 +781,9 @@ export function AppLayout({ children }: AppLayoutProps) {
     localStorage.setItem('admin_area', 'resolv');
   }, [isAdminView, isSuperadmin]);
 
-  const adminNavItems = adminArea === 'checkup' ? adminCheckupNav : adminResolvNav;
+  const adminNavItems = adminArea === 'checkup'
+    ? adminCheckupNavSections.flatMap((section) => section.items)
+    : adminResolvNav;
 
   const handleAdminAreaChange = (next: 'resolv' | 'checkup') => {
     setAdminArea(next);
@@ -1031,63 +1055,117 @@ export function AppLayout({ children }: AppLayoutProps) {
                           ? 'border-cyan-400/60 bg-cyan-500/20 text-cyan-100'
                           : 'border-blue-800/40 bg-blue-900/40 text-blue-100 hover:bg-blue-900/60',
                       ].join(' ')}
-                      title="Checkup"
+                      title="Pre-Assessment"
                     >
-                      {sidebarCollapsed ? 'C' : 'Checkup'}
+                      {sidebarCollapsed ? 'P' : 'Pre-Assessment'}
                     </button>
                   </div>
                 )}
 
-                {!sidebarCollapsed && (
-                  <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
-                    {adminArea === 'checkup' ? 'Checkup' : 'Amministrazione'}
-                  </p>
-                )}
-                <ul className="space-y-1">
-                  {adminNavItems.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <li key={item.path}>
-                        <NavLink
-                          to={item.path}
-                          title={sidebarCollapsed ? item.label : undefined}
-                          className={({ isActive }) =>
-                            [
-                              'group flex items-center rounded-2xl transition-colors',
-                              sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                              'text-sm font-medium',
-                              isActive
-                                ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                                : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                            ].join(' ')
-                          }
-                        >
-                          {({ isActive }) => (
-                            <>
-                              {!sidebarCollapsed && (
-                                <span
-                                  className={[
-                                    'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                                    isActive
-                                      ? 'opacity-100 translate-x-0'
-                                      : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                                  ].join(' ')}
+                {adminArea === 'checkup' ? (
+                  <div className="space-y-4 mt-4">
+                    {adminCheckupNavSections.map((section) => (
+                      <div key={section.title}>
+                        {!sidebarCollapsed && (
+                          <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
+                            {section.title}
+                          </p>
+                        )}
+                        <ul className="space-y-1">
+                          {section.items.map((item) => {
+                            const Icon = item.icon;
+                            return (
+                              <li key={item.path}>
+                                <NavLink
+                                  to={item.path}
+                                  title={sidebarCollapsed ? item.label : undefined}
+                                  className={({ isActive }) =>
+                                    [
+                                      'group flex items-center rounded-2xl transition-colors',
+                                      sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                                      'text-sm font-medium',
+                                      isActive
+                                        ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                                        : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                                    ].join(' ')
+                                  }
+                                >
+                                  {({ isActive }) => (
+                                    <>
+                                      {!sidebarCollapsed && (
+                                        <span
+                                          className={[
+                                            'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                                            isActive
+                                              ? 'opacity-100 translate-x-0'
+                                              : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                                          ].join(' ')}
+                                        />
+                                      )}
+                                      <Icon
+                                        size={18}
+                                        className="text-slate-400 group-hover:text-white transition-all duration-200"
+                                      />
+                                      <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                                        {item.label}
+                                      </span>
+                                    </>
+                                  )}
+                                </NavLink>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <ul className="space-y-1 mt-4">
+                    {adminNavItems.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <li key={item.path}>
+                          <NavLink
+                            to={item.path}
+                            title={sidebarCollapsed ? item.label : undefined}
+                            className={({ isActive }) =>
+                              [
+                                'group flex items-center rounded-2xl transition-colors',
+                                sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                                'text-sm font-medium',
+                                isActive
+                                  ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                                  : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                              ].join(' ')
+                            }
+                          >
+                            {({ isActive }) => (
+                              <>
+                                {!sidebarCollapsed && (
+                                  <span
+                                    className={[
+                                      'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                                      isActive
+                                        ? 'opacity-100 translate-x-0'
+                                        : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                                    ].join(' ')}
+                                  />
+                                )}
+                                <Icon
+                                  size={18}
+                                  className="text-slate-400 group-hover:text-white transition-all duration-200"
                                 />
-                              )}
-                              <Icon
-                                size={18}
-                                className="text-slate-400 group-hover:text-white transition-all duration-200"
-                              />
-                              <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                                {item.label}
-                              </span>
-                            </>
-                          )}
-                        </NavLink>
-                      </li>
-                    );
-                  })}
-                </ul>
+                                <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                                  {item.label}
+                                </span>
+                              </>
+                            )}
+                          </NavLink>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
             )}
 

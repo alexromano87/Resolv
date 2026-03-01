@@ -1,7 +1,8 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Menu, ChevronLeft, ChevronRight, X, ArrowLeft, LayoutDashboard } from 'lucide-react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { LogOut, Menu, ChevronLeft, ChevronRight, X, ArrowLeft, LayoutDashboard, FileText, Shield, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 
 interface CheckupAppLayoutProps {
   children: ReactNode;
@@ -13,6 +14,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { confirm, ConfirmDialog } = useConfirmDialog();
   // Unsaved changes are handled by the Settings page custom modal.
 
   const initials = useMemo(() => {
@@ -37,12 +39,16 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   }, [user]);
 
   const pageTitle = useMemo(() => {
+    if (location.pathname.startsWith('/checkup/dashboard-studio')) return 'Dashboard';
+    if (location.pathname.startsWith('/checkup/ricerca-clienti')) return 'Ricerca clienti';
     if (location.pathname.startsWith('/checkup/amministrazione')) return 'Amministrazione';
     if (location.pathname.startsWith('/checkup/utenti')) return 'Amministrazione';
     if (location.pathname.startsWith('/checkup/impostazioni')) return 'Impostazioni';
     if (location.pathname.startsWith('/checkup/clienti')) return 'Pre-Assessment';
     return 'Pre-Assessment';
   }, [location.pathname, user?.ruolo]);
+  const isStaff = user ? user.ruolo !== 'cliente' : false;
+  const dashboardPath = user?.ruolo === 'admin_studio' ? '/checkup/dashboard-studio' : '/checkup';
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -51,6 +57,17 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   const handleLogout = async () => {
     await logout();
     navigate('/checkup/login');
+  };
+
+  const handleLogoutConfirm = async () => {
+    const ok = await confirm({
+      title: 'Conferma logout',
+      message: 'Vuoi uscire dall’applicazione?',
+      confirmText: 'Esci',
+      variant: 'warning',
+    });
+    if (!ok) return;
+    await handleLogout();
   };
 
   return (
@@ -72,7 +89,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
             flex h-full flex-col
             rounded-none lg:rounded-2xl
             border-r lg:border border-blue-900/20
-            bg-gradient-to-b from-slate-900 to-blue-950
+            bg-[#0f172a] bg-none
             shadow-[0_20px_60px_rgba(15,23,42,0.2)]
             transform
             ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
@@ -84,7 +101,9 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
           <div className="flex items-center justify-between border-b border-blue-800/30 px-6 py-5 flex-shrink-0">
             <div className={`overflow-hidden transition-all duration-400 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
               <img src="/logo_resolv.png" alt="RESOLV" className="h-14 w-auto" />
-              <p className="mt-1 text-[9px] font-semibold uppercase tracking-[0.2em] text-cyan-400/80">Pre-Assessment Platform</p>
+              <div className="mt-3 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-bold uppercase tracking-[0.24em] text-white/90 shadow-sm">
+                PRE-ASSESSMENT
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -106,69 +125,195 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
             </div>
           </div>
 
-          <nav className="flex-1 px-4 py-5 overflow-y-auto overflow-x-hidden space-y-4">
+          <nav className="flex-1 space-y-6 px-4 py-5 overflow-y-auto overflow-x-hidden">
             <div className={`${sidebarCollapsed ? 'hidden' : ''} space-y-1`}>
-              <button
-                type="button"
+              <NavLink
+                to={dashboardPath}
                 onClick={() => {
+                  if (dashboardPath !== '/checkup') return;
                   if (location.pathname === '/checkup' || location.pathname === '/checkup/') {
                     window.dispatchEvent(new CustomEvent('checkup:go-dashboard'));
                   }
-                  navigate('/checkup');
                 }}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                  location.pathname === '/checkup' || location.pathname === '/checkup/'
-                    ? 'bg-blue-700/90 text-white shadow-md'
-                    : 'text-slate-300 hover:bg-blue-900/40 hover:text-white'
-                }`}
+                className={({ isActive }) =>
+                  [
+                    'group flex items-center rounded-2xl transition-colors',
+                    sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                    'text-sm font-medium',
+                    isActive
+                      ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                      : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                  ].join(' ')
+                }
               >
-                <LayoutDashboard size={18} />
-                Dashboard
-              </button>
+                {({ isActive }) => (
+                  <>
+                    {!sidebarCollapsed && (
+                      <span
+                        className={[
+                          'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                          isActive
+                            ? 'opacity-100 translate-x-0'
+                            : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                        ].join(' ')}
+                      />
+                    )}
+                    <LayoutDashboard
+                      size={18}
+                      className="text-slate-400 group-hover:text-white transition-all duration-200"
+                    />
+                    <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                      Dashboard
+                    </span>
+                  </>
+                )}
+              </NavLink>
               <div id="checkup-subnav" className="space-y-3" />
             </div>
+            {isStaff && (
+              <div className={`${sidebarCollapsed ? 'hidden' : ''} space-y-1 border-t border-blue-800/30 pt-4`}>
+                <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
+                  Report
+                </p>
+                <NavLink
+                  to="/checkup/report-salvati"
+                  className={({ isActive }) =>
+                    [
+                      'group flex items-center rounded-2xl transition-colors',
+                      sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                      'text-sm font-medium',
+                      isActive
+                        ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                        : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                    ].join(' ')
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      {!sidebarCollapsed && (
+                        <span
+                          className={[
+                            'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                            isActive
+                              ? 'opacity-100 translate-x-0'
+                              : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                          ].join(' ')}
+                        />
+                      )}
+                      <FileText
+                        size={18}
+                        className="text-slate-400 group-hover:text-white transition-all duration-200"
+                      />
+                      <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                        Report salvati
+                      </span>
+                    </>
+                  )}
+                </NavLink>
+              </div>
+            )}
             {user?.ruolo === 'admin_studio' && (
               <div className={`${sidebarCollapsed ? 'hidden' : ''} space-y-1 border-t border-blue-800/30 pt-4`}>
                 <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
                   Gestione
                 </p>
-                <button
-                  type="button"
-                  onClick={() => navigate('/checkup/amministrazione')}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                    location.pathname.startsWith('/checkup/amministrazione') || location.pathname.startsWith('/checkup/utenti')
-                      ? 'bg-blue-700/90 text-white shadow-md'
-                      : 'text-slate-300 hover:bg-blue-900/40 hover:text-white'
-                  }`}
+                <NavLink
+                  to="/checkup/amministrazione"
+                  className={({ isActive }) =>
+                    [
+                      'group flex items-center rounded-2xl transition-colors',
+                      sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                      'text-sm font-medium',
+                      isActive
+                        ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                        : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                    ].join(' ')
+                  }
                 >
-                  Amministrazione
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/checkup/impostazioni')}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                    location.pathname.startsWith('/checkup/impostazioni')
-                      ? 'bg-blue-700/90 text-white shadow-md'
-                      : 'text-slate-300 hover:bg-blue-900/40 hover:text-white'
-                  }`}
+                  {({ isActive }) => (
+                    <>
+                      {!sidebarCollapsed && (
+                        <span
+                          className={[
+                            'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                            isActive
+                              ? 'opacity-100 translate-x-0'
+                              : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                          ].join(' ')}
+                        />
+                      )}
+                      <Shield
+                        size={18}
+                        className="text-slate-400 group-hover:text-white transition-all duration-200"
+                      />
+                      <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                        Amministrazione
+                      </span>
+                    </>
+                  )}
+                </NavLink>
+                <NavLink
+                  to="/checkup/impostazioni"
+                  className={({ isActive }) =>
+                    [
+                      'group flex items-center rounded-2xl transition-colors',
+                      sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                      'text-sm font-medium',
+                      isActive
+                        ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                        : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                    ].join(' ')
+                  }
                 >
-                  Impostazioni
-                </button>
+                  {({ isActive }) => (
+                    <>
+                      {!sidebarCollapsed && (
+                        <span
+                          className={[
+                            'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                            isActive
+                              ? 'opacity-100 translate-x-0'
+                              : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                          ].join(' ')}
+                        />
+                      )}
+                      <Settings
+                        size={18}
+                        className="text-slate-400 group-hover:text-white transition-all duration-200"
+                      />
+                      <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                        Impostazioni
+                      </span>
+                    </>
+                  )}
+                </NavLink>
               </div>
             )}
           </nav>
 
-          <div className="px-4 pb-5">
-            <div className="flex items-center justify-between rounded-lg border border-blue-900/40 bg-blue-950/40 px-4 py-3 text-[11px] text-slate-400">
-              <span>v5.0 • 2025</span>
+          <div className="border-t border-blue-800/30 px-4 py-4 text-xs text-slate-400 flex-shrink-0">
+            {sidebarCollapsed ? (
               <button
-                onClick={handleLogout}
-                className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-slate-300 transition-all hover:bg-blue-900/40 hover:text-white"
+                type="button"
+                onClick={handleLogoutConfirm}
+                title="Esci"
+                className="flex w-full items-center justify-center rounded-lg px-3 py-2 text-[11px] font-semibold text-slate-300 transition-all hover:bg-blue-900/40 hover:text-white"
               >
-                <LogOut size={14} />
-                Esci
+                <LogOut size={18} />
               </button>
-            </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <span>v1.0 • 2025</span>
+                <button
+                  type="button"
+                  onClick={handleLogoutConfirm}
+                  className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-slate-300 transition-all hover:bg-blue-900/40 hover:text-white"
+                >
+                  <LogOut size={14} />
+                  Esci
+                </button>
+              </div>
+            )}
           </div>
         </aside>
 
@@ -244,6 +389,8 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
           </main>
         </div>
       </div>
+
+      <ConfirmDialog />
     </div>
   );
 }
