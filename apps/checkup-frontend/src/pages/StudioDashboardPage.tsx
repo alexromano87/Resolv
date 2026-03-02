@@ -4,14 +4,17 @@ import {
   ArrowUpRight,
   BadgeCheck,
   BarChart3,
+  Bell,
   Building2,
   ChartPie,
   ClipboardList,
   Eye,
   Gauge,
   Layers,
+  MessageCircle,
   RefreshCw,
   Search,
+  Ticket,
   Users,
 } from 'lucide-react';
 import { preassessmentApi, PreassessmentClientEntry } from '../api/preassessment';
@@ -535,14 +538,44 @@ export default function StudioDashboardPage() {
                               : '—'}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => navigate(`/checkup/clienti/${entry.client.id}`)}
-                              className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700 hover:text-slate-900"
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                              Apri
-                            </button>
+                            <div className="inline-flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/checkup/clienti/${entry.client.id}`)}
+                                className="group relative inline-flex items-center gap-1 text-xs font-semibold text-slate-700 hover:text-slate-900"
+                                title="Apri checkup"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                Apri
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/checkup/clienti/${entry.client.id}?panel=chat`)}
+                                className="group relative rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition"
+                                title="Chat"
+                              >
+                                <MessageCircle className="h-3.5 w-3.5" />
+                                <span className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white opacity-0 shadow transition group-hover:opacity-100">Chat</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/checkup/clienti/${entry.client.id}/tickets`)}
+                                className="group relative rounded-lg p-1.5 text-slate-400 hover:bg-amber-50 hover:text-amber-600 transition"
+                                title="Ticket"
+                              >
+                                <Ticket className="h-3.5 w-3.5" />
+                                <span className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white opacity-0 shadow transition group-hover:opacity-100">Ticket</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/checkup/clienti/${entry.client.id}/alerts`)}
+                                className="group relative rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition"
+                                title="Alert"
+                              >
+                                <Bell className="h-3.5 w-3.5" />
+                                <span className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white opacity-0 shadow transition group-hover:opacity-100">Alert</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );

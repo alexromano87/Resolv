@@ -274,15 +274,13 @@ export function PreassessmentTicketsPage() {
       <div className="flex flex-col gap-4 p-1 md:flex-row md:items-center md:justify-between">
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            {!isCliente && clientId && (
-              <button
-                onClick={() => navigate(`/checkup/clienti/${clientId}`)}
-                className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg transition-colors"
-                title="Torna al pre-assessment"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-            )}
+            <button
+              onClick={() => navigate(-1)}
+              className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg transition-colors"
+              title="Torna indietro"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
             <span className="wow-chip">Supporto</span>
           </div>
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50 display-font">

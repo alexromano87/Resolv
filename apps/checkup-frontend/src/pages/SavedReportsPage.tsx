@@ -92,7 +92,7 @@ export default function SavedReportsPage() {
 
   if (!isStaff) {
     return (
-      <div className="max-w-5xl mx-auto p-6">
+      <div className="max-w-7xl mx-auto p-6">
         <div className="wow-panel p-6 text-sm text-slate-600">
           Questa sezione è disponibile solo per lo studio.
         </div>
@@ -101,7 +101,7 @@ export default function SavedReportsPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6 wow-stagger">
+    <div className="max-w-7xl mx-auto p-6 space-y-6 wow-stagger">
       <div className="wow-card p-6 md:p-8">
         <div className="space-y-2">
           <div className="wow-chip">Report salvati</div>

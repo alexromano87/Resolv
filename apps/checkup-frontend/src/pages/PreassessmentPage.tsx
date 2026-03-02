@@ -244,8 +244,6 @@ export default function PreassessmentPage() {
     || user?.ruolo === 'collaboratore'
     || user?.ruolo === 'admin_studio'
     || user?.ruolo === 'segreteria';
-  const canCreateAlert = user?.ruolo === 'admin_studio';
-
   const [macroAreas, setMacroAreas] = useState<MacroAreaSpec[]>(DEFAULT_MACRO_AREAS);
   const [sections, setSections] = useState<SectionSpec[]>(DEFAULT_SECTIONS);
 
@@ -348,7 +346,6 @@ export default function PreassessmentPage() {
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [typingUsers, setTypingUsers] = useState<Array<{ userId: string; name: string; ruolo: string }>>([]);
   const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [ticketNotice, setTicketNotice] = useState<{ count: number; at: number } | null>(null);
   const lastTicketIdsRef = useRef<Set<string>>(new Set());
   const [tickets, setTickets] = useState<PreassessmentTicket[]>([]);
   const [alerts, setAlerts] = useState<PreassessmentAlert[]>([]);
@@ -505,6 +502,14 @@ export default function PreassessmentPage() {
   useEffect(() => {
     if (clientId) setSelectedClientId(clientId);
   }, [clientId]);
+
+  // Auto-open panel from ?panel=chat query param (e.g. coming from dashboard chat icon)
+  useEffect(() => {
+    if (!preassessmentId) return;
+    const params = new URLSearchParams(location.search);
+    const p = params.get('panel');
+    if (p === 'chat') setPanel('chat');
+  }, [preassessmentId, location.search]);
 
   useEffect(() => {
     if (!isStaff) return;
@@ -1564,7 +1569,6 @@ export default function PreassessmentPage() {
       if (prevIds.size > 0 && isStaff) {
         const newTickets = res.filter((t) => !prevIds.has(t.id) && t.status === 'open');
         if (newTickets.length > 0) {
-          setTicketNotice({ count: newTickets.length, at: Date.now() });
           try {
             const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
             const osc = ctx.createOscillator();
@@ -1586,7 +1590,7 @@ export default function PreassessmentPage() {
     } catch {
       setTickets([]);
     }
-  }, [preassessmentId]);
+  }, [preassessmentId, isStaff]);
 
   const loadAlerts = useCallback(async () => {
     if (!preassessmentId) return;
@@ -1651,28 +1655,6 @@ export default function PreassessmentPage() {
     if (panel !== 'tickets' || !preassessmentId) return;
     loadTickets();
   }, [panel, preassessmentId, loadTickets]);
-
-  useEffect(() => {
-    if (panel !== 'alerts' || !preassessmentId) return;
-    loadAlerts();
-  }, [panel, preassessmentId, loadAlerts]);
-
-  const createTicket = async (subject: string, body: string) => {
-    if (!preassessmentId) return;
-    await preassessmentTicketApi.create(preassessmentId, subject, body);
-    await loadTickets();
-  };
-
-  const replyTicket = async (ticketId: string, messaggio: string) => {
-    await preassessmentTicketApi.reply(ticketId, messaggio);
-    await loadTickets();
-  };
-
-  const createAlert = async (payload: { targetUserId?: string; priority?: string; messaggio: string }) => {
-    if (!preassessmentId) return;
-    await preassessmentAlertApi.create(preassessmentId, payload);
-    await loadAlerts();
-  };
 
   const handleSelectClient = (id: string) => {
     setSelectedClientId(id);
@@ -1777,13 +1759,33 @@ export default function PreassessmentPage() {
                           <td className="px-6 py-3 text-slate-500">{c.client.email}</td>
                           <td className="px-6 py-3 text-slate-500">{c.client.azienda || '—'}</td>
                           <td className="px-6 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleSelectClient(c.client.id)}
-                              className="wow-button-ghost"
-                            >
-                              Apri checkup
-                            </button>
+                            <div className="inline-flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleSelectClient(c.client.id)}
+                                className="wow-button-ghost"
+                              >
+                                Apri checkup
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/checkup/clienti/${c.client.id}/tickets`)}
+                                className="group relative rounded-lg p-1.5 text-slate-400 hover:bg-amber-50 hover:text-amber-600 transition"
+                                title="Ticket"
+                              >
+                                <Ticket className="h-4 w-4" />
+                                <span className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white opacity-0 shadow transition group-hover:opacity-100">Ticket</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/checkup/clienti/${c.client.id}/alerts`)}
+                                className="group relative rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition"
+                                title="Alert"
+                              >
+                                <Bell className="h-4 w-4" />
+                                <span className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white opacity-0 shadow transition group-hover:opacity-100">Alert</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1878,6 +1880,51 @@ export default function PreassessmentPage() {
               style={{ width: `${pct}%` }}
             />
           </div>
+          {isStaff && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setPanel('chat')}
+                className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/30 transition"
+              >
+                <MessageCircle className="h-3.5 w-3.5" />
+                Chat
+                {chatUnreadCount > 0 && (
+                  <span className="rounded-full bg-indigo-400 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
+                    {chatUnreadCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => navigate(`/checkup/clienti/${activeClientId}/tickets`)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/30 transition"
+              >
+                <Ticket className="h-3.5 w-3.5" />
+                Ticket
+                {openTickets > 0 && (
+                  <span className="rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
+                    {openTickets}
+                  </span>
+                )}
+              </button>
+              {(() => {
+                const activeAlerts = alerts.filter((a) => a.stato !== 'chiuso');
+                return (
+                  <button
+                    onClick={() => navigate(`/checkup/clienti/${activeClientId}/alerts`)}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/30 transition"
+                  >
+                    <Bell className="h-3.5 w-3.5" />
+                    Alert
+                    {activeAlerts.length > 0 && (
+                      <span className="rounded-full bg-rose-400 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
+                        {activeAlerts.length}
+                      </span>
+                    )}
+                  </button>
+                );
+              })()}
+            </div>
+          )}
         </div>
 
         <div className="wow-panel p-3 flex flex-wrap items-center gap-2">
@@ -2443,44 +2490,7 @@ export default function PreassessmentPage() {
               currentUserId={user?.id}
               otherName={otherName}
               typingUsers={typingUsers}
-            />
-          )}
-          {panel === 'tickets' && showAssessment && (
-            <TicketPanel
-              tickets={tickets}
-              onNew={createTicket}
-              onReply={replyTicket}
-              onAssign={async (ticketId) => {
-                await preassessmentTicketApi.assign(ticketId);
-                await loadTickets();
-              }}
-              onRequestClose={async (ticketId) => {
-                await preassessmentTicketApi.requestClose(ticketId);
-                await loadTickets();
-              }}
-              onConfirmClose={async (ticketId) => {
-                await preassessmentTicketApi.confirmClose(ticketId);
-                await loadTickets();
-              }}
-              onReopen={async (ticketId) => {
-                await preassessmentTicketApi.reopen(ticketId);
-                await loadTickets();
-              }}
-              currentUserId={user?.id}
-              isAdmin={user?.ruolo !== 'cliente'}
-              ticketNotice={ticketNotice}
-            />
-          )}
-          {panel === 'alerts' && showAssessment && (
-            <AlertPanel
-              alerts={alerts}
-              onNew={createAlert}
-              users={clients.map((c) => ({
-                id: c.client.id,
-                name: `${c.client.nome} ${c.client.cognome}`.trim(),
-              }))}
-              isAdmin={canCreateAlert}
-              currentUserId={user?.id}
+              onClose={() => setPanel(null)}
             />
           )}
           {!panel && (view === 'dashboard' ? renderDashboard() : renderSection())}
@@ -2513,7 +2523,6 @@ export default function PreassessmentPage() {
           validations={macroValidations}
           hasAssessment={!!activeClientId}
           chatCount={chatUnreadCount}
-          openTickets={openTickets}
           isClient={isClient}
         />,
         sidebarTarget,
@@ -2539,7 +2548,6 @@ function PreassessmentSidebar({
   validations,
   hasAssessment,
   chatCount,
-  openTickets,
   isClient,
 }: {
   view: 'dashboard' | number;
@@ -2558,76 +2566,32 @@ function PreassessmentSidebar({
   validations: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>;
   hasAssessment: boolean;
   chatCount: number;
-  openTickets: number;
   isClient?: boolean;
 }) {
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        {hasAssessment && (
-          <>
-            <button
-              onClick={() => setPanel(panel === 'chat' ? null : 'chat')}
-              className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition-colors ${panel === 'chat' ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
-            >
-              <span
-                className={[
-                  'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                  panel === 'chat'
-                    ? 'opacity-100 translate-x-0'
-                    : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                ].join(' ')}
-              />
-              <MessageCircle className="h-4 w-4 text-slate-400 group-hover:text-white transition-all duration-200" />
-              Chat
-              {chatCount > 0 && (
-                <span className="ml-auto rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-                  {chatCount}
-                </span>
-              )}
-            </button>
-            {/* Ticket and Alert panel buttons: only for staff (admin_studio).
-                Cliente users have dedicated NavLinks in the main sidebar. */}
-            {!isClient && (
-              <>
-                <button
-                  onClick={() => setPanel(panel === 'tickets' ? null : 'tickets')}
-                  className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition-colors ${panel === 'tickets' ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
-                >
-                  <span
-                    className={[
-                      'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                      panel === 'tickets'
-                        ? 'opacity-100 translate-x-0'
-                        : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                    ].join(' ')}
-                  />
-                  <Ticket className="h-4 w-4 text-slate-400 group-hover:text-white transition-all duration-200" />
-                  Ticket
-                  {openTickets > 0 && (
-                    <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-                      {openTickets}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setPanel(panel === 'alerts' ? null : 'alerts')}
-                  className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition-colors ${panel === 'alerts' ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
-                >
-                  <span
-                    className={[
-                      'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                      panel === 'alerts'
-                        ? 'opacity-100 translate-x-0'
-                        : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                    ].join(' ')}
-                  />
-                  <Bell className="h-4 w-4 text-slate-400 group-hover:text-white transition-all duration-200" />
-                  Alert
-                </button>
-              </>
+        {hasAssessment && isClient && (
+          <button
+            onClick={() => setPanel(panel === 'chat' ? null : 'chat')}
+            className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition-colors ${panel === 'chat' ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
+          >
+            <span
+              className={[
+                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                panel === 'chat'
+                  ? 'opacity-100 translate-x-0'
+                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+              ].join(' ')}
+            />
+            <MessageCircle className="h-4 w-4 text-slate-400 group-hover:text-white transition-all duration-200" />
+            Chat
+            {chatCount > 0 && (
+              <span className="ml-auto rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+                {chatCount}
+              </span>
             )}
-          </>
+          </button>
         )}
       </div>
 
@@ -2716,6 +2680,7 @@ function ChatPanel({
   currentUserId,
   otherName,
   typingUsers,
+  onClose,
 }: {
   messages: PreassessmentChatMessage[];
   onSend: (msg: string) => Promise<void> | void;
@@ -2724,6 +2689,7 @@ function ChatPanel({
   currentUserId?: string;
   otherName: string;
   typingUsers: Array<{ userId: string; name: string; ruolo: string }>;
+  onClose?: () => void;
 }) {
   const [msg, setMsg] = useState('');
   const [sending, setSending] = useState(false);
@@ -2764,8 +2730,17 @@ function ChatPanel({
 
   return (
     <div className="wow-panel flex h-[70vh] flex-col overflow-hidden">
-      <div className="border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-900">
-        Chat con {otherName}
+      <div className="border-b border-slate-200 px-5 py-4 flex items-center gap-3">
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+            title="Torna indietro"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        )}
+        <span className="text-sm font-semibold text-slate-900">Chat con {otherName}</span>
       </div>
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
         {messages.length === 0 && (
@@ -2828,326 +2803,6 @@ function ChatPanel({
             <Send className="h-4 w-4" />
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function TicketPanel({
-  tickets,
-  onNew,
-  onReply,
-  onAssign,
-  onRequestClose,
-  onConfirmClose,
-  onReopen,
-  currentUserId,
-  isAdmin,
-  ticketNotice,
-}: {
-  tickets: PreassessmentTicket[];
-  onNew: (subject: string, body: string) => Promise<void> | void;
-  onReply: (ticketId: string, messaggio: string) => Promise<void> | void;
-  onAssign: (ticketId: string) => Promise<void> | void;
-  onRequestClose: (ticketId: string) => Promise<void> | void;
-  onConfirmClose: (ticketId: string) => Promise<void> | void;
-  onReopen: (ticketId: string) => Promise<void> | void;
-  currentUserId?: string;
-  isAdmin: boolean;
-  ticketNotice?: { count: number; at: number } | null;
-}) {
-  const [showNew, setShowNew] = useState(false);
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [reply, setReply] = useState('');
-
-  const selected = selectedId ? tickets.find((t) => t.id === selectedId) : null;
-
-  useEffect(() => {
-    if (selectedId && !selected) setSelectedId(null);
-  }, [selectedId, selected]);
-
-  const handleCreate = async () => {
-    if (!subject.trim() || !body.trim()) return;
-    await onNew(subject.trim(), body.trim());
-    setSubject('');
-    setBody('');
-    setShowNew(false);
-  };
-
-  const handleReply = async () => {
-    if (!selected || !reply.trim()) return;
-    await onReply(selected.id, reply.trim());
-    setReply('');
-  };
-
-  const statusLabel = (status: PreassessmentTicket['status']) => {
-    if (status === 'open') return 'Aperto';
-    if (status === 'in_progress') return 'In lavorazione';
-    if (status === 'pending_close') return 'In chiusura';
-    return 'Chiuso';
-  };
-
-  const statusClass = (status: PreassessmentTicket['status']) => {
-    if (status === 'open') return 'bg-amber-100 text-amber-700';
-    if (status === 'in_progress') return 'bg-blue-100 text-blue-700';
-    if (status === 'pending_close') return 'bg-purple-100 text-purple-700';
-    return 'bg-emerald-100 text-emerald-700';
-  };
-
-  return (
-    <div className="wow-panel flex h-[70vh] flex-col overflow-hidden">
-      <div className="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
-        <h3 className="text-sm font-semibold text-slate-900">Ticket {isAdmin ? 'dai clienti' : ''}</h3>
-        <div className="flex-1" />
-        {!isAdmin && (
-          <button onClick={() => setShowNew(true)} className="wow-button-ghost text-xs">
-            Nuovo
-          </button>
-        )}
-      </div>
-      {ticketNotice && isAdmin && (
-        <div className="border-b border-blue-200 bg-blue-50 px-5 py-3 text-xs text-blue-700">
-          {ticketNotice.count} nuovo ticket ricevuto
-        </div>
-      )}
-      {showNew && (
-        <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 space-y-2">
-          <input
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="Oggetto"
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs"
-          />
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows={3}
-            placeholder="Descrizione..."
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs"
-          />
-          <div className="flex gap-2">
-            <button onClick={handleCreate} className="wow-button text-xs">Invia</button>
-            <button onClick={() => setShowNew(false)} className="wow-button-ghost text-xs">Annulla</button>
-          </div>
-        </div>
-      )}
-      <div className="flex-1 overflow-y-auto">
-        {tickets.length === 0 && (
-          <div className="p-10 text-center text-xs text-slate-400">Nessun ticket.</div>
-        )}
-        {!selected && tickets.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setSelectedId(t.id)}
-            className="w-full border-b border-slate-100 px-5 py-4 text-left hover:bg-slate-50"
-          >
-            <div className="flex items-center gap-2">
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusClass(t.status)}`}>
-                {statusLabel(t.status)}
-              </span>
-              <span className="text-sm font-semibold text-slate-900">{t.subject}</span>
-            </div>
-            <div className="mt-1 text-[11px] text-slate-500">
-              {new Date(t.createdAt).toLocaleString('it-IT', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
-              {' '}— {(t.messages || []).length} risposte
-            </div>
-            {t.assignedTo && (
-              <div className="mt-1 text-[11px] text-slate-500">
-                In carico a {t.assignedTo.nome} {t.assignedTo.cognome}
-              </div>
-            )}
-          </button>
-        ))}
-        {selected && (
-          <div className="p-5">
-            <button onClick={() => setSelectedId(null)} className="wow-button-ghost text-xs">
-              <ChevronLeft className="h-4 w-4" /> Indietro
-            </button>
-            <h4 className="mt-4 text-lg font-semibold text-slate-900">{selected.subject}</h4>
-            <div className="mt-2 flex items-center gap-2">
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusClass(selected.status)}`}>
-                {statusLabel(selected.status)}
-              </span>
-              {selected.assignedTo && (
-                <span className="text-[11px] text-slate-500">
-                  In carico a {selected.assignedTo.nome} {selected.assignedTo.cognome}
-                </span>
-              )}
-            </div>
-            <div className="mt-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-700">
-              {selected.body}
-              <div className="mt-2 text-[10px] text-slate-400">
-                {new Date(selected.createdAt).toLocaleString('it-IT')}
-              </div>
-            </div>
-            <div className="mt-4 space-y-2">
-              {(selected.messages || []).map((r) => (
-                <div key={r.id} className={`rounded-xl border-l-4 p-3 text-xs ${r.userId === currentUserId ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
-                  <div className="mb-1 text-[10px] font-semibold text-slate-500">
-                    {r.user.nome} {r.user.cognome}
-                  </div>
-                  <div>{r.messaggio}</div>
-                  <div className="mt-1 text-[10px] text-slate-400">
-                    {new Date(r.createdAt).toLocaleString('it-IT', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {isAdmin && selected.status !== 'closed' && (
-                <>
-                  {selected.status === 'open' && (
-                    <button onClick={() => onAssign(selected.id)} className="wow-button-ghost text-xs">
-                      Prendi in carico
-                    </button>
-                  )}
-                  {selected.status === 'in_progress' && selected.assignedToId === currentUserId && (
-                    <button onClick={() => onRequestClose(selected.id)} className="wow-button text-xs">
-                      Richiedi chiusura
-                    </button>
-                  )}
-                  {selected.status === 'pending_close' && (
-                    <span className="text-[11px] text-slate-500">In attesa di conferma cliente</span>
-                  )}
-                </>
-              )}
-              {!isAdmin && selected.status === 'pending_close' && (
-                <button onClick={() => onConfirmClose(selected.id)} className="wow-button text-xs">
-                  Conferma chiusura
-                </button>
-              )}
-              {isAdmin && selected.status === 'closed' && (
-                <button onClick={() => onReopen(selected.id)} className="wow-button-ghost text-xs">
-                  Riapri ticket
-                </button>
-              )}
-            </div>
-            <div className="mt-4 flex gap-2">
-              <input
-                value={reply}
-                onChange={(e) => setReply(e.target.value)}
-                placeholder="Rispondi..."
-                className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs"
-                onKeyDown={(e) => e.key === 'Enter' && handleReply()}
-              />
-              <button onClick={handleReply} className="wow-button text-xs">
-                <Send className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function AlertPanel({
-  alerts,
-  onNew,
-  users,
-  isAdmin,
-  currentUserId,
-}: {
-  alerts: PreassessmentAlert[];
-  onNew: (payload: { targetUserId?: string; priority?: string; messaggio: string }) => Promise<void> | void;
-  users: { id: string; name: string }[];
-  isAdmin: boolean;
-  currentUserId?: string;
-}) {
-  const [showNew, setShowNew] = useState(false);
-  const [target, setTarget] = useState('');
-  const [priority, setPriority] = useState('info');
-  const [text, setText] = useState('');
-
-  const handleCreate = async () => {
-    if (!text.trim()) return;
-    await onNew({
-      targetUserId: target || undefined,
-      priority,
-      messaggio: text.trim(),
-    });
-    setText('');
-    setTarget('');
-    setPriority('info');
-    setShowNew(false);
-  };
-
-  return (
-    <div className="wow-panel flex h-[70vh] flex-col overflow-hidden">
-      <div className="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
-        <h3 className="text-sm font-semibold text-slate-900">Alert</h3>
-        <div className="flex-1" />
-        {isAdmin && (
-          <button onClick={() => setShowNew(true)} className="wow-button text-xs bg-rose-600 hover:bg-rose-700">
-            Nuovo
-          </button>
-        )}
-      </div>
-      {showNew && isAdmin && (
-        <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 space-y-2">
-          <select
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs"
-          >
-            <option value="">Me stesso (promemoria)</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>{u.name}</option>
-            ))}
-          </select>
-          <select
-            value={priority}
-            onChange={(e) => setPriority(e.target.value)}
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs"
-          >
-            <option value="info">Info</option>
-            <option value="warning">Attenzione</option>
-            <option value="urgent">Urgente</option>
-          </select>
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={2}
-            placeholder="Testo alert..."
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs"
-          />
-          <div className="flex gap-2">
-            <button onClick={handleCreate} className="wow-button text-xs bg-rose-600 hover:bg-rose-700">Invia Alert</button>
-            <button onClick={() => setShowNew(false)} className="wow-button-ghost text-xs">Annulla</button>
-          </div>
-        </div>
-      )}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {alerts.length === 0 && (
-          <div className="p-10 text-center text-xs text-slate-400">Nessun alert.</div>
-        )}
-        {alerts.map((a) => {
-          const colors: Record<string, { fg: string; bg: string }> = {
-            info: { fg: '#2563eb', bg: '#eff6ff' },
-            warning: { fg: '#d97706', bg: '#fef3c7' },
-            urgent: { fg: '#dc2626', bg: '#fee2e2' },
-          };
-          const color = colors[a.priority] || colors.info;
-          const targetName = a.targetUserId === currentUserId ? 'Me stesso' : a.targetUser
-            ? `${a.targetUser.nome} ${a.targetUser.cognome}`.trim()
-            : '';
-          return (
-            <div key={a.id} className="rounded-xl p-3" style={{ background: color.bg, borderLeft: `4px solid ${color.fg}` }}>
-              <div className="flex items-center gap-2 text-[10px] font-semibold" style={{ color: color.fg }}>
-                {a.priority === 'urgent' ? 'URGENTE' : a.priority === 'warning' ? 'ATTENZIONE' : 'INFO'}
-                <span className="text-slate-400 font-normal">
-                  {new Date(a.createdAt).toLocaleString('it-IT', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
-                </span>
-              </div>
-              <div className="mt-1 text-xs text-slate-700">{a.messaggio}</div>
-              {targetName && (
-                <div className="mt-1 text-[10px] text-slate-500">Destinatario: {targetName}</div>
-              )}
-            </div>
-          );
-        })}
       </div>
     </div>
   );
