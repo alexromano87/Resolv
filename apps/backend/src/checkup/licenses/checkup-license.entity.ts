@@ -36,7 +36,7 @@ export class CheckupLicense {
   @Column({ type: 'int' })
   numeroUtenze: number;
 
-  @Column({ type: 'int' })
+  @Column({ type: 'int', default: 0 })
   numeroSottolicenze: number;
 
   @Column({ type: 'varchar', length: 16, unique: true, nullable: true })

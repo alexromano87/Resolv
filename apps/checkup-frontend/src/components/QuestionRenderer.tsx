@@ -3,6 +3,7 @@ import { Upload, FileText, Trash2, Eye } from 'lucide-react';
 import { CheckupDocument, questionnairesApi } from '../api/questionnaires';
 import { useState, useRef } from 'react';
 import { DocumentPreviewModal } from './DocumentPreviewModal';
+import { DateField } from './ui/DateField';
 
 interface Props {
   question: CheckupQuestion;
@@ -170,19 +171,13 @@ export function QuestionRenderer({
 
       case 'date':
         return (
-          <input
-            type="date"
-            value={currentValue}
-            onChange={(e) => onAnswerChange(question.id, e.target.value)}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            disabled={readOnly}
-            className={`w-full max-w-xs px-4 py-2.5 border border-gray-300 rounded-lg outline-none ${
-              readOnly
-                ? 'bg-gray-50 text-gray-500 cursor-not-allowed'
-                : 'focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
-            }`}
-          />
+          <div onFocus={handleFocus} onBlur={handleBlur} className="w-full max-w-xs">
+            <DateField
+              value={currentValue}
+              onChange={(v) => onAnswerChange(question.id, v)}
+              disabled={readOnly}
+            />
+          </div>
         );
 
       default:

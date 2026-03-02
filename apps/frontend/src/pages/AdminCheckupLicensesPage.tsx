@@ -5,6 +5,7 @@ import * as questionApi from '../api/checkupQuestions';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
 import { CustomSelect } from '../components/ui/CustomSelect';
+import { DateField } from '../components/ui/DateField';
 
 export default function AdminCheckupLicensesPage() {
   const { success, error: toastError } = useToast();
@@ -323,20 +324,16 @@ export default function AdminCheckupLicensesPage() {
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Data inizio validità</label>
-                    <input
-                      type="date"
+                    <DateField
                       value={licenseForm.dataInizioValidita}
-                      onChange={(e) => setLicenseForm((p) => ({ ...p, dataInizioValidita: e.target.value }))}
-                      className={inputClassName}
+                      onChange={(v) => setLicenseForm((p) => ({ ...p, dataInizioValidita: v }))}
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Data scadenza</label>
-                    <input
-                      type="date"
+                    <DateField
                       value={licenseForm.dataScadenza}
-                      onChange={(e) => setLicenseForm((p) => ({ ...p, dataScadenza: e.target.value }))}
-                      className={inputClassName}
+                      onChange={(v) => setLicenseForm((p) => ({ ...p, dataScadenza: v }))}
                     />
                   </div>
                 </div>

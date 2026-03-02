@@ -27,6 +27,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BodyPortal } from '../components/ui/BodyPortal';
+import { DateField } from '../components/ui/DateField';
 import { Pagination } from '../components/Pagination';
 
 type PriorityFilter = 'tutti' | 'info' | 'warning' | 'urgent';
@@ -662,12 +663,10 @@ export function PreassessmentAlertsPage() {
                       <CalendarClock className="inline h-3.5 w-3.5 mr-1" />
                       Scadenza (opzionale)
                     </label>
-                    <input
-                      type="date"
+                    <DateField
                       value={createForm.dataScadenza}
                       min={new Date().toISOString().split('T')[0]}
-                      onChange={(e) => setCreateForm({ ...createForm, dataScadenza: e.target.value })}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                      onChange={(v) => setCreateForm({ ...createForm, dataScadenza: v })}
                     />
                   </div>
                   {createForm.dataScadenza && (
@@ -776,11 +775,9 @@ export function PreassessmentAlertsPage() {
                       <CalendarClock className="inline h-3.5 w-3.5 mr-1" />
                       Scadenza (opzionale)
                     </label>
-                    <input
-                      type="date"
+                    <DateField
                       value={editForm.dataScadenza}
-                      onChange={(e) => setEditForm({ ...editForm, dataScadenza: e.target.value })}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                      onChange={(v) => setEditForm({ ...editForm, dataScadenza: v })}
                     />
                   </div>
                   <div className="w-36">

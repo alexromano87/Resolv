@@ -10,12 +10,12 @@ export class CreateCheckupLicenseDto {
   studioId?: string;
 
   @IsOptional()
-  @IsUUID()
+  @IsUUID('all')
   modelId?: string;
 
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsUUID('all', { each: true })
   modelIds?: string[];
 
   @IsOptional()

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { auditApi, type AuditLogEntry, type AuditLogResponse } from '../api/preassessment';
 import { Pagination } from '../components/Pagination';
+import { DateField } from '../components/ui/DateField';
 
 const ITEMS_PER_PAGE = 50;
 
@@ -247,20 +248,18 @@ export function AuditLogPage() {
 
           {/* Date range */}
           <div className="flex items-center gap-2">
-            <input
-              type="date"
+            <DateField
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-              title="Data da"
+              onChange={setDateFrom}
+              placeholder="Data da"
+              className="flex-1"
             />
             <span className="text-slate-400 text-xs">→</span>
-            <input
-              type="date"
+            <DateField
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-              title="Data a"
+              onChange={setDateTo}
+              placeholder="Data a"
+              className="flex-1"
             />
           </div>
         </div>

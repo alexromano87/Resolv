@@ -13,7 +13,7 @@ export class CreateCheckupSublicenseDto {
   tipo?: string;
 
   @IsOptional()
-  @IsUUID()
+  @IsUUID('all')
   modelId?: string;
 
   @IsInt()

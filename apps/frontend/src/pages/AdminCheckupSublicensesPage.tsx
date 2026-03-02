@@ -5,6 +5,7 @@ import * as questionApi from '../api/checkupQuestions';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
+import { DateField } from '../components/ui/DateField';
 
 export default function AdminCheckupSublicensesPage() {
   const sublicenseTypeOptions = [
@@ -387,20 +388,16 @@ export default function AdminCheckupSublicensesPage() {
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-slate-700">Data inizio validità</label>
-                    <input
-                      type="date"
+                    <DateField
                       value={formData.dataInizioValidita}
-                      onChange={(e) => setFormData((p) => ({ ...p, dataInizioValidita: e.target.value }))}
-                      className={inputClassName}
+                      onChange={(v) => setFormData((p) => ({ ...p, dataInizioValidita: v }))}
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700">Data scadenza</label>
-                    <input
-                      type="date"
+                    <DateField
                       value={formData.dataScadenza}
-                      onChange={(e) => setFormData((p) => ({ ...p, dataScadenza: e.target.value }))}
-                      className={inputClassName}
+                      onChange={(v) => setFormData((p) => ({ ...p, dataScadenza: v }))}
                     />
                   </div>
                 </div>
