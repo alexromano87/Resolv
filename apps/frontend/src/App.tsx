@@ -76,6 +76,10 @@ const AdminCheckupBackupPage = lazyNamed(
   () => import('./pages/AdminCheckupBackupPage'),
   'default',
 );
+const AdminCheckupHelpPage = lazyNamed(
+  () => import('./pages/AdminCheckupHelpPage'),
+  'default',
+);
 const AdminSuperSettingsPage = lazyNamed(
   () => import('./pages/AdminSuperSettingsPage'),
   'default',
@@ -195,6 +199,7 @@ function App() {
                     <Route path="/admin/checkup-export" element={<AdminCheckupExportPage />} />
                     <Route path="/admin/checkup-import" element={<AdminCheckupImportPage />} />
                     <Route path="/admin/checkup-backup" element={<AdminCheckupBackupPage />} />
+                    <Route path="/admin/help" element={<AdminCheckupHelpPage />} />
                     <Route path="/admin/impostazioni" element={<AdminSuperSettingsPage />} />
                     <Route path="/admin/studi" element={<StudiPage />} />
                     <Route path="/admin/maintenance" element={<AdminMaintenancePage />} />

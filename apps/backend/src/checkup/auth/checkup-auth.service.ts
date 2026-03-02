@@ -1,23 +1,42 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { CheckupUser } from '../users/checkup-user.entity';
 import { CheckupLoginDto } from './dto/checkup-login.dto';
 import { CheckupChangePasswordDto } from './dto/checkup-change-password.dto';
 import { CheckupJwtPayload } from './checkup-jwt.strategy';
 import { EmailService } from '../../notifications/email.service';
 import { buildTwoFactorEmailHtml, buildTwoFactorEmailText } from '../../notifications/email-templates';
+import { CacheService } from '../../common/cache.service';
+
+/** TTL in seconds for a refresh token (7 days) */
+const REFRESH_TOKEN_TTL_S = 7 * 24 * 60 * 60;
+/** Redis key prefix for refresh-token blacklist */
+const REFRESH_BLACKLIST_PREFIX = 'checkup:refresh:blacklist:';
 
 @Injectable()
 export class CheckupAuthService {
+  private readonly logger = new Logger(CheckupAuthService.name);
+  private readonly refreshSecret: string;
+
   constructor(
     @InjectRepository(CheckupUser)
     private userRepository: Repository<CheckupUser>,
     private jwtService: JwtService,
+    private configService: ConfigService,
+    private cacheService: CacheService,
     private emailService: EmailService,
-  ) {}
+  ) {
+    const secret = this.configService.get<string>('CHECKUP_REFRESH_SECRET');
+    if (!secret) {
+      throw new Error('FATAL: CHECKUP_REFRESH_SECRET environment variable is not set.');
+    }
+    this.refreshSecret = secret;
+  }
 
   private mapUserPayload(user: CheckupUser) {
     const clientSublicense = user.client?.sublicenses?.[0] || null;
@@ -96,6 +115,64 @@ export class CheckupAuthService {
     return qb.getOne();
   }
 
+  // ── Refresh-token helpers ──────────────────────────────────────────────────
+
+  /** Issue a refresh token (JWT signed with CHECKUP_REFRESH_SECRET, 7d TTL). */
+  private issueRefreshToken(userId: string): string {
+    const jti = crypto.randomUUID();
+    return this.jwtService.sign(
+      { sub: userId, jti },
+      { secret: this.refreshSecret, expiresIn: `${REFRESH_TOKEN_TTL_S}s` },
+    );
+  }
+
+  /** Verify refresh token, check blacklist, and return a fresh access token. */
+  async refreshAccessToken(refreshToken: string): Promise<{ access_token: string; refresh_token: string }> {
+    let payload: { sub: string; jti: string; exp: number };
+    try {
+      payload = this.jwtService.verify(refreshToken, { secret: this.refreshSecret });
+    } catch {
+      throw new UnauthorizedException('Refresh token non valido o scaduto');
+    }
+
+    // Check blacklist
+    const blacklisted = await this.cacheService.get<boolean>(REFRESH_BLACKLIST_PREFIX + payload.jti);
+    if (blacklisted) {
+      throw new UnauthorizedException('Refresh token revocato');
+    }
+
+    // Blacklist old refresh token (rotate)
+    const remainingTtl = Math.max(0, payload.exp - Math.floor(Date.now() / 1000));
+    await this.cacheService.set(REFRESH_BLACKLIST_PREFIX + payload.jti, true, remainingTtl);
+
+    const user = await this.loadUserForAuth({ id: payload.sub });
+    if (!user) {
+      throw new UnauthorizedException('Utente non trovato');
+    }
+
+    const accessPayload: CheckupJwtPayload = { sub: user.id, email: user.email, ruolo: user.ruolo };
+    return {
+      access_token: this.jwtService.sign(accessPayload),
+      refresh_token: this.issueRefreshToken(user.id),
+    };
+  }
+
+  /** Invalidate a refresh token by putting its jti in Redis blacklist. */
+  async logout(refreshToken: string): Promise<void> {
+    try {
+      const payload = this.jwtService.verify<{ jti: string; exp: number }>(
+        refreshToken,
+        { secret: this.refreshSecret },
+      );
+      const remainingTtl = Math.max(1, payload.exp - Math.floor(Date.now() / 1000));
+      await this.cacheService.set(REFRESH_BLACKLIST_PREFIX + payload.jti, true, remainingTtl);
+    } catch {
+      // Token already expired or invalid — nothing to blacklist
+    }
+  }
+
+  // ── 2FA helpers ───────────────────────────────────────────────────────────
+
   private generateTwoFactorCode() {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
@@ -111,8 +188,18 @@ export class CheckupAuthService {
 
   private async sendTwoFactorCode(channel: 'sms' | 'email', destination: string, code: string) {
     if (channel === 'sms') {
-      console.info(`[Checkup][2FA][SMS] Code ${code} to ${destination}`);
-      return;
+      // SMS gateway not configured — fall back to email delivery.
+      // Never log OTP codes: they are sensitive credentials.
+      this.logger.warn(
+        `[2FA][SMS] SMS gateway not configured. ` +
+        `Falling back to email delivery for destination ending in ...${destination.slice(-4)}.`,
+      );
+      // Attempt email fallback: destination for SMS is the phone number,
+      // so we cannot send an email without the user's email address.
+      // Throw a clear error so the caller can handle it gracefully.
+      throw new BadRequestException(
+        'Il canale SMS non è configurato. Contatta il supporto per attivare la verifica via email.',
+      );
     }
 
     await this.emailService.sendEmail({
@@ -167,6 +254,7 @@ export class CheckupAuthService {
 
     return {
       access_token: this.jwtService.sign(payload),
+      refresh_token: this.issueRefreshToken(user.id),
       user: this.mapUserPayload(user),
     };
   }
@@ -203,6 +291,7 @@ export class CheckupAuthService {
 
     return {
       access_token: this.jwtService.sign(payload),
+      refresh_token: this.issueRefreshToken(user.id),
       user: this.mapUserPayload(user),
     };
   }
@@ -336,6 +425,7 @@ export class CheckupAuthService {
 
     return {
       access_token: this.jwtService.sign(payload),
+      refresh_token: this.issueRefreshToken(user.id),
       user: {
         ...this.mapUserPayload(user),
         mustChangePassword: false,

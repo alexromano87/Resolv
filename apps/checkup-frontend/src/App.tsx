@@ -10,12 +10,19 @@ import ManageQuestionsPage from './pages/ManageQuestionsPage';
 import QuestionnairePage from './pages/QuestionnairePage';
 import SavedReportsPage from './pages/SavedReportsPage';
 import StudioDashboardPage from './pages/StudioDashboardPage';
+import HelpPage from './pages/HelpPage';
+import { PreassessmentTicketsPage } from './pages/PreassessmentTicketsPage';
+import { PreassessmentAlertsPage } from './pages/PreassessmentAlertsPage';
+import { AuditLogPage } from './pages/AuditLogPage';
 import { useAuth } from './contexts/AuthContext';
 import { CheckupAppLayout } from './layout/CheckupAppLayout';
 
 function CheckupHome() {
   const { user } = useAuth();
   if (!user) return null;
+  if (user.ruolo !== 'cliente') {
+    return <Navigate to="/checkup/dashboard-studio" replace />;
+  }
   return <PreassessmentPage />;
 }
 
@@ -93,6 +100,17 @@ export default function App() {
       />
 
       <Route
+        path="/checkup/help"
+        element={
+          <ProtectedRoute>
+            <CheckupAppLayout>
+              <HelpPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/checkup/clienti/:clientId"
         element={
           <ProtectedRoute>
@@ -164,6 +182,66 @@ export default function App() {
           <ProtectedRoute requiredRole="superadmin">
             <CheckupAppLayout>
               <ManageQuestionsPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Tickets — cliente (own preassessment) */}
+      <Route
+        path="/checkup/tickets"
+        element={
+          <ProtectedRoute requiredRole="cliente">
+            <CheckupAppLayout>
+              <PreassessmentTicketsPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Tickets — admin_studio (specific client) */}
+      <Route
+        path="/checkup/clienti/:clientId/tickets"
+        element={
+          <ProtectedRoute requiredRole="admin_studio">
+            <CheckupAppLayout>
+              <PreassessmentTicketsPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Alerts — cliente (own preassessment) */}
+      <Route
+        path="/checkup/alerts"
+        element={
+          <ProtectedRoute requiredRole="cliente">
+            <CheckupAppLayout>
+              <PreassessmentAlertsPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Alerts — admin_studio (specific client) */}
+      <Route
+        path="/checkup/clienti/:clientId/alerts"
+        element={
+          <ProtectedRoute requiredRole="admin_studio">
+            <CheckupAppLayout>
+              <PreassessmentAlertsPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Audit log — admin_studio only */}
+      <Route
+        path="/checkup/audit"
+        element={
+          <ProtectedRoute requiredRole="admin_studio">
+            <CheckupAppLayout>
+              <AuditLogPage />
             </CheckupAppLayout>
           </ProtectedRoute>
         }

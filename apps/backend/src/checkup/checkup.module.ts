@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { CacheService } from '../common/cache.service';
 
 // Entities
 import { CheckupUser } from './users/checkup-user.entity';
@@ -75,6 +76,14 @@ import { QuestionManagementService } from './services/question-management.servic
 import { QuestionManagementController } from './controllers/question-management.controller';
 import { QuestionSeedService } from './services/question-seed.service';
 
+// Mail
+import { CheckupMailService } from './mail/checkup-mail.service';
+
+// Audit
+import { CheckupAuditLogService } from './audit/checkup-audit-log.service';
+import { CheckupAuditController } from './audit/checkup-audit.controller';
+import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -101,6 +110,7 @@ import { QuestionSeedService } from './services/question-seed.service';
       QuestionSection,
       QuestionField,
       QuestionModel,
+      CheckupAuditLog,
     ]),
     PassportModule.register({ defaultStrategy: 'checkup-jwt' }),
     JwtModule.registerAsync({
@@ -114,7 +124,7 @@ import { QuestionSeedService } from './services/question-seed.service';
           }
           return secret;
         })(),
-        signOptions: { expiresIn: '24h' },
+        signOptions: { expiresIn: '1h' },
       }),
     }),
     NotificationsModule,
@@ -133,8 +143,10 @@ import { QuestionSeedService } from './services/question-seed.service';
     CheckupPreassessmentDocumentsController,
     CheckupStudiosController,
     QuestionManagementController,
+    CheckupAuditController,
   ],
   providers: [
+    CacheService,
     CheckupJwtStrategy,
     CheckupAuthService,
     CheckupUsersService,
@@ -151,6 +163,8 @@ import { QuestionSeedService } from './services/question-seed.service';
     CheckupStudiosService,
     QuestionManagementService,
     QuestionSeedService,
+    CheckupMailService,
+    CheckupAuditLogService,
   ],
 })
 export class CheckupModule {}

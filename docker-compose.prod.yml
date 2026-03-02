@@ -78,6 +78,10 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       CHECKUP_JWT_SECRET: ${CHECKUP_JWT_SECRET}
+      CHECKUP_REFRESH_SECRET: ${CHECKUP_REFRESH_SECRET}
+      CHECKUP_BACKUP_ENCRYPTION_KEY: ${CHECKUP_BACKUP_ENCRYPTION_KEY:-}
+      CHECKUP_AUDIT_RETENTION_DAYS: ${CHECKUP_AUDIT_RETENTION_DAYS:-90}
+      BACKUP_SCHEDULER_ENABLED: "false"
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -117,7 +121,8 @@ services:
 
     volumes:
       - backend_logs:/usr/src/app/logs
-      - backup_data:/usr/src/app/backups
+      - /mnt/resolv-data/backups:/usr/src/app/backups
+      - /mnt/resolv-data/uploads:/usr/src/app/uploads
     depends_on:
       mysql:
         condition: service_healthy
@@ -212,8 +217,6 @@ volumes:
   redis_data:
     driver: local
   backend_logs:
-    driver: local
-  backup_data:
     driver: local
   nginx_logs:
     driver: local

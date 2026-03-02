@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, UseGuards, HttpCode } from '@nestjs/common';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
@@ -85,5 +85,27 @@ export class CheckupPreassessmentThreadsController {
     @CheckupCurrentUser() user: CheckupCurrentUserData,
   ) {
     return this.threadsService.createAlert(preassessmentId, dto, user);
+  }
+
+  // ─── Unread counts ───────────────────────────────────────────────────────
+
+  @Get(':preassessmentId/unread-counts')
+  getUnreadCounts(
+    @Param('preassessmentId') preassessmentId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.threadsService.getUnreadCounts(user.id, preassessmentId);
+  }
+
+  @Post(':preassessmentId/mark-seen')
+  @HttpCode(204)
+  async markSeen(
+    @Param('preassessmentId') preassessmentId: string,
+    @Body('type') type: 'tickets' | 'alerts',
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    if (type === 'tickets' || type === 'alerts') {
+      await this.threadsService.markSeen(user.id, preassessmentId, type);
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, BadRequestException } from '@nestjs/common';
 import { CheckupAuthService } from './checkup-auth.service';
 import { CheckupLoginDto } from './dto/checkup-login.dto';
 import { CheckupChangePasswordDto } from './dto/checkup-change-password.dto';
@@ -18,11 +18,13 @@ export class CheckupAuthController {
   constructor(private readonly authService: CheckupAuthService) {}
 
   @Post('login')
+  @RateLimit({ limit: 5, windowMs: 15 * 60 * 1000 })
   login(@Body() dto: CheckupLoginDto) {
     return this.authService.login(dto);
   }
 
   @Post('login/2fa')
+  @RateLimit({ limit: 5, windowMs: 15 * 60 * 1000 })
   verifyTwoFactorLogin(@Body() dto: CheckupTwoFactorLoginVerifyDto) {
     return this.authService.verifyTwoFactorLogin(dto.userId, dto.code);
   }
@@ -85,5 +87,20 @@ export class CheckupAuthController {
     @Body() dto: CheckupTwoFactorVerifyDto,
   ) {
     return this.authService.verifyTwoFactorDisable(user.id, dto.code);
+  }
+
+  /** Rotate refresh token → returns new access_token + refresh_token */
+  @Post('refresh')
+  @RateLimit({ limit: 10, windowMs: 60 * 1000 })
+  refresh(@Body('refresh_token') refreshToken: string) {
+    if (!refreshToken) throw new BadRequestException('refresh_token mancante');
+    return this.authService.refreshAccessToken(refreshToken);
+  }
+
+  /** Server-side logout: blacklists the refresh token in Redis */
+  @UseGuards(CheckupJwtAuthGuard)
+  @Post('logout')
+  logout(@Body('refresh_token') refreshToken: string) {
+    return this.authService.logout(refreshToken ?? '');
   }
 }

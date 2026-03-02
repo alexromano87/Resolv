@@ -41,9 +41,11 @@ export default function LoginPage() {
     try {
       const res = await authApi.login(email, password);
       if ('access_token' in res) {
-        setSession(res.access_token, res.user);
+        setSession(res.access_token, res.refresh_token, res.user);
         forceClientDashboard(res.user);
-        navigate('/checkup/', { replace: true });
+        const isLicenziatario = res.user?.ruolo !== 'cliente';
+        const target = isLicenziatario ? '/checkup/dashboard-studio' : '/checkup/';
+        navigate(target, { replace: true });
       } else {
         setTwoFactorUserId(res.userId);
         setTwoFactorChannel(res.channel);
@@ -62,9 +64,11 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await authApi.verifyTwoFactorLogin(twoFactorUserId, twoFactorCode.trim());
-      setSession(res.access_token, res.user);
+      setSession(res.access_token, res.refresh_token, res.user);
       forceClientDashboard(res.user);
-      navigate('/checkup/', { replace: true });
+      const isLicenziatario = res.user?.ruolo !== 'cliente';
+      const target = isLicenziatario ? '/checkup/dashboard-studio' : '/checkup/';
+      navigate(target, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Codice 2FA non valido');
     } finally {

@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Between, LessThan, Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import { CheckupAuditLog, type CheckupAuditAction, type CheckupAuditEntity } from './checkup-audit-log.entity';
 
 export interface CreateCheckupAuditLogDto {
@@ -33,9 +35,12 @@ export interface CheckupAuditLogFilters {
 
 @Injectable()
 export class CheckupAuditLogService {
+  private readonly logger = new Logger(CheckupAuditLogService.name);
+
   constructor(
     @InjectRepository(CheckupAuditLog)
     private auditLogRepository: Repository<CheckupAuditLog>,
+    private configService: ConfigService,
   ) {}
 
   async log(data: CreateCheckupAuditLogDto): Promise<CheckupAuditLog> {
@@ -100,6 +105,27 @@ export class CheckupAuditLogService {
     const failed = await this.auditLogRepository.count({ where: { ...where, success: false } });
 
     return { total, success, failed };
+  }
+
+  /**
+   * Retention policy: delete audit logs older than CHECKUP_AUDIT_RETENTION_DAYS (default 90).
+   * Runs daily at 03:00 to avoid peak-hour load.
+   */
+  @Cron('0 3 * * *')
+  async enforceRetentionPolicy(): Promise<void> {
+    const retentionDays = this.configService.get<number>('CHECKUP_AUDIT_RETENTION_DAYS', 90);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+
+    try {
+      const result = await this.auditLogRepository.delete({ createdAt: LessThan(cutoff) });
+      const deleted = result.affected ?? 0;
+      if (deleted > 0) {
+        this.logger.log(`Audit log retention: deleted ${deleted} records older than ${retentionDays} days (cutoff: ${cutoff.toISOString()})`);
+      }
+    } catch (error: any) {
+      this.logger.error(`Audit log retention policy failed: ${error.message}`);
+    }
   }
 
   async exportToCSV(filters: CheckupAuditLogFilters = {}): Promise<string> {

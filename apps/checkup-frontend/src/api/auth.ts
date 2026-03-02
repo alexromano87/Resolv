@@ -43,7 +43,13 @@ export interface CheckupUser {
 
 export interface LoginResponse {
   access_token: string;
+  refresh_token: string;
   user: CheckupUser;
+}
+
+export interface RefreshResponse {
+  access_token: string;
+  refresh_token: string;
 }
 
 export interface TwoFactorRequiredResponse {
@@ -94,4 +100,12 @@ export const authApi = {
 
   confirmPasswordReset: (dto: PasswordResetConfirmDto) =>
     api.post('/checkup/auth/password-reset/confirm', dto, { skipAuthRedirect: true }),
+
+  /** Exchange a refresh token for a new access + refresh token pair. */
+  refresh: (refreshToken: string) =>
+    api.post<RefreshResponse>('/checkup/auth/refresh', { refresh_token: refreshToken }, { skipAuthRedirect: true }),
+
+  /** Server-side logout: invalidates the refresh token in Redis. */
+  logout: (refreshToken: string) =>
+    api.post('/checkup/auth/logout', { refresh_token: refreshToken }).catch(() => undefined),
 };

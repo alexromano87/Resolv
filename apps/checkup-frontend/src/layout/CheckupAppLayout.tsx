@@ -1,8 +1,9 @@
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Menu, ChevronLeft, ChevronRight, X, ArrowLeft, LayoutDashboard, FileText, Shield, Settings } from 'lucide-react';
+import { LogOut, Menu, ChevronLeft, ChevronRight, X, ArrowLeft, LayoutDashboard, FileText, Shield, Settings, Search, Ticket, Bell, ClipboardList } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
+import { preassessmentApi, threadsUnreadApi } from '../api/preassessment';
 
 interface CheckupAppLayoutProps {
   children: ReactNode;
@@ -16,6 +17,8 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { confirm, ConfirmDialog } = useConfirmDialog();
   // Unsaved changes are handled by the Settings page custom modal.
+  const [unread, setUnread] = useState<{ tickets: number; alerts: number }>({ tickets: 0, alerts: 0 });
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const initials = useMemo(() => {
     const name = `${user?.nome || ''} ${user?.cognome || ''}`.trim();
@@ -43,8 +46,16 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     if (location.pathname.startsWith('/checkup/ricerca-clienti')) return 'Ricerca clienti';
     if (location.pathname.startsWith('/checkup/amministrazione')) return 'Amministrazione';
     if (location.pathname.startsWith('/checkup/utenti')) return 'Amministrazione';
+    if (location.pathname.startsWith('/checkup/help')) return 'Help';
     if (location.pathname.startsWith('/checkup/impostazioni')) return 'Impostazioni';
-    if (location.pathname.startsWith('/checkup/clienti')) return 'Pre-Assessment';
+    if (location.pathname.startsWith('/checkup/tickets')) return 'Ticket';
+    if (location.pathname.startsWith('/checkup/alerts')) return 'Alert';
+    if (location.pathname.startsWith('/checkup/audit')) return 'Log attività';
+    if (location.pathname.startsWith('/checkup/clienti')) {
+      if (location.pathname.endsWith('/tickets')) return 'Ticket';
+      if (location.pathname.endsWith('/alerts')) return 'Alert';
+      return 'Pre-Assessment';
+    }
     return 'Pre-Assessment';
   }, [location.pathname, user?.ruolo]);
   const isStaff = user ? user.ruolo !== 'cliente' : false;
@@ -53,6 +64,28 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
+
+  // ── Unread badge polling (cliente only) ────────────────────────────────────
+  useEffect(() => {
+    if (!user || user.ruolo !== 'cliente') {
+      setUnread({ tickets: 0, alerts: 0 });
+      return;
+    }
+    const fetchUnread = async () => {
+      try {
+        const pre = await preassessmentApi.get();
+        const counts = await threadsUnreadApi.getCounts(pre.id);
+        setUnread(counts);
+      } catch {
+        // silently ignore
+      }
+    };
+    fetchUnread();
+    intervalRef.current = setInterval(fetchUnread, 60_000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [user?.ruolo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogout = async () => {
     await logout();
@@ -168,8 +201,130 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                   </>
                 )}
               </NavLink>
+              {user?.ruolo === 'admin_studio' && (
+                <NavLink
+                  to="/checkup/ricerca-clienti"
+                  className={({ isActive }) =>
+                    [
+                      'group flex items-center rounded-2xl transition-colors',
+                      sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                      'text-sm font-medium',
+                      isActive
+                        ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                        : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                    ].join(' ')
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      {!sidebarCollapsed && (
+                        <span
+                          className={[
+                            'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                            isActive
+                              ? 'opacity-100 translate-x-0'
+                              : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                          ].join(' ')}
+                        />
+                      )}
+                      <Search
+                        size={18}
+                        className="text-slate-400 group-hover:text-white transition-all duration-200"
+                      />
+                      <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                        Ricerca clienti
+                      </span>
+                    </>
+                  )}
+                </NavLink>
+              )}
+              {!isStaff && (
+                <>
+                  <NavLink
+                    to="/checkup/tickets"
+                    className={({ isActive }) =>
+                      [
+                        'group flex items-center rounded-2xl transition-colors',
+                        sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                        'text-sm font-medium',
+                        isActive
+                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                          : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                      ].join(' ')
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {!sidebarCollapsed && (
+                          <span
+                            className={[
+                              'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                              isActive
+                                ? 'opacity-100 translate-x-0'
+                                : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                            ].join(' ')}
+                          />
+                        )}
+                        <Ticket
+                          size={18}
+                          className="text-slate-400 group-hover:text-white transition-all duration-200"
+                        />
+                        <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                          Ticket
+                        </span>
+                        {!sidebarCollapsed && unread.tickets > 0 && (
+                          <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
+                            {unread.tickets > 99 ? '99+' : unread.tickets}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                  <NavLink
+                    to="/checkup/alerts"
+                    className={({ isActive }) =>
+                      [
+                        'group flex items-center rounded-2xl transition-colors',
+                        sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                        'text-sm font-medium',
+                        isActive
+                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                          : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                      ].join(' ')
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {!sidebarCollapsed && (
+                          <span
+                            className={[
+                              'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                              isActive
+                                ? 'opacity-100 translate-x-0'
+                                : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                            ].join(' ')}
+                          />
+                        )}
+                        <Bell
+                          size={18}
+                          className="text-slate-400 group-hover:text-white transition-all duration-200"
+                        />
+                        <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                          Alert
+                        </span>
+                        {!sidebarCollapsed && unread.alerts > 0 && (
+                          <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
+                            {unread.alerts > 99 ? '99+' : unread.alerts}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                </>
+              )}
               <div id="checkup-subnav" className="space-y-3" />
             </div>
+
             {isStaff && (
               <div className={`${sidebarCollapsed ? 'hidden' : ''} space-y-1 border-t border-blue-800/30 pt-4`}>
                 <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
@@ -287,6 +442,41 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                     </>
                   )}
                 </NavLink>
+                <NavLink
+                  to="/checkup/audit"
+                  className={({ isActive }) =>
+                    [
+                      'group flex items-center rounded-2xl transition-colors',
+                      sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                      'text-sm font-medium',
+                      isActive
+                        ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                        : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                    ].join(' ')
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      {!sidebarCollapsed && (
+                        <span
+                          className={[
+                            'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                            isActive
+                              ? 'opacity-100 translate-x-0'
+                              : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                          ].join(' ')}
+                        />
+                      )}
+                      <ClipboardList
+                        size={18}
+                        className="text-slate-400 group-hover:text-white transition-all duration-200"
+                      />
+                      <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                        Log attività
+                      </span>
+                    </>
+                  )}
+                </NavLink>
               </div>
             )}
           </nav>
@@ -351,6 +541,15 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                 >
                   <ArrowLeft size={14} />
                   Torna al checkup
+                </button>
+              )}
+              {!location.pathname.startsWith('/checkup/help') && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/checkup/help')}
+                  className="hidden md:inline-flex items-center gap-2 rounded-full border border-indigo-200/60 bg-white/85 px-3 py-2 text-[11px] font-semibold text-slate-700 shadow-[0_12px_30px_rgba(10,16,32,0.16)] transition hover:border-indigo-300 hover:text-indigo-700"
+                >
+                  Help
                 </button>
               )}
               {!location.pathname.startsWith('/checkup/impostazioni') && (

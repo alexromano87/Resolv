@@ -1,4 +1,4 @@
-import { api } from './config';
+import { api, apiBase, getAccessToken } from './config';
 
 export interface CheckupTemplate {
   id: string;
@@ -136,4 +136,13 @@ export const questionnairesApi = {
 
   deleteDocument: (id: string) =>
     api.delete(`/checkup/documents/${id}`),
+
+  downloadDocument: async (id: string): Promise<Blob> => {
+    const token = getAccessToken();
+    const response = await fetch(`${apiBase}/checkup/documents/${id}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error('Errore nel download del documento');
+    return response.blob();
+  },
 };

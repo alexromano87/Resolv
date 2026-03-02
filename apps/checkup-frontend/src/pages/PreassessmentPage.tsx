@@ -48,6 +48,7 @@ import {
 } from '../api/preassessment';
 import { preassessmentReportApi } from '../api/reports';
 import { useAuth } from '../contexts/AuthContext';
+import { DocumentPreviewModal } from '../components/DocumentPreviewModal';
 
 const DOC_ICON_FIELDS = new Set([
   'd_accordi_partnership',
@@ -464,6 +465,11 @@ export default function PreassessmentPage() {
     a.download = doc.nomeOriginale || 'documento';
     a.click();
     URL.revokeObjectURL(url);
+  }, []);
+
+  const [previewDoc, setPreviewDoc] = useState<PreassessmentDocument | null>(null);
+  const handlePreviewDocument = useCallback((doc: PreassessmentDocument) => {
+    setPreviewDoc(doc);
   }, []);
 
   useEffect(() => {
@@ -1673,13 +1679,6 @@ export default function PreassessmentPage() {
     navigate(`/checkup/clienti/${id}`);
   };
 
-  const handleOpenClientSearch = () => {
-    setSelectedClientId(null);
-    setPanel(null);
-    setView('dashboard');
-    navigate('/checkup/clienti');
-  };
-
   const handleClientSearch = () => {
     const term = clientQuery.trim().toLowerCase();
     const results = term
@@ -2203,6 +2202,7 @@ export default function PreassessmentPage() {
                 onUploadDocument={handleUploadDocument}
                 onDeleteDocument={handleDeleteDocument}
                 onDownloadDocument={handleDownloadDocument}
+                onPreviewDocument={handlePreviewDocument}
                 sectionId={activeSection.id}
               />
             ))}
@@ -2487,10 +2487,16 @@ export default function PreassessmentPage() {
         </section>
       )}
 
+      {/* ── Document preview modal ─────────────────────────────────────────── */}
+      <DocumentPreviewModal
+        doc={previewDoc}
+        open={!!previewDoc}
+        onClose={() => setPreviewDoc(null)}
+        downloadFn={(id) => preassessmentDocumentsApi.download(id)}
+      />
+
       {sidebarTarget && createPortal(
         <PreassessmentSidebar
-          isStaff={isStaff}
-          onOpenClientSearch={handleOpenClientSearch}
           view={view}
           setView={setView}
           panel={panel}
@@ -2516,8 +2522,6 @@ export default function PreassessmentPage() {
 }
 
 function PreassessmentSidebar({
-  isStaff,
-  onOpenClientSearch,
   view,
   setView,
   panel,
@@ -2536,8 +2540,6 @@ function PreassessmentSidebar({
   chatCount,
   openTickets,
 }: {
-  isStaff: boolean;
-  onOpenClientSearch: () => void;
   view: 'dashboard' | number;
   setView: (val: 'dashboard' | number) => void;
   panel: 'chat' | 'tickets' | 'alerts' | null;
@@ -2558,16 +2560,6 @@ function PreassessmentSidebar({
 }) {
   return (
     <div className="space-y-4">
-      {isStaff && hasAssessment && (
-        <button
-          onClick={onOpenClientSearch}
-          className="flex w-full items-center gap-3 rounded-2xl border border-blue-800/40 bg-blue-900/40 px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-blue-100 transition-colors hover:bg-blue-900/60"
-        >
-          <Search className="h-4 w-4" />
-          Ricerca clienti
-        </button>
-      )}
-
       <div className="space-y-1">
         {hasAssessment && (
           <>
@@ -3176,6 +3168,7 @@ const FormField = memo(function FormField({
   onUploadDocument,
   onDeleteDocument,
   onDownloadDocument,
+  onPreviewDocument,
   sectionId,
   ownerProtected = false,
 }: {
@@ -3203,12 +3196,14 @@ const FormField = memo(function FormField({
   onUploadDocument?: (fieldId: string, sectionId: string, file: File) => Promise<void> | void;
   onDeleteDocument?: (docId: string) => Promise<void> | void;
   onDownloadDocument?: (doc: PreassessmentDocument) => Promise<void> | void;
+  onPreviewDocument?: (doc: PreassessmentDocument) => void;
   sectionId: string;
 }) {
   const [showHelp, setShowHelp] = useState(false);
   const [showUserNote, setShowUserNote] = useState(Boolean(userNote));
   const [showConsultantNote, setShowConsultantNote] = useState(Boolean(consultantNote));
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const helpRef = useRef<HTMLDivElement>(null);
   const isEditingOther = activeEditor && activeEditor.userId !== currentUserId;
@@ -3222,6 +3217,15 @@ const FormField = memo(function FormField({
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !onUploadDocument) return;
+
+    const MAX_SIZE = 15 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setUploadError('Il file supera la dimensione massima consentita di 15 MB.');
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
+    setUploadError(null);
+
     setUploading(true);
     try {
       await onUploadDocument(field.id, sectionId, file);
@@ -3440,19 +3444,30 @@ const FormField = memo(function FormField({
                   <button
                     type="button"
                     onClick={() => onDownloadDocument?.(doc)}
-                    className="truncate text-left text-slate-700 hover:text-blue-700"
+                    className="truncate text-left text-slate-700 hover:text-blue-700 flex-1 min-w-0"
                   >
                     {doc.nomeOriginale}
                   </button>
-                  {!readOnly && (
+                  <div className="flex items-center gap-1 ml-2 flex-shrink-0">
                     <button
                       type="button"
-                      onClick={() => onDeleteDocument?.(doc.id)}
-                      className="ml-2 text-slate-400 hover:text-rose-600"
+                      onClick={() => onPreviewDocument?.(doc)}
+                      className="text-slate-400 hover:text-indigo-600 transition-colors"
+                      title="Anteprima"
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Eye className="h-3.5 w-3.5" />
                     </button>
-                  )}
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteDocument?.(doc.id)}
+                        className="text-slate-400 hover:text-rose-600 transition-colors"
+                        title="Elimina"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -3467,15 +3482,21 @@ const FormField = memo(function FormField({
                 onChange={handleFileUpload}
                 className="hidden"
               />
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading}
-                className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 hover:border-blue-200 hover:text-blue-700 disabled:opacity-50"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                {uploading ? 'Caricamento...' : 'Carica documento'}
-              </button>
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => { setUploadError(null); fileRef.current?.click(); }}
+                  disabled={uploading}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 hover:border-blue-200 hover:text-blue-700 disabled:opacity-50"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  {uploading ? 'Caricamento...' : 'Carica documento'}
+                </button>
+                <span className="text-[10px] text-slate-400">Max 15 MB</span>
+              </div>
+              {uploadError && (
+                <p className="mt-1 text-[10px] text-rose-600">{uploadError}</p>
+              )}
             </>
           )}
         </div>

@@ -3,14 +3,78 @@ export const apiBase = API_BASE;
 
 const DEFAULT_TIMEOUT_MS = 20000;
 
+// ── In-memory access token store ─────────────────────────────────────────────
+// The access token is NEVER written to localStorage (XSS mitigation).
+// It lives only in this module-level variable and in React state (AuthContext).
+let _accessToken: string | null = null;
+let _logoutCallback: (() => void) | null = null;
+
+/** Called by AuthContext on login/refresh to update the in-memory token. */
+export function setAccessToken(token: string | null) {
+  _accessToken = token;
+}
+
+/** Returns the current in-memory access token (use for raw fetch calls that bypass the api helper). */
+export function getAccessToken(): string | null {
+  return _accessToken;
+}
+
+/** Called by AuthContext to register the logout handler for 401 recovery. */
+export function setLogoutCallback(fn: () => void) {
+  _logoutCallback = fn;
+}
+
+// ── Refresh lock: prevents parallel 401 → refresh → retry storms ─────────────
+let _refreshing: Promise<string | null> | null = null;
+
+async function tryRefreshToken(): Promise<string | null> {
+  if (_refreshing) return _refreshing;
+
+  _refreshing = (async () => {
+    try {
+      const refreshToken = localStorage.getItem('checkup_refresh_token');
+      if (!refreshToken) return null;
+
+      const res = await fetch(`${API_BASE}/checkup/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      if (!res.ok) {
+        localStorage.removeItem('checkup_refresh_token');
+        localStorage.removeItem('checkup_user');
+        return null;
+      }
+
+      const data = await res.json();
+      // Store new tokens
+      _accessToken = data.access_token;
+      if (data.refresh_token) {
+        localStorage.setItem('checkup_refresh_token', data.refresh_token);
+      }
+      return data.access_token as string;
+    } catch {
+      return null;
+    } finally {
+      _refreshing = null;
+    }
+  })();
+
+  return _refreshing;
+}
+
+// ── Core request function ─────────────────────────────────────────────────────
+
 interface RequestOptions extends RequestInit {
   params?: Record<string, string>;
   skipAuthRedirect?: boolean;
   timeoutMs?: number;
+  _isRetry?: boolean; // internal flag — prevents infinite retry loops
 }
 
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-  const { params, skipAuthRedirect, timeoutMs, ...fetchOptions } = options;
+  const { params, skipAuthRedirect, timeoutMs, _isRetry, ...fetchOptions } = options;
 
   let url = `${API_BASE}${endpoint}`;
   if (params) {
@@ -18,16 +82,14 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     url += `?${searchParams.toString()}`;
   }
 
-  const token = localStorage.getItem('checkup_token');
   const headers: Record<string, string> = {
     ...(fetchOptions.headers as Record<string, string>),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  if (_accessToken) {
+    headers['Authorization'] = `Bearer ${_accessToken}`;
   }
 
-  // Don't set Content-Type for FormData (let browser set it with boundary)
   if (!(fetchOptions.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
@@ -54,12 +116,24 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     clearTimeout(timeoutId);
   }
 
-  if (response.status === 401) {
-    localStorage.removeItem('checkup_token');
-    localStorage.removeItem('checkup_user');
-    if (!skipAuthRedirect) {
+  // ── 401 handling: try refresh once, then retry ────────────────────────────
+  if (response.status === 401 && !skipAuthRedirect && !_isRetry) {
+    const newToken = await tryRefreshToken();
+    if (newToken) {
+      // Retry original request with new access token
+      return request<T>(endpoint, { ...options, _isRetry: true });
+    }
+    // Refresh failed → logout and redirect
+    if (_logoutCallback) _logoutCallback();
+    else {
+      localStorage.removeItem('checkup_refresh_token');
+      localStorage.removeItem('checkup_user');
       window.location.href = '/checkup/login';
     }
+    throw new Error('Sessione scaduta. Effettua nuovamente il login.');
+  }
+
+  if (response.status === 401 && (skipAuthRedirect || _isRetry)) {
     throw new Error('Credenziali non valide');
   }
 

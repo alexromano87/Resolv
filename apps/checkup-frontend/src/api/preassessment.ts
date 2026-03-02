@@ -1,4 +1,4 @@
-import { api, apiBase } from './config';
+import { api, apiBase, getAccessToken } from './config';
 
 export interface PreassessmentPayload {
   data?: Record<string, string>;
@@ -246,14 +246,14 @@ export const preassessmentDocumentsApi = {
     );
   },
   download: async (id: string) => {
-    const token = localStorage.getItem('checkup_token');
+    const token = getAccessToken();
     const response = await fetch(`${apiBase}/checkup/preassessment/documents/${id}/download`, {
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     });
     if (response.status === 401) {
-      localStorage.removeItem('checkup_token');
+      localStorage.removeItem('checkup_refresh_token');
       localStorage.removeItem('checkup_user');
       window.location.href = '/checkup/login';
       throw new Error('Non autorizzato');
@@ -265,4 +265,100 @@ export const preassessmentDocumentsApi = {
     return response.blob();
   },
   delete: (id: string) => api.delete(`/checkup/preassessment/documents/${id}`),
+};
+
+// ─── Unread counts API ────────────────────────────────────────────────────────
+
+export const threadsUnreadApi = {
+  getCounts: (preassessmentId: string) =>
+    api.get<{ tickets: number; alerts: number }>(
+      `/checkup/preassessment/${preassessmentId}/unread-counts`,
+    ),
+  markSeen: (preassessmentId: string, type: 'tickets' | 'alerts') =>
+    api.post<void>(`/checkup/preassessment/${preassessmentId}/mark-seen`, { type }),
+};
+
+// ─── Audit log API ────────────────────────────────────────────────────────────
+
+export interface AuditLogEntry {
+  id: string;
+  createdAt: string;
+  userId: string | null;
+  userEmail: string | null;
+  userRole: string | null;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  entityName: string | null;
+  description: string | null;
+  ipAddress: string | null;
+  studioId: string | null;
+  success: boolean;
+  errorMessage: string | null;
+}
+
+export interface AuditLogResponse {
+  logs: AuditLogEntry[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+export const auditApi = {
+  getLogs: (params: {
+    page?: number;
+    limit?: number;
+    userId?: string;
+    action?: string;
+    entityType?: string;
+    from?: string;
+    to?: string;
+  }) => {
+    const p: Record<string, string> = {};
+    if (params.page) p.page = String(params.page);
+    if (params.limit) p.limit = String(params.limit);
+    if (params.userId) p.userId = params.userId;
+    if (params.action) p.action = params.action;
+    if (params.entityType) p.entityType = params.entityType;
+    if (params.from) p.from = params.from;
+    if (params.to) p.to = params.to;
+    return api.get<AuditLogResponse>('/checkup/audit-logs', p);
+  },
+  exportCsvUrl: (params: {
+    userId?: string;
+    action?: string;
+    entityType?: string;
+    from?: string;
+    to?: string;
+  }) => {
+    const p = new URLSearchParams();
+    if (params.userId) p.set('userId', params.userId);
+    if (params.action) p.set('action', params.action);
+    if (params.entityType) p.set('entityType', params.entityType);
+    if (params.from) p.set('from', params.from);
+    if (params.to) p.set('to', params.to);
+    const token = getAccessToken();
+    if (token) p.set('_token', token); // non usato da backend, solo per compatibilità
+    return `${apiBase}/checkup/audit-logs/export.csv?${p.toString()}`;
+  },
+  exportCsv: async (params: {
+    userId?: string;
+    action?: string;
+    entityType?: string;
+    from?: string;
+    to?: string;
+  }) => {
+    const p = new URLSearchParams();
+    if (params.userId) p.set('userId', params.userId);
+    if (params.action) p.set('action', params.action);
+    if (params.entityType) p.set('entityType', params.entityType);
+    if (params.from) p.set('from', params.from);
+    if (params.to) p.set('to', params.to);
+    const token = getAccessToken();
+    const response = await fetch(`${apiBase}/checkup/audit-logs/export.csv?${p.toString()}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error('Errore export CSV');
+    return response.blob();
+  },
 };

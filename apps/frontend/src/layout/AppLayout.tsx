@@ -210,6 +210,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     pageTitle = 'Importazione dati checkup';
   } else if (location.pathname === '/admin/checkup-backup') {
     pageTitle = 'Backup checkup';
+  } else if (location.pathname === '/admin/help') {
+    pageTitle = 'Help pre-assessment';
   } else if (location.pathname === '/admin/impostazioni') {
     pageTitle = 'Impostazioni superadmin';
   } else if (location.pathname === '/admin/studi') {
@@ -1421,6 +1423,23 @@ export function AppLayout({ children }: AppLayoutProps) {
                   ? `Aggiornato ${headerUpdatedAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`
                   : 'Aggiorna'}
               </button>
+
+              {isSuperadmin && (
+                <NavLink
+                  to="/admin/help"
+                  className={({ isActive }) =>
+                    [
+                      'inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold shadow-[0_12px_30px_rgba(10,16,32,0.16)] transition',
+                      isActive
+                        ? 'border-indigo-500 bg-indigo-600 text-white'
+                        : 'border-indigo-200/60 bg-white/85 text-slate-700 hover:border-indigo-300 hover:text-indigo-700',
+                      'dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300',
+                    ].join(' ')
+                  }
+                >
+                  Help
+                </NavLink>
+              )}
 
               {isSuperadmin && (
                 <NavLink

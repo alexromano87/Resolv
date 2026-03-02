@@ -1,4 +1,5 @@
 import { Controller, Get, Put, Post, Body, UseGuards, Param, BadRequestException, Res } from '@nestjs/common';
+import { RateLimit } from '../../common/rate-limit.decorator';
 import type { Response } from 'express';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
@@ -78,6 +79,7 @@ export class CheckupPreassessmentController {
   }
 
   @Post('pdf')
+  @RateLimit({ limit: 3, windowMs: 60 * 1000 })
   async generatePdf(@Body('html') html: string, @Res() res: Response) {
     if (!html || typeof html !== 'string') {
       throw new BadRequestException('HTML mancante');
@@ -90,6 +92,7 @@ export class CheckupPreassessmentController {
 
   @UseGuards(CheckupStaffGuard)
   @Post(':preassessmentId/report/salva')
+  @RateLimit({ limit: 3, windowMs: 60 * 1000 })
   async saveReport(
     @Param('preassessmentId') preassessmentId: string,
     @CheckupCurrentUser() user: CheckupCurrentUserData,
@@ -133,6 +136,7 @@ export class CheckupPreassessmentController {
   }
 
   @Get(':preassessmentId/presence')
+  @RateLimit({ limit: 30, windowMs: 60 * 1000 })
   getPresence(
     @Param('preassessmentId') preassessmentId: string,
     @CheckupCurrentUser() user: CheckupCurrentUserData,
@@ -141,11 +145,13 @@ export class CheckupPreassessmentController {
   }
 
   @Get('online')
+  @RateLimit({ limit: 30, windowMs: 60 * 1000 })
   getOnline(@CheckupCurrentUser() user: CheckupCurrentUserData) {
     return this.preassessmentService.getOnline(user);
   }
 
   @Post(':preassessmentId/presence/active')
+  @RateLimit({ limit: 30, windowMs: 60 * 1000 })
   setPresenceActive(
     @Param('preassessmentId') preassessmentId: string,
     @CheckupCurrentUser() user: CheckupCurrentUserData,
@@ -158,6 +164,7 @@ export class CheckupPreassessmentController {
   }
 
   @Post(':preassessmentId/presence/inactive')
+  @RateLimit({ limit: 30, windowMs: 60 * 1000 })
   setPresenceInactive(
     @Param('preassessmentId') preassessmentId: string,
     @CheckupCurrentUser() user: CheckupCurrentUserData,

@@ -10,6 +10,7 @@ import { CheckupStudio } from '../studios/checkup-studio.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
 import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
+import { CheckupMailService } from '../mail/checkup-mail.service';
 
 @Injectable()
 export class CheckupUsersService {
@@ -24,6 +25,7 @@ export class CheckupUsersService {
     private licenseRepository: Repository<CheckupLicense>,
     @InjectRepository(CheckupSublicense)
     private sublicenseRepository: Repository<CheckupSublicense>,
+    private readonly mailService: CheckupMailService,
   ) {}
 
   private async getAccessibleClientIds(currentUser: CheckupCurrentUserData): Promise<string[]> {
@@ -179,7 +181,32 @@ export class CheckupUsersService {
       mustChangePassword: true,
     });
 
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+
+    // Welcome email per i nuovi clienti (fire-and-forget)
+    if (isClient) {
+      const appUrl = process.env.CHECKUP_APP_URL || 'http://localhost:8081';
+      this.mailService.sendMail({
+        to: email,
+        subject: '[Checkup] Benvenuto — le tue credenziali di accesso',
+        html: `
+          <p>Benvenuto/a, <strong>${dto.nome} ${dto.cognome}</strong>!</p>
+          <p>Il tuo studio ha creato un account per te sulla piattaforma Pre-Assessment Checkup.</p>
+          <p>Ecco le tue credenziali:</p>
+          <table style="border-collapse:collapse;margin:12px 0;">
+            <tr><td style="padding:4px 12px 4px 0;color:#64748b;">Email:</td><td><strong>${email}</strong></td></tr>
+            <tr><td style="padding:4px 12px 4px 0;color:#64748b;">Password temporanea:</td><td><strong>${dto.password}</strong></td></tr>
+          </table>
+          <p style="color:#ef4444;"><strong>Importante:</strong> ti verrà chiesto di cambiare la password al primo accesso.</p>
+          <p style="margin-top:16px;"><a href="${appUrl}/checkup/login" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold;">Accedi ora</a></p>
+          <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px;">
+            <p style="margin:0;">Questo è un messaggio automatico — non rispondere a questa email.</p>
+          </div>
+        `,
+      });
+    }
+
+    return saved;
   }
 
   async findAll(currentUser: CheckupCurrentUserData, search?: string, includeInactive = false): Promise<CheckupUser[]> {

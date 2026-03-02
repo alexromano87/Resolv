@@ -1,26 +1,31 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createReadStream } from 'fs';
 import { DataSource } from 'typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
 
-const execAsync = promisify(exec);
-
 export interface CheckupBackupInfo {
   filename: string;
   size: number;
   createdAt: Date;
   path: string;
+  encrypted: boolean;
 }
+
+// AES-256-GCM layout: IV(16 bytes) + AuthTag(16 bytes) + ciphertext
+const IV_LENGTH = 16;
+const AUTH_TAG_LENGTH = 16;
 
 @Injectable()
 export class CheckupBackupService {
   private readonly logger = new Logger(CheckupBackupService.name);
   private readonly backupDir: string;
+  /** Derived 32-byte key from env var CHECKUP_BACKUP_ENCRYPTION_KEY (64 hex chars). Null = encryption disabled. */
+  private readonly encryptionKey: Buffer | null;
 
   constructor(
     private configService: ConfigService,
@@ -28,6 +33,18 @@ export class CheckupBackupService {
   ) {
     this.backupDir = path.join(process.cwd(), 'backups', 'checkup');
     this.ensureBackupDir();
+
+    const rawKey = this.configService.get<string>('CHECKUP_BACKUP_ENCRYPTION_KEY');
+    if (rawKey && rawKey.length === 64) {
+      this.encryptionKey = Buffer.from(rawKey, 'hex');
+    } else {
+      this.encryptionKey = null;
+      if (rawKey) {
+        this.logger.warn('CHECKUP_BACKUP_ENCRYPTION_KEY must be exactly 64 hex characters. Backup encryption is DISABLED.');
+      } else {
+        this.logger.warn('CHECKUP_BACKUP_ENCRYPTION_KEY not set. Backup files will NOT be encrypted.');
+      }
+    }
   }
 
   private ensureBackupDir() {
@@ -36,6 +53,43 @@ export class CheckupBackupService {
       this.logger.log(`Created backup directory: ${this.backupDir}`);
     }
   }
+
+  // ── AES-256-GCM encryption/decryption ────────────────────────────────────
+
+  private encryptFile(plainPath: string, encPath: string): void {
+    if (!this.encryptionKey) throw new Error('Encryption key not configured');
+
+    const iv = crypto.randomBytes(IV_LENGTH);
+    const cipher = crypto.createCipheriv('aes-256-gcm', this.encryptionKey, iv);
+
+    const plainData = fs.readFileSync(plainPath);
+    const encrypted = Buffer.concat([cipher.update(plainData), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+
+    // File format: IV (16) || AuthTag (16) || ciphertext
+    fs.writeFileSync(encPath, Buffer.concat([iv, authTag, encrypted]));
+  }
+
+  private decryptFile(encPath: string, plainPath: string): void {
+    if (!this.encryptionKey) throw new Error('Encryption key not configured');
+
+    const data = fs.readFileSync(encPath);
+    if (data.length < IV_LENGTH + AUTH_TAG_LENGTH) {
+      throw new Error('Encrypted backup file is too short — possibly corrupt');
+    }
+
+    const iv = data.subarray(0, IV_LENGTH);
+    const authTag = data.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
+    const ciphertext = data.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', this.encryptionKey, iv);
+    decipher.setAuthTag(authTag);
+
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    fs.writeFileSync(plainPath, decrypted);
+  }
+
+  // ── MySQL helpers ─────────────────────────────────────────────────────────
 
   private async getCheckupTables(): Promise<string[]> {
     const dbName = this.configService.get<string>('DB_DATABASE', 'recupero_crediti');
@@ -48,40 +102,135 @@ export class CheckupBackupService {
     return rows.map((row: { tableName: string }) => row.tableName);
   }
 
-  async createBackup(): Promise<CheckupBackupInfo> {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `checkup-backup-${timestamp}.sql`;
-    const filepath = path.join(this.backupDir, filename);
-
+  /**
+   * Runs mysqldump safely via spawn (no shell) — password passed via MYSQL_PWD
+   * env var, never embedded in the command string or visible in ps output.
+   */
+  private spawnMysqldump(filepath: string, tables: string[]): Promise<void> {
     const dbHost = this.configService.get<string>('DB_HOST', 'mysql');
     const dbPort = this.configService.get<string>('DB_PORT', '3306');
-    const dbName = this.configService.get<string>('DB_DATABASE', 'recupero_crediti');
+    const dbName = this.configService.get<string>('DB_DATABASE', 'resolv');
     const dbUser = this.configService.get<string>('DB_USERNAME', 'rc_user');
-    const dbPassword = this.configService.get<string>('DB_PASSWORD', 'rc_pass');
+    const dbPassword = this.configService.get<string>('DB_PASSWORD', '');
 
+    const args = [
+      `-h${dbHost}`,
+      `-P${dbPort}`,
+      `-u${dbUser}`,
+      '--default-auth=mysql_native_password',
+      '--single-transaction',
+      '--quick',
+      '--lock-tables=false',
+      '--skip-ssl',
+      '--no-tablespaces',
+      dbName,
+      ...tables,
+    ];
+
+    return new Promise((resolve, reject) => {
+      const child = spawn('mysqldump', args, {
+        // Password injected only via environment — never in CLI args or shell string
+        env: { ...process.env, MYSQL_PWD: dbPassword },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      const writeStream = fs.createWriteStream(filepath);
+      child.stdout.pipe(writeStream);
+
+      let stderr = '';
+      child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+
+      child.on('close', (code) => {
+        writeStream.end();
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`mysqldump exited with code ${code}: ${stderr.slice(0, 500)}`));
+        }
+      });
+      child.on('error', reject);
+    });
+  }
+
+  /**
+   * Runs mysql restore safely via spawn (no shell).
+   */
+  private spawnMysqlRestore(filepath: string): Promise<void> {
+    const dbHost = this.configService.get<string>('DB_HOST', 'mysql');
+    const dbPort = this.configService.get<string>('DB_PORT', '3306');
+    const dbName = this.configService.get<string>('DB_DATABASE', 'resolv');
+    const dbUser = this.configService.get<string>('DB_USERNAME', 'rc_user');
+    const dbPassword = this.configService.get<string>('DB_PASSWORD', '');
+
+    const args = [
+      `-h${dbHost}`,
+      `-P${dbPort}`,
+      `-u${dbUser}`,
+      '--skip-ssl',
+      dbName,
+    ];
+
+    return new Promise((resolve, reject) => {
+      const readStream = fs.createReadStream(filepath);
+      const child = spawn('mysql', args, {
+        env: { ...process.env, MYSQL_PWD: dbPassword },
+        stdio: ['pipe', 'ignore', 'pipe'],
+      });
+
+      readStream.pipe(child.stdin);
+
+      let stderr = '';
+      child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`mysql restore exited with code ${code}: ${stderr.slice(0, 500)}`));
+        }
+      });
+      child.on('error', reject);
+    });
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
+
+  async createBackup(): Promise<CheckupBackupInfo> {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const tables = await this.getCheckupTables();
     if (tables.length === 0) {
       throw new Error('Nessuna tabella checkup trovata');
     }
 
-    const tablesList = tables.join(' ');
-    const command = `MYSQL_PWD='${dbPassword.replace(/'/g, "\\'")}' mysqldump -h ${dbHost} -P ${dbPort} -u ${dbUser} --default-auth=mysql_native_password --single-transaction --quick --lock-tables=false --skip-ssl --no-tablespaces ${dbName} ${tablesList} > ${filepath}`;
+    const encrypted = this.encryptionKey !== null;
+    const plainFilename = `checkup-backup-${timestamp}.sql`;
+    const plainFilepath = path.join(this.backupDir, plainFilename);
+    const finalFilename = encrypted ? `${plainFilename}.enc` : plainFilename;
+    const finalFilepath = path.join(this.backupDir, finalFilename);
 
     try {
-      await execAsync(command);
-      this.logger.log(`Checkup backup created successfully: ${filename}`);
+      await this.spawnMysqldump(plainFilepath, tables);
 
-      const stats = fs.statSync(filepath);
+      if (encrypted) {
+        this.encryptFile(plainFilepath, finalFilepath);
+        fs.unlinkSync(plainFilepath); // remove plaintext immediately
+        this.logger.log(`Checkup backup created (AES-256-GCM encrypted): ${finalFilename}`);
+      } else {
+        this.logger.log(`Checkup backup created (unencrypted): ${finalFilename}`);
+      }
+
+      const stats = fs.statSync(finalFilepath);
       return {
-        filename,
+        filename: finalFilename,
         size: stats.size,
         createdAt: new Date(),
-        path: filepath,
+        path: finalFilepath,
+        encrypted,
       };
     } catch (error: any) {
       this.logger.error(`Failed to create checkup backup: ${error.message}`);
-      if (fs.existsSync(filepath)) {
-        fs.unlinkSync(filepath);
+      for (const fp of [plainFilepath, finalFilepath]) {
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
       }
       throw new Error(`Failed to create checkup backup: ${error.message}`);
     }
@@ -93,7 +242,7 @@ export class CheckupBackupService {
       const backups: CheckupBackupInfo[] = [];
 
       for (const file of files) {
-        if (file.endsWith('.sql')) {
+        if (file.endsWith('.sql') || file.endsWith('.sql.enc')) {
           const filepath = path.join(this.backupDir, file);
           const stats = fs.statSync(filepath);
           backups.push({
@@ -101,6 +250,7 @@ export class CheckupBackupService {
             size: stats.size,
             createdAt: stats.mtime,
             path: filepath,
+            encrypted: file.endsWith('.enc'),
           });
         }
       }
@@ -113,10 +263,25 @@ export class CheckupBackupService {
   }
 
   async getBackup(filename: string): Promise<{ stream: fs.ReadStream; size: number }> {
-    const filepath = path.join(this.backupDir, filename);
-
-    if (!fs.existsSync(filepath) || !filename.endsWith('.sql')) {
+    if (!filename.endsWith('.sql') && !filename.endsWith('.sql.enc')) {
       throw new Error('Backup file not found');
+    }
+
+    const filepath = path.join(this.backupDir, filename);
+    if (!fs.existsSync(filepath)) {
+      throw new Error('Backup file not found');
+    }
+
+    if (filename.endsWith('.sql.enc')) {
+      // Decrypt to a temporary file and stream it
+      if (!this.encryptionKey) throw new Error('Encryption key not configured — cannot decrypt backup');
+      const tmpPath = `${filepath}.tmp-decrypt-${Date.now()}`;
+      this.decryptFile(filepath, tmpPath);
+      const stats = fs.statSync(tmpPath);
+      const stream = fs.createReadStream(tmpPath);
+      // Clean up temp file after stream ends
+      stream.on('close', () => { try { fs.unlinkSync(tmpPath); } catch { /* ignore */ } });
+      return { stream, size: stats.size };
     }
 
     const stats = fs.statSync(filepath);
@@ -125,9 +290,12 @@ export class CheckupBackupService {
   }
 
   async deleteBackup(filename: string): Promise<void> {
-    const filepath = path.join(this.backupDir, filename);
+    if (!filename.endsWith('.sql') && !filename.endsWith('.sql.enc')) {
+      throw new Error('Backup file not found');
+    }
 
-    if (!fs.existsSync(filepath) || !filename.endsWith('.sql')) {
+    const filepath = path.join(this.backupDir, filename);
+    if (!fs.existsSync(filepath)) {
       throw new Error('Backup file not found');
     }
 
@@ -141,32 +309,45 @@ export class CheckupBackupService {
   }
 
   async restoreBackup(filename: string): Promise<void> {
-    const filepath = path.join(this.backupDir, filename);
-
-    if (!fs.existsSync(filepath) || !filename.endsWith('.sql')) {
+    if (!filename.endsWith('.sql') && !filename.endsWith('.sql.enc')) {
       throw new Error('Backup file not found');
     }
 
-    const dbHost = this.configService.get<string>('DB_HOST', 'mysql');
-    const dbPort = this.configService.get<string>('DB_PORT', '3306');
-    const dbName = this.configService.get<string>('DB_DATABASE', 'recupero_crediti');
-    const dbUser = this.configService.get<string>('DB_USERNAME', 'rc_user');
-    const dbPassword = this.configService.get<string>('DB_PASSWORD', 'rc_pass');
+    const filepath = path.join(this.backupDir, filename);
+    if (!fs.existsSync(filepath)) {
+      throw new Error('Backup file not found');
+    }
 
-    const command = `MYSQL_PWD='${dbPassword.replace(/'/g, "\\'")}' mysql -h ${dbHost} -P ${dbPort} -u ${dbUser} --skip-ssl ${dbName} < ${filepath}`;
+    let restorePath = filepath;
+    let tmpDecryptPath: string | null = null;
 
     try {
-      await execAsync(command);
+      if (filename.endsWith('.sql.enc')) {
+        if (!this.encryptionKey) throw new Error('Encryption key not configured — cannot decrypt backup');
+        tmpDecryptPath = `${filepath}.tmp-restore-${Date.now()}`;
+        this.decryptFile(filepath, tmpDecryptPath);
+        restorePath = tmpDecryptPath;
+      }
+
+      await this.spawnMysqlRestore(restorePath);
       this.logger.log(`Checkup database restored from backup: ${filename}`);
     } catch (error: any) {
       this.logger.error(`Failed to restore checkup backup: ${error.message}`);
       throw new Error(`Failed to restore checkup backup: ${error.message}`);
+    } finally {
+      if (tmpDecryptPath && fs.existsSync(tmpDecryptPath)) {
+        fs.unlinkSync(tmpDecryptPath);
+      }
     }
   }
 
   async restoreFromUpload(buffer: Buffer): Promise<void> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `checkup-restore-${timestamp}.sql`;
+    // Accept both plain SQL and encrypted uploads
+    const isEncrypted = this.encryptionKey !== null && buffer.length >= IV_LENGTH + AUTH_TAG_LENGTH;
+    const filename = isEncrypted
+      ? `checkup-restore-${timestamp}.sql.enc`
+      : `checkup-restore-${timestamp}.sql`;
     const filepath = path.join(this.backupDir, filename);
 
     try {
@@ -186,6 +367,7 @@ export class CheckupBackupService {
     totalSize: number;
     oldestBackup?: Date;
     newestBackup?: Date;
+    encryptionEnabled: boolean;
   }> {
     const backups = await this.listBackups();
 
@@ -193,6 +375,7 @@ export class CheckupBackupService {
       return {
         totalBackups: 0,
         totalSize: 0,
+        encryptionEnabled: this.encryptionKey !== null,
       };
     }
 
@@ -205,6 +388,7 @@ export class CheckupBackupService {
       totalSize,
       oldestBackup,
       newestBackup,
+      encryptionEnabled: this.encryptionKey !== null,
     };
   }
 }

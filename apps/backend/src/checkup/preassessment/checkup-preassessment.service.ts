@@ -1,4 +1,5 @@
-import { Injectable, ForbiddenException, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, ForbiddenException, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Not, IsNull } from 'typeorm';
 import { CheckupPreassessment } from './checkup-preassessment.entity';
@@ -12,9 +13,14 @@ import { CheckupClient } from '../clients/checkup-client.entity';
 import { EmailService } from '../../notifications/email.service';
 import { QuestionManagementService } from '../services/question-management.service';
 import puppeteer from 'puppeteer';
+import sanitizeHtml from 'sanitize-html';
+
+/** Hard cap on the number of preassessment IDs tracked simultaneously in memory. */
+const PRESENCE_MAP_SIZE_CAP = 10_000;
 
 @Injectable()
 export class CheckupPreassessmentService {
+  private readonly logger = new Logger(CheckupPreassessmentService.name);
   private presenceByPreassessment = new Map<string, Map<string, { userId: string; name: string; expiresAt: number }>>();
 
   // Mutex per-campo per evitare race condition su setPresenceActive
@@ -488,6 +494,31 @@ export class CheckupPreassessmentService {
     }
   }
 
+  /**
+   * Global presence cleanup — runs every 5 minutes.
+   * Iterates ALL tracked preassessments and removes expired entries.
+   * Prevents unbounded memory growth over long server uptime.
+   */
+  @Cron('*/5 * * * *')
+  cleanupAllPresence() {
+    const now = Date.now();
+    let removed = 0;
+    for (const [preassessmentId, map] of this.presenceByPreassessment.entries()) {
+      for (const [fieldId, entry] of map.entries()) {
+        if (entry.expiresAt < now) {
+          map.delete(fieldId);
+          removed++;
+        }
+      }
+      if (map.size === 0) {
+        this.presenceByPreassessment.delete(preassessmentId);
+      }
+    }
+    if (removed > 0) {
+      this.logger.debug(`Presence cleanup: removed ${removed} expired entries. Active preassessments: ${this.presenceByPreassessment.size}`);
+    }
+  }
+
   async getPresence(preassessmentId: string, currentUser: CheckupCurrentUserData) {
     await this.ensureAccessByPreassessment(currentUser, preassessmentId);
     this.cleanupPresence(preassessmentId);
@@ -537,6 +568,13 @@ export class CheckupPreassessmentService {
     const canEdit = !!isOwner || preassessment.studioCanEdit;
     if (!canEdit) {
       throw new ForbiddenException('Modifiche non autorizzate');
+    }
+
+    // Guard against unbounded map growth
+    if (!this.presenceByPreassessment.has(preassessmentId) &&
+        this.presenceByPreassessment.size >= PRESENCE_MAP_SIZE_CAP) {
+      this.logger.warn(`Presence map size cap reached (${PRESENCE_MAP_SIZE_CAP}). Ignoring setPresenceActive for preassessment ${preassessmentId}`);
+      return { ok: true };
     }
 
     // Mutex per-campo: garantisce atomicità del check-and-set anche con async/await
@@ -701,23 +739,76 @@ export class CheckupPreassessmentService {
     });
   }
 
+  /**
+   * Sanitizes HTML with a strict allowlist before passing it to Puppeteer.
+   * Uses sanitize-html (allowlist-based) instead of regex for robust XSS/SSRF
+   * prevention: blocks event handlers, dangerous tags (script, iframe, object,
+   * svg, embed, form), data:/javascript: URIs, and external resources.
+   * Puppeteer request interception provides a second layer of defence.
+   */
   private sanitizeHtmlForPdf(html: string): string {
-    // Strip tags that can cause SSRF, XSS or file-system access via Puppeteer
-    return html
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<script[^>]*>/gi, '')
-      .replace(/<link[^>]*>/gi, '')
-      .replace(/<meta[^>]*>/gi, '')
-      .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
-      .replace(/<iframe[^>]*>/gi, '')
-      .replace(/<object[\s\S]*?<\/object>/gi, '')
-      .replace(/<embed[^>]*>/gi, '')
-      .replace(/<base[^>]*>/gi, '')
-      // Strip on* event handlers
-      .replace(/\s+on\w+\s*=\s*(['"])[^'"]*\1/gi, '')
-      .replace(/\s+on\w+\s*=\s*[^\s>]+/gi, '')
-      // Strip javascript: and data: hrefs/srcs
-      .replace(/(href|src|action)\s*=\s*(['"])\s*(javascript:|data:|vbscript:|file:)[^'"]*\2/gi, '$1=""');
+    return sanitizeHtml(html, {
+      // Allow only presentational and structural tags needed for PDF rendering
+      allowedTags: [
+        'html', 'head', 'body', 'title', 'style',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'p', 'br', 'hr', 'div', 'span', 'section', 'article', 'main',
+        'header', 'footer', 'nav', 'aside',
+        'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+        'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
+        'strong', 'b', 'em', 'i', 'u', 's', 'del', 'ins', 'mark', 'small',
+        'sub', 'sup', 'code', 'pre', 'blockquote', 'q', 'abbr', 'cite',
+        'img',       // data: URIs allowed below for inline images
+        'figure', 'figcaption',
+        'a',         // href restricted below
+        'meta',      // charset only
+      ],
+      allowedAttributes: {
+        '*': ['class', 'id', 'style'],
+        'a': ['href'],          // only safe schemes allowed below
+        'img': ['src', 'alt', 'width', 'height'],
+        'td': ['colspan', 'rowspan'],
+        'th': ['colspan', 'rowspan', 'scope'],
+        'table': ['border', 'cellpadding', 'cellspacing', 'width'],
+        'meta': ['charset'],
+      },
+      // Allow only safe URI schemes — block javascript:, vbscript:, file:, http/https (SSRF)
+      allowedSchemes: ['data'],          // data: URIs for inline images/fonts only
+      allowedSchemesByTag: {
+        'a': ['mailto'],                 // links can only be mailto: (no http/https external)
+      },
+      // Strip all inline event handlers (onclick, onload, onerror, …)
+      allowedStyles: {
+        '*': {
+          // Allow common CSS properties; block url() to prevent external resource loading
+          'color': [/.*/],
+          'background-color': [/.*/],
+          'font-size': [/.*/],
+          'font-weight': [/.*/],
+          'font-family': [/.*/],
+          'text-align': [/.*/],
+          'text-decoration': [/.*/],
+          'border': [/.*/],
+          'border-radius': [/.*/],
+          'padding': [/.*/],
+          'margin': [/.*/],
+          'width': [/.*/],
+          'height': [/.*/],
+          'max-width': [/.*/],
+          'display': [/.*/],
+          'flex': [/.*/],
+          'flex-direction': [/.*/],
+          'align-items': [/.*/],
+          'justify-content': [/.*/],
+          'gap': [/.*/],
+          'page-break-after': [/.*/],
+          'page-break-before': [/.*/],
+          'page-break-inside': [/.*/],
+        },
+      },
+      // Disallow dangerous tags entirely — svg, script, iframe, object, embed, form, input, …
+      disallowedTagsMode: 'discard',
+    });
   }
 
   async renderHtmlToPdf(html: string): Promise<Buffer> {

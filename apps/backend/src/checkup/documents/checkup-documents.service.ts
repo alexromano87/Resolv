@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { promisify } from 'util';
@@ -9,9 +9,20 @@ import { CheckupQuestionnaire } from '../questionnaires/checkup-questionnaire.en
 import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 
 const unlinkAsync = promisify(fs.unlink);
+const UPLOAD_BASE = path.resolve(process.cwd(), 'uploads', 'checkup');
 
 @Injectable()
 export class CheckupDocumentsService {
+  private readonly logger = new Logger(CheckupDocumentsService.name);
+
+  private assertSafePath(percorsoFile: string): void {
+    const resolved = path.resolve(percorsoFile);
+    if (!resolved.startsWith(UPLOAD_BASE + path.sep) && resolved !== UPLOAD_BASE) {
+      this.logger.error(`Path traversal attempt blocked. Resolved path outside upload dir.`);
+      throw new InternalServerErrorException('Percorso file non valido');
+    }
+  }
+
   constructor(
     @InjectRepository(CheckupDocument)
     private documentRepository: Repository<CheckupDocument>,
@@ -144,6 +155,7 @@ export class CheckupDocumentsService {
       throw new ForbiddenException('Non autorizzato');
     }
 
+    this.assertSafePath(doc.percorsoFile);
     const stream = fs.createReadStream(doc.percorsoFile);
     return { stream, document: doc };
   }
@@ -168,9 +180,10 @@ export class CheckupDocumentsService {
 
     // Remove physical file
     try {
+      this.assertSafePath(doc.percorsoFile);
       await unlinkAsync(doc.percorsoFile);
     } catch {
-      // File may already be deleted
+      // File may already be deleted, or path validation logged the issue
     }
   }
 }

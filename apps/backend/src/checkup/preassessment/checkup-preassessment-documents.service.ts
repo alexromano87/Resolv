@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { promisify } from 'util';
@@ -10,8 +10,13 @@ import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 
 const unlinkAsync = promisify(fs.unlink);
 
+/** Canonical base directory for all checkup document uploads. */
+const UPLOAD_BASE = path.resolve(process.cwd(), 'uploads', 'checkup-preassessment');
+
 @Injectable()
 export class CheckupPreassessmentDocumentsService {
+  private readonly logger = new Logger(CheckupPreassessmentDocumentsService.name);
+
   constructor(
     @InjectRepository(CheckupPreassessmentDocument)
     private documentRepository: Repository<CheckupPreassessmentDocument>,
@@ -34,6 +39,20 @@ export class CheckupPreassessmentDocumentsService {
       xml: 'xml',
     };
     return mapping[extLower] || 'altro';
+  }
+
+  /**
+   * Prevents path traversal attacks by ensuring the resolved file path
+   * stays within the allowed upload directory.
+   * Throws InternalServerErrorException if the path escapes the sandbox.
+   */
+  private assertSafePath(percorsoFile: string): void {
+    const resolved = path.resolve(percorsoFile);
+    if (!resolved.startsWith(UPLOAD_BASE + path.sep) && resolved !== UPLOAD_BASE) {
+      // Log without exposing the path to the client
+      this.logger.error(`Path traversal attempt blocked. Resolved path outside upload dir.`);
+      throw new InternalServerErrorException('Percorso file non valido');
+    }
   }
 
   private canEdit(preassessment: { clientId: string; studioCanEdit: boolean }, user: CheckupCurrentUserData) {
@@ -119,6 +138,7 @@ export class CheckupPreassessmentDocumentsService {
 
     await this.preassessmentService.getPreassessmentForDocuments(doc.preassessmentId, user);
 
+    this.assertSafePath(doc.percorsoFile);
     const stream = fs.createReadStream(doc.percorsoFile);
     return { stream, document: doc };
   }
@@ -142,9 +162,10 @@ export class CheckupPreassessmentDocumentsService {
     await this.documentRepository.save(doc);
 
     try {
+      this.assertSafePath(doc.percorsoFile);
       await unlinkAsync(doc.percorsoFile);
     } catch {
-      // ignore
+      // ignore — file may already be missing, or path validation logged the issue
     }
   }
 }

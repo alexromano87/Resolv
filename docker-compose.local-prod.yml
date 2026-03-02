@@ -89,6 +89,9 @@ services:
       REDIS_PORT: 6379
       CORS_ORIGINS: ${CORS_ORIGINS}
       CHECKUP_JWT_SECRET: ${CHECKUP_JWT_SECRET}
+      CHECKUP_REFRESH_SECRET: ${CHECKUP_REFRESH_SECRET}
+      CHECKUP_BACKUP_ENCRYPTION_KEY: ${CHECKUP_BACKUP_ENCRYPTION_KEY:-}
+      CHECKUP_AUDIT_RETENTION_DAYS: ${CHECKUP_AUDIT_RETENTION_DAYS:-90}
 
       # Rate Limiting (production values)
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
@@ -122,7 +125,8 @@ services:
 
     volumes:
       - backend_logs_local:/usr/src/app/logs
-      - backup_data_local:/usr/src/app/backups
+      - /mnt/resolv-data/backups:/usr/src/app/backups
+      - /mnt/resolv-data/uploads:/usr/src/app/uploads
     depends_on:
       mysql:
         condition: service_healthy
@@ -201,8 +205,6 @@ volumes:
   redis_data_local:
     driver: local
   backend_logs_local:
-    driver: local
-  backup_data_local:
     driver: local
   nginx_logs_local:
     driver: local

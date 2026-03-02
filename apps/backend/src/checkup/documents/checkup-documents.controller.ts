@@ -21,6 +21,8 @@ import { CheckupDocumentsService } from './checkup-documents.service';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
+import { validateMagicBytes } from './checkup-file-utils';
+import * as fs from 'fs';
 
 const uploadDir = path.join(process.cwd(), 'uploads', 'checkup');
 
@@ -67,17 +69,23 @@ export class CheckupDocumentsController {
           cb(null, `${uuidv4()}${ext}`);
         },
       }),
-      limits: { fileSize: 20 * 1024 * 1024 },
+      limits: { fileSize: 15 * 1024 * 1024 },
       fileFilter,
     }),
   )
-  upload(
+  async upload(
     @Param('questionnaireId') questionnaireId: string,
     @UploadedFile() file: Express.Multer.File,
     @CheckupCurrentUser() user: CheckupCurrentUserData,
     @Body('answerId') answerId?: string,
     @Body('sectionId') sectionId?: string,
   ) {
+    // Validate magic bytes: ensures the actual file content matches the declared MIME type
+    const valid = await validateMagicBytes(file.path, file.mimetype);
+    if (!valid) {
+      try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+      throw new BadRequestException('Il contenuto del file non corrisponde al tipo dichiarato');
+    }
     return this.documentsService.upload(questionnaireId, file, user, answerId, sectionId);
   }
 

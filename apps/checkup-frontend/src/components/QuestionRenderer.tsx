@@ -1,7 +1,8 @@
 import { CheckupQuestion, CheckupAnswer } from '../api/questionnaires';
-import { Upload, FileText, Trash2 } from 'lucide-react';
+import { Upload, FileText, Trash2, Eye } from 'lucide-react';
 import { CheckupDocument, questionnairesApi } from '../api/questionnaires';
 import { useState, useRef } from 'react';
+import { DocumentPreviewModal } from './DocumentPreviewModal';
 
 interface Props {
   question: CheckupQuestion;
@@ -33,6 +34,8 @@ export function QuestionRenderer({
   onFieldBlur,
 }: Props) {
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<CheckupDocument | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const currentValue = answer?.valore || '';
   const canShowDocuments = question.accettaDocumenti ?? true;
@@ -51,6 +54,14 @@ export function QuestionRenderer({
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !answer) return;
+
+    const MAX_SIZE = 15 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setUploadError('Il file supera la dimensione massima consentita di 15 MB.');
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
+    setUploadError(null);
 
     setUploading(true);
     try {
@@ -228,15 +239,25 @@ export function QuestionRenderer({
             <div className="space-y-1 mb-2">
               {answer.documents.map((doc: CheckupDocument) => (
                 <div key={doc.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg text-sm">
-                  <span className="text-gray-700 truncate">{doc.nomeOriginale}</span>
-                  {!readOnly && (
+                  <span className="text-gray-700 truncate flex-1 min-w-0">{doc.nomeOriginale}</span>
+                  <div className="flex items-center gap-1 ml-2 flex-shrink-0">
                     <button
-                      onClick={() => handleDeleteDoc(doc.id)}
-                      className="p-1 text-gray-400 hover:text-danger-600"
+                      type="button"
+                      onClick={() => setPreviewDoc(doc)}
+                      className="p-1 text-gray-400 hover:text-indigo-600 transition-colors"
+                      title="Anteprima"
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Eye className="h-3.5 w-3.5" />
                     </button>
-                  )}
+                    {!readOnly && (
+                      <button
+                        onClick={() => handleDeleteDoc(doc.id)}
+                        className="p-1 text-gray-400 hover:text-danger-600"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -250,15 +271,21 @@ export function QuestionRenderer({
                 onChange={handleFileUpload}
                 className="hidden"
               />
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading || !answer}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary-700 bg-primary-50 rounded-lg hover:bg-primary-100 transition-colors disabled:opacity-50"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                {uploading ? 'Caricamento...' : 'Carica documento'}
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => { setUploadError(null); fileRef.current?.click(); }}
+                  disabled={uploading || !answer}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary-700 bg-primary-50 rounded-lg hover:bg-primary-100 transition-colors disabled:opacity-50"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  {uploading ? 'Caricamento...' : 'Carica documento'}
+                </button>
+                <span className="text-[11px] text-gray-400">Max 15 MB</span>
+              </div>
+              {uploadError && (
+                <p className="mt-1 text-[11px] text-danger-600">{uploadError}</p>
+              )}
             </>
           )}
         </div>
@@ -286,6 +313,13 @@ export function QuestionRenderer({
           ))}
         </div>
       )}
+
+      <DocumentPreviewModal
+        doc={previewDoc}
+        open={!!previewDoc}
+        onClose={() => setPreviewDoc(null)}
+        downloadFn={(id) => questionnairesApi.downloadDocument(id)}
+      />
     </div>
   );
 }
