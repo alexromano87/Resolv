@@ -207,7 +207,11 @@ export interface PreassessmentAlert {
   targetUserId: string | null;
   priority: 'info' | 'warning' | 'urgent';
   messaggio: string;
+  stato?: 'aperto' | 'chiuso' | 'scaduto';
+  dataScadenza?: string | null;
+  preavvisoGiorni?: number | null;
   createdAt: string;
+  updatedAt?: string;
   createdBy?: { id: string; nome: string; cognome: string; ruolo: string };
   targetUser?: { id: string; nome: string; cognome: string; ruolo: string } | null;
 }
@@ -215,8 +219,25 @@ export interface PreassessmentAlert {
 export const preassessmentAlertApi = {
   list: (preassessmentId: string) =>
     api.get<PreassessmentAlert[]>(`/checkup/preassessment/${preassessmentId}/alerts`),
-  create: (preassessmentId: string, payload: { targetUserId?: string; priority?: string; messaggio: string }) =>
+  create: (preassessmentId: string, payload: {
+    targetUserId?: string;
+    priority?: string;
+    messaggio: string;
+    dataScadenza?: string | null;
+    preavvisoGiorni?: number | null;
+  }) =>
     api.post<PreassessmentAlert>(`/checkup/preassessment/${preassessmentId}/alerts`, payload),
+  update: (alertId: string, payload: {
+    priority?: string;
+    messaggio?: string;
+    dataScadenza?: string | null;
+    preavvisoGiorni?: number | null;
+  }) =>
+    api.patch<PreassessmentAlert>(`/checkup/preassessment/alerts/${alertId}`, payload),
+  close: (alertId: string) =>
+    api.post<PreassessmentAlert>(`/checkup/preassessment/alerts/${alertId}/close`),
+  delete: (alertId: string) =>
+    api.delete<void>(`/checkup/preassessment/alerts/${alertId}`),
 };
 
 export interface PreassessmentDocument {

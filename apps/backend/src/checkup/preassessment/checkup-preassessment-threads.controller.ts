@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Body, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, HttpCode } from '@nestjs/common';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
@@ -6,6 +6,7 @@ import { CheckupPreassessmentThreadsService } from './checkup-preassessment-thre
 import { CreatePreassessmentTicketDto } from './dto/create-preassessment-ticket.dto';
 import { ReplyPreassessmentTicketDto } from './dto/reply-preassessment-ticket.dto';
 import { CreatePreassessmentAlertDto } from './dto/create-preassessment-alert.dto';
+import { UpdatePreassessmentAlertDto } from './dto/update-preassessment-alert.dto';
 
 @Controller('checkup/preassessment')
 @UseGuards(CheckupJwtAuthGuard)
@@ -85,6 +86,33 @@ export class CheckupPreassessmentThreadsController {
     @CheckupCurrentUser() user: CheckupCurrentUserData,
   ) {
     return this.threadsService.createAlert(preassessmentId, dto, user);
+  }
+
+  @Patch('alerts/:alertId')
+  updateAlert(
+    @Param('alertId') alertId: string,
+    @Body() dto: UpdatePreassessmentAlertDto,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.threadsService.updateAlert(alertId, dto, user);
+  }
+
+  @Post('alerts/:alertId/close')
+  @HttpCode(200)
+  closeAlert(
+    @Param('alertId') alertId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.threadsService.closeAlert(alertId, user);
+  }
+
+  @Delete('alerts/:alertId')
+  @HttpCode(204)
+  async deleteAlert(
+    @Param('alertId') alertId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    await this.threadsService.deleteAlert(alertId, user);
   }
 
   // ─── Unread counts ───────────────────────────────────────────────────────

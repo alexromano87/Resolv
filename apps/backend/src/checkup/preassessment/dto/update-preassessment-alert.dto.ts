@@ -1,26 +1,23 @@
 import { IsDateString, IsIn, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
 
-export class CreatePreassessmentAlertDto {
-  @IsOptional()
-  @IsString()
-  targetUserId?: string;
-
+export class UpdatePreassessmentAlertDto {
   @IsOptional()
   @IsIn(['info', 'warning', 'urgent'])
   priority?: 'info' | 'warning' | 'urgent';
 
+  @IsOptional()
   @IsString()
   @MinLength(2)
-  messaggio: string;
+  messaggio?: string;
 
-  /** ISO date string, e.g. "2025-12-31" */
+  /** ISO date string or null to remove expiry */
   @IsOptional()
   @IsDateString()
-  dataScadenza?: string;
+  dataScadenza?: string | null;
 
-  /** Days before expiry to show a warning */
+  /** Days before expiry to show a warning, or null to remove */
   @IsOptional()
   @IsInt()
   @Min(1)
-  preavvisoGiorni?: number;
+  preavvisoGiorni?: number | null;
 }

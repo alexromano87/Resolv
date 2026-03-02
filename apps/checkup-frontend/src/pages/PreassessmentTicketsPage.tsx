@@ -110,6 +110,7 @@ export function PreassessmentTicketsPage() {
       // Mark tickets as seen to reset the sidebar badge
       if (isCliente) {
         threadsUnreadApi.markSeen(preassessmentId, 'tickets').catch(() => {});
+        window.dispatchEvent(new CustomEvent('checkup:mark-seen', { detail: 'tickets' }));
       }
     }
   }, [preassessmentId]); // eslint-disable-line react-hooks/exhaustive-deps

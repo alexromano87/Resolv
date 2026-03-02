@@ -2514,6 +2514,7 @@ export default function PreassessmentPage() {
           hasAssessment={!!activeClientId}
           chatCount={chatUnreadCount}
           openTickets={openTickets}
+          isClient={isClient}
         />,
         sidebarTarget,
       )}
@@ -2539,6 +2540,7 @@ function PreassessmentSidebar({
   hasAssessment,
   chatCount,
   openTickets,
+  isClient,
 }: {
   view: 'dashboard' | number;
   setView: (val: 'dashboard' | number) => void;
@@ -2557,6 +2559,7 @@ function PreassessmentSidebar({
   hasAssessment: boolean;
   chatCount: number;
   openTickets: number;
+  isClient?: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -2583,41 +2586,47 @@ function PreassessmentSidebar({
                 </span>
               )}
             </button>
-            <button
-              onClick={() => setPanel(panel === 'tickets' ? null : 'tickets')}
-              className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition-colors ${panel === 'tickets' ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
-            >
-              <span
-                className={[
-                  'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                  panel === 'tickets'
-                    ? 'opacity-100 translate-x-0'
-                    : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                ].join(' ')}
-              />
-              <Ticket className="h-4 w-4 text-slate-400 group-hover:text-white transition-all duration-200" />
-              Ticket
-              {openTickets > 0 && (
-                <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-                  {openTickets}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setPanel(panel === 'alerts' ? null : 'alerts')}
-              className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition-colors ${panel === 'alerts' ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
-            >
-              <span
-                className={[
-                  'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                  panel === 'alerts'
-                    ? 'opacity-100 translate-x-0'
-                    : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                ].join(' ')}
-              />
-              <Bell className="h-4 w-4 text-slate-400 group-hover:text-white transition-all duration-200" />
-              Alert
-            </button>
+            {/* Ticket and Alert panel buttons: only for staff (admin_studio).
+                Cliente users have dedicated NavLinks in the main sidebar. */}
+            {!isClient && (
+              <>
+                <button
+                  onClick={() => setPanel(panel === 'tickets' ? null : 'tickets')}
+                  className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition-colors ${panel === 'tickets' ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
+                >
+                  <span
+                    className={[
+                      'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                      panel === 'tickets'
+                        ? 'opacity-100 translate-x-0'
+                        : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                    ].join(' ')}
+                  />
+                  <Ticket className="h-4 w-4 text-slate-400 group-hover:text-white transition-all duration-200" />
+                  Ticket
+                  {openTickets > 0 && (
+                    <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+                      {openTickets}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setPanel(panel === 'alerts' ? null : 'alerts')}
+                  className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition-colors ${panel === 'alerts' ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
+                >
+                  <span
+                    className={[
+                      'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                      panel === 'alerts'
+                        ? 'opacity-100 translate-x-0'
+                        : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                    ].join(' ')}
+                  />
+                  <Bell className="h-4 w-4 text-slate-400 group-hover:text-white transition-all duration-200" />
+                  Alert
+                </button>
+              </>
+            )}
           </>
         )}
       </div>

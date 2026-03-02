@@ -1,6 +1,7 @@
-import { Injectable, ForbiddenException, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, ForbiddenException, NotFoundException, Inject, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThan } from 'typeorm';
+import { Cron } from '@nestjs/schedule';
 import type Redis from 'ioredis';
 import { CheckupPreassessment } from './checkup-preassessment.entity';
 import { CheckupUser } from '../users/checkup-user.entity';
@@ -13,12 +14,15 @@ import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decora
 import { CreatePreassessmentTicketDto } from './dto/create-preassessment-ticket.dto';
 import { ReplyPreassessmentTicketDto } from './dto/reply-preassessment-ticket.dto';
 import { CreatePreassessmentAlertDto } from './dto/create-preassessment-alert.dto';
+import { UpdatePreassessmentAlertDto } from './dto/update-preassessment-alert.dto';
 import { CheckupMailService } from '../mail/checkup-mail.service';
 
 const SEEN_TTL = 30 * 24 * 60 * 60; // 30 giorni in secondi
 
 @Injectable()
 export class CheckupPreassessmentThreadsService {
+  private readonly logger = new Logger(CheckupPreassessmentThreadsService.name);
+
   constructor(
     @InjectRepository(CheckupPreassessment)
     private preassessmentRepository: Repository<CheckupPreassessment>,
@@ -420,9 +424,16 @@ export class CheckupPreassessmentThreadsService {
       .where('alert.preassessmentId = :preassessmentId', { preassessmentId });
 
     if (user.ruolo === 'cliente') {
+      // Cliente vede: alert a lui destinati, oppure alert che ha creato lui stesso
       qb.andWhere(
         '(alert.targetUserId = :userId OR alert.createdById = :userId)',
         { userId: user.id },
+      );
+    } else {
+      // Admin vede tutto TRANNE gli alert privati di altri (targetUserId = createdById != adminId)
+      qb.andWhere(
+        'NOT (alert.targetUserId IS NOT NULL AND alert.targetUserId = alert.createdById AND alert.createdById != :adminId)',
+        { adminId: user.id },
       );
     }
 
@@ -483,6 +494,9 @@ export class CheckupPreassessmentThreadsService {
       targetUserId,
       priority: dto.priority || 'info',
       messaggio: dto.messaggio,
+      stato: 'aperto',
+      dataScadenza: dto.dataScadenza ? new Date(dto.dataScadenza) : null,
+      preavvisoGiorni: dto.preavvisoGiorni ?? null,
     });
 
     const saved = await this.alertRepository.save(alert);
@@ -529,5 +543,63 @@ export class CheckupPreassessmentThreadsService {
     }
 
     return result;
+  }
+
+  async updateAlert(
+    alertId: string,
+    dto: UpdatePreassessmentAlertDto,
+    user: CheckupCurrentUserData,
+  ) {
+    const alert = await this.alertRepository.findOne({
+      where: { id: alertId },
+      relations: ['createdBy', 'targetUser'],
+    });
+    if (!alert) throw new NotFoundException('Alert non trovato');
+    if (alert.createdById !== user.id) throw new ForbiddenException('Solo il creatore può modificare l\'alert');
+    if (alert.stato !== 'aperto') throw new ForbiddenException('Non è possibile modificare un alert chiuso o scaduto');
+
+    if (dto.priority !== undefined) alert.priority = dto.priority;
+    if (dto.messaggio !== undefined) alert.messaggio = dto.messaggio;
+    if (dto.dataScadenza !== undefined) {
+      alert.dataScadenza = dto.dataScadenza ? new Date(dto.dataScadenza) : null;
+    }
+    if (dto.preavvisoGiorni !== undefined) {
+      alert.preavvisoGiorni = dto.preavvisoGiorni ?? null;
+    }
+
+    return this.alertRepository.save(alert);
+  }
+
+  async closeAlert(alertId: string, user: CheckupCurrentUserData) {
+    const alert = await this.alertRepository.findOne({ where: { id: alertId } });
+    if (!alert) throw new NotFoundException('Alert non trovato');
+    if (alert.createdById !== user.id) throw new ForbiddenException('Solo il creatore può chiudere l\'alert');
+    if (alert.stato === 'chiuso') throw new ForbiddenException('Alert già chiuso');
+
+    alert.stato = 'chiuso';
+    return this.alertRepository.save(alert);
+  }
+
+  async deleteAlert(alertId: string, user: CheckupCurrentUserData) {
+    const alert = await this.alertRepository.findOne({ where: { id: alertId } });
+    if (!alert) throw new NotFoundException('Alert non trovato');
+    if (alert.createdById !== user.id) throw new ForbiddenException('Solo il creatore può eliminare l\'alert');
+
+    await this.alertRepository.delete(alertId);
+  }
+
+  /** Cron: ogni notte alle 2:00 segna come 'scaduto' gli alert aperti con dataScadenza passata */
+  @Cron('0 2 * * *')
+  async expireAlerts() {
+    const result = await this.alertRepository.update(
+      {
+        stato: 'aperto',
+        dataScadenza: LessThan(new Date()),
+      },
+      { stato: 'scaduto' },
+    );
+    if ((result.affected ?? 0) > 0) {
+      this.logger.log(`Alert scaduti: ${result.affected} alert marcati come 'scaduto'`);
+    }
   }
 }

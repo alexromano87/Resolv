@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -10,6 +11,7 @@ import { CheckupPreassessment } from './checkup-preassessment.entity';
 import { CheckupUser } from '../users/checkup-user.entity';
 
 export type CheckupAlertPriority = 'info' | 'warning' | 'urgent';
+export type CheckupAlertStato = 'aperto' | 'chiuso' | 'scaduto';
 
 @Entity('checkup_alerts')
 export class CheckupPreassessmentAlert {
@@ -31,8 +33,20 @@ export class CheckupPreassessmentAlert {
   @Column({ type: 'text' })
   messaggio: string;
 
+  @Column({ type: 'varchar', length: 20, default: 'aperto' })
+  stato: CheckupAlertStato;
+
+  @Column({ type: 'datetime', nullable: true })
+  dataScadenza: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  preavvisoGiorni: number | null;
+
   @CreateDateColumn()
   createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 
   @ManyToOne(() => CheckupPreassessment, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'preassessmentId' })

@@ -87,6 +87,16 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     };
   }, [user?.ruolo]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Instant badge clear when a page calls markSeen ─────────────────────────
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const type = (e as CustomEvent<'tickets' | 'alerts'>).detail;
+      setUnread((prev) => ({ ...prev, [type]: 0 }));
+    };
+    window.addEventListener('checkup:mark-seen', handler);
+    return () => window.removeEventListener('checkup:mark-seen', handler);
+  }, []);
+
   const handleLogout = async () => {
     await logout();
     navigate('/checkup/login');
