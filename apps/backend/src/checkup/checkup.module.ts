@@ -146,6 +146,21 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
     CheckupAuditController,
   ],
   providers: [
+    {
+      provide: 'CHECKUP_REDIS',
+      useFactory: (configService: ConfigService) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const Redis = require('ioredis');
+        return new Redis({
+          host: configService.get('REDIS_HOST', 'localhost'),
+          port: configService.get<number>('REDIS_PORT', 6379),
+          password: configService.get('REDIS_PASSWORD') || undefined,
+          maxRetriesPerRequest: 3,
+          enableOfflineQueue: false,
+        });
+      },
+      inject: [ConfigService],
+    },
     CacheService,
     CheckupJwtStrategy,
     CheckupAuthService,

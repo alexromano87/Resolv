@@ -125,8 +125,8 @@ services:
 
     volumes:
       - backend_logs_local:/usr/src/app/logs
-      - /mnt/resolv-data/backups:/usr/src/app/backups
-      - /mnt/resolv-data/uploads:/usr/src/app/uploads
+      - backup_data_local:/usr/src/app/backups
+      - uploads_data_local:/usr/src/app/uploads
     depends_on:
       mysql:
         condition: service_healthy
@@ -205,6 +205,10 @@ volumes:
   redis_data_local:
     driver: local
   backend_logs_local:
+    driver: local
+  backup_data_local:
+    driver: local
+  uploads_data_local:
     driver: local
   nginx_logs_local:
     driver: local
