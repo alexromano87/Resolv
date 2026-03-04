@@ -826,28 +826,32 @@ export class CheckupPreassessmentService {
         '--no-first-run',
       ],
     });
-    const page = await browser.newPage();
+    try {
+      const page = await browser.newPage();
 
-    // Block all network requests except data URIs (needed for inline images/fonts)
-    await page.setRequestInterception(true);
-    page.on('request', (req) => {
-      const resourceType = req.resourceType();
-      const url = req.url();
-      // Allow data: URIs for fonts/images; block everything else that goes to network
-      if (url.startsWith('data:') || resourceType === 'document') {
-        req.continue();
-      } else {
-        req.abort();
-      }
-    });
+      // Block all network requests except data URIs (needed for inline images/fonts)
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
+        const resourceType = req.resourceType();
+        const url = req.url();
+        // Allow data: URIs for fonts/images; block everything else that goes to network
+        if (url.startsWith('data:') || resourceType === 'document') {
+          req.continue();
+        } else {
+          req.abort();
+        }
+      });
 
-    await page.setContent(safeHtml, { waitUntil: 'domcontentloaded' });
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' },
-    });
-    await browser.close();
-    return Buffer.from(pdf);
+      await page.setContent(safeHtml, { waitUntil: 'domcontentloaded' });
+      const pdf = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' },
+      });
+      return Buffer.from(pdf);
+    } finally {
+      // Always close the browser to prevent Chromium process leaks
+      await browser.close();
+    }
   }
 }

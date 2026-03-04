@@ -74,6 +74,12 @@ import { CacheService } from './common/cache.service';
           autoLoadEntities: true,
           // Synchronize solo in development
           synchronize: configService.get<string>('NODE_ENV') !== 'production',
+          // Connection pool: prevent exhaustion under concurrent load
+          extra: {
+            connectionLimit: 20,
+            waitForConnections: true,
+            queueLimit: 0,
+          },
         };
       },
     }),

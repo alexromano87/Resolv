@@ -1,7 +1,7 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Shield, ClipboardCheck, BarChart3, Lock, Eye, EyeOff, ArrowLeft, Loader2 } from 'lucide-react';
+import { Shield, ClipboardCheck, BarChart3, Lock, Eye, EyeOff, ArrowLeft, Loader2, Clock } from 'lucide-react';
 import { authApi } from '../api/auth';
 
 export default function LoginPage() {
@@ -10,6 +10,14 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [inactivityNotice, setInactivityNotice] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem('checkup_inactivity_logout') === '1') {
+      localStorage.removeItem('checkup_inactivity_logout');
+      setInactivityNotice(true);
+    }
+  }, []);
   const [twoFactorUserId, setTwoFactorUserId] = useState<string | null>(null);
   const [twoFactorChannel, setTwoFactorChannel] = useState<'email' | 'sms' | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState('');
@@ -301,6 +309,12 @@ export default function LoginPage() {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-5">
+                {inactivityNotice && (
+                  <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <Clock className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-amber-700">Sessione terminata per inattività. Effettua nuovamente l'accesso.</p>
+                  </div>
+                )}
                 {error && (
                   <div className="flex items-start gap-3 rounded-xl border border-danger-200 bg-danger-50 p-4">
                     <div className="flex h-5 w-5 items-center justify-center rounded-full bg-danger-100 flex-shrink-0 mt-0.5">

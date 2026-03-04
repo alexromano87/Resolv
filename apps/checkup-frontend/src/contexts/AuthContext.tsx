@@ -2,6 +2,10 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { authApi, CheckupUser } from '../api/auth';
 import { setAccessToken, setLogoutCallback } from '../api/config';
 
+const LAST_ACTIVITY_KEY = 'checkup_last_activity';
+const INACTIVITY_FLAG_KEY = 'checkup_inactivity_logout';
+const INACTIVITY_LIMIT_MS = 2 * 60 * 60 * 1000; // 2 ore
+
 interface AuthContextType {
   user: CheckupUser | null;
   token: string | null; // kept for legacy consumers that just check truthiness
@@ -31,6 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
   const [loading, setLoading] = useState(true);
   const logoutRef = useRef<() => void>(() => {});
+  const inactivityTimerRef = useRef<number | null>(null);
 
   // ── logout implementation (stable reference via ref) ──────────────────────
   const logout = useCallback(() => {
@@ -44,6 +49,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('checkup_access_token');
     localStorage.removeItem('checkup_refresh_token');
     localStorage.removeItem('checkup_user');
+    localStorage.removeItem(LAST_ACTIVITY_KEY);
+    if (inactivityTimerRef.current) {
+      window.clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
     window.location.href = '/checkup/login';
   }, []);
 
@@ -57,10 +67,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLogoutCallback(() => logoutRef.current());
   }, []);
 
+  // ── Inactivity auto-logout ─────────────────────────────────────────────────
+  const scheduleInactivityLogout = useCallback(() => {
+    if (inactivityTimerRef.current) window.clearTimeout(inactivityTimerRef.current);
+    const lastActivity = Number(localStorage.getItem(LAST_ACTIVITY_KEY) || 0) || Date.now();
+    const elapsed = Date.now() - lastActivity;
+    const remaining = INACTIVITY_LIMIT_MS - elapsed;
+    if (remaining <= 0) {
+      localStorage.setItem(INACTIVITY_FLAG_KEY, '1');
+      logoutRef.current();
+      return;
+    }
+    inactivityTimerRef.current = window.setTimeout(() => {
+      localStorage.setItem(INACTIVITY_FLAG_KEY, '1');
+      logoutRef.current();
+    }, remaining);
+  }, []);
+
+  useEffect(() => {
+    if (!token || !user) return;
+    const updateActivity = () => {
+      localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
+      scheduleInactivityLogout();
+    };
+    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'];
+    events.forEach((e) => window.addEventListener(e, updateActivity, { passive: true }));
+    scheduleInactivityLogout();
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, updateActivity));
+      if (inactivityTimerRef.current) {
+        window.clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = null;
+      }
+    };
+  }, [token, user, scheduleInactivityLogout]);
+
   // ── Restore session from refresh token on page load ───────────────────────
   useEffect(() => {
     const refreshToken = localStorage.getItem('checkup_refresh_token');
     if (!refreshToken) {
+      setLoading(false);
+      return;
+    }
+
+    // Se c'è un refresh token ma l'utente era inattivo da troppo tempo → non ripristinare
+    const lastActivity = Number(localStorage.getItem(LAST_ACTIVITY_KEY) || 0);
+    if (lastActivity && Date.now() - lastActivity > INACTIVITY_LIMIT_MS) {
+      localStorage.setItem(INACTIVITY_FLAG_KEY, '1');
+      localStorage.removeItem('checkup_access_token');
+      localStorage.removeItem('checkup_refresh_token');
+      localStorage.removeItem('checkup_user');
+      localStorage.removeItem(LAST_ACTIVITY_KEY);
+      setToken(null);
+      setUser(null);
+      setAccessToken(null);
       setLoading(false);
       return;
     }
@@ -105,6 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('checkup_access_token', res.access_token);
       localStorage.setItem('checkup_refresh_token', res.refresh_token);
       localStorage.setItem('checkup_user', JSON.stringify(res.user));
+      localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
     }
   }, []);
 
@@ -115,6 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('checkup_access_token', accessToken);
     localStorage.setItem('checkup_refresh_token', refreshToken);
     localStorage.setItem('checkup_user', JSON.stringify(userData));
+    localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
   }, []);
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
