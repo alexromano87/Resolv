@@ -283,11 +283,12 @@ export class CheckupPreassessmentService {
       }
       record.macroValidations = next;
     }
+    let completionStudioId: string | null = null;
     if (dto.sectionValidations !== undefined && user.ruolo === 'cliente') {
       const prev = record.sectionValidations || {};
       const next = dto.sectionValidations || {};
       const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
-      const { modelId } = await this.resolveModelIdForClient(record.clientId);
+      const { modelId, studioId } = await this.resolveModelIdForClient(record.clientId);
       const sectionMeta = await this.getSectionMetaByModel(modelId);
       const recordForOwnerCheck = {
         ...record,
@@ -324,16 +325,29 @@ export class CheckupPreassessmentService {
         .map(([sectionId]) => sectionId);
       if (sectionsToValidate.length > 0) {
         const allValidated = sectionsToValidate.every((sectionId) => next[sectionId]);
-        if (allValidated) {
+        if (allValidated && record.status !== 'concluso') {
           record.status = 'concluso';
           record.completedAt = new Date();
           record.completedById = user.id;
+          completionStudioId = studioId;
         }
       }
     }
     if (dto.studioCanEdit !== undefined) record.studioCanEdit = dto.studioCanEdit;
 
-    return this.preassessmentRepository.save(record);
+    const saved = await this.preassessmentRepository.save(record);
+
+    // Notifica completamento: email + alert agli admin_studio del licenziatario
+    if (completionStudioId) {
+      const client = await this.clientRepository.findOne({ where: { id: record.clientId } });
+      if (client) {
+        this.notifyCompletion(saved, client, user, completionStudioId).catch((err) =>
+          this.logger.error(`notifyCompletion failed: ${err?.message}`),
+        );
+      }
+    }
+
+    return saved;
   }
 
   private async resolveModelIdForClient(clientId: string) {
@@ -366,8 +380,29 @@ export class CheckupPreassessmentService {
     });
     const requester = `${user.nome} ${user.cognome}`.trim() || user.email;
     const company = client.nome || client.ragioneSociale || 'Cliente';
-    const subject = `Checkup concluso per ${company}`;
-    const text = `Il checkup di ${company} è stato concluso da ${requester}.`;
+    const completedAt = new Date().toLocaleDateString('it-IT', {
+      day: '2-digit', month: 'long', year: 'numeric',
+    });
+    const subject = `✅ Checkup concluso — ${company}`;
+    const text = `Il checkup di ${company} è stato completato da ${requester} in data ${completedAt}.`;
+    const html = `
+      <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#f8fafc;padding:32px;border-radius:12px">
+        <div style="background:#1e3a8a;border-radius:8px;padding:20px 24px;margin-bottom:24px">
+          <h2 style="color:#fff;margin:0;font-size:18px">Checkup Governance · Pre-Assessment</h2>
+        </div>
+        <h3 style="color:#0f172a;margin:0 0 8px">✅ Checkup concluso</h3>
+        <p style="color:#334155;margin:0 0 16px;font-size:15px">
+          Il pre-assessment per <strong>${company}</strong> è stato completato con successo.
+        </p>
+        <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0">
+          <tr><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px">Cliente</td><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#0f172a;font-size:13px">${company}</td></tr>
+          <tr><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px">Completato da</td><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#0f172a;font-size:13px">${requester}</td></tr>
+          <tr><td style="padding:10px 16px;color:#64748b;font-size:13px">Data</td><td style="padding:10px 16px;font-weight:600;color:#0f172a;font-size:13px">${completedAt}</td></tr>
+        </table>
+        <p style="color:#64748b;font-size:12px;margin-top:24px;text-align:center">
+          Accedi alla piattaforma Checkup per visualizzare il report completo.
+        </p>
+      </div>`;
 
     await Promise.all(
       admins.map(async (admin) => {
@@ -376,7 +411,7 @@ export class CheckupPreassessmentService {
             to: admin.email,
             subject,
             text,
-            html: `<p>${text}</p>`,
+            html,
           });
         }
         const alert = this.alertRepository.create({
