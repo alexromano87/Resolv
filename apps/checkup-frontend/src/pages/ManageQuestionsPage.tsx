@@ -474,15 +474,13 @@ export default function ManageQuestionsPage() {
                     <Edit2 className="w-4 h-4" />
                     Modifica
                   </button>
-                  {models.find((m) => m.id === selectedModelId)?.code !== 'preassessment' && (
-                    <button
-                      onClick={() => handleDeleteModel(selectedModelId)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Elimina
-                    </button>
-                  )}
+                  <button
+                    onClick={() => handleDeleteModel(selectedModelId)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Elimina
+                  </button>
                 </>
               )}
             </div>

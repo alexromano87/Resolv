@@ -241,13 +241,15 @@ export default function AdminCheckupModelsPage() {
                 >
                   {model.attivo ? 'Disattiva' : 'Attiva'}
                 </button>
-                <button
-                  onClick={() => handleDelete(model.id)}
-                  className="inline-flex items-center gap-2 rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:border-red-300"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Elimina
-                </button>
+                {model.code !== 'preassessment' && (
+                  <button
+                    onClick={() => handleDelete(model.id)}
+                    className="inline-flex items-center gap-2 rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:border-red-300"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Elimina
+                  </button>
+                )}
               </div>
             </div>
           );
