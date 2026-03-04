@@ -42,6 +42,12 @@ export class CheckupPreassessmentAlert {
   @Column({ type: 'int', nullable: true })
   preavvisoGiorni: number | null;
 
+  @Column({ default: false })
+  taciuto: boolean;
+
+  @Column({ default: false })
+  archiviato: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

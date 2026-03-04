@@ -1,4 +1,4 @@
-import { api, apiBase, getAccessToken } from './config';
+import { api, apiBase, getAccessToken, requestBlob } from './config';
 
 export interface PreassessmentPayload {
   data?: Record<string, string>;
@@ -107,31 +107,12 @@ export const preassessmentApi = {
     api.get<PreassessmentTyping>(`/checkup/preassessment/${preassessmentId}/sections/${sectionId}/typing`),
   setTyping: (preassessmentId: string, sectionId: string, active: boolean) =>
     api.post(`/checkup/preassessment/${preassessmentId}/sections/${sectionId}/typing`, { active }),
-  downloadPdf: async (html: string) => {
-    const token = localStorage.getItem('checkup_token');
-    const response = await fetch(`${apiBase}/checkup/preassessment/pdf`, {
+  downloadPdf: (html: string) =>
+    requestBlob('/checkup/preassessment/pdf', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
       body: JSON.stringify({ html }),
-    });
-
-    if (response.status === 401) {
-      localStorage.removeItem('checkup_token');
-      localStorage.removeItem('checkup_user');
-      window.location.href = '/checkup/login';
-      throw new Error('Non autorizzato');
-    }
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Errore di rete' }));
-      throw new Error(error.message || `Errore ${response.status}`);
-    }
-
-    return response.blob();
-  },
+      timeoutMs: 120_000,
+    }),
 };
 
 export interface PreassessmentChatMessage {
@@ -174,6 +155,7 @@ export interface PreassessmentTicket {
   closeRequestedAt?: string | null;
   closedById?: string | null;
   closedAt?: string | null;
+  archiviato?: boolean;
   createdAt: string;
   updatedAt: string;
   createdBy: { id: string; nome: string; cognome: string; ruolo: string };
@@ -198,7 +180,11 @@ export const preassessmentTicketApi = {
     api.post<PreassessmentTicket>(`/checkup/preassessment/tickets/${ticketId}/confirm-close`),
   reopen: (ticketId: string) =>
     api.post<PreassessmentTicket>(`/checkup/preassessment/tickets/${ticketId}/reopen`),
+  archive: (ticketId: string) =>
+    api.post<PreassessmentTicket>(`/checkup/preassessment/tickets/${ticketId}/archive`),
 };
+
+type AlertUser = { id: string; nome: string; cognome: string; ruolo: string; azienda?: string | null; client?: { nome: string | null; ragioneSociale?: string | null } | null };
 
 export interface PreassessmentAlert {
   id: string;
@@ -208,12 +194,14 @@ export interface PreassessmentAlert {
   priority: 'info' | 'warning' | 'urgent';
   messaggio: string;
   stato?: 'aperto' | 'chiuso' | 'scaduto';
+  taciuto?: boolean;
+  archiviato?: boolean;
   dataScadenza?: string | null;
   preavvisoGiorni?: number | null;
   createdAt: string;
   updatedAt?: string;
-  createdBy?: { id: string; nome: string; cognome: string; ruolo: string };
-  targetUser?: { id: string; nome: string; cognome: string; ruolo: string } | null;
+  createdBy?: AlertUser;
+  targetUser?: AlertUser | null;
 }
 
 export const preassessmentAlertApi = {
@@ -236,8 +224,27 @@ export const preassessmentAlertApi = {
     api.patch<PreassessmentAlert>(`/checkup/preassessment/alerts/${alertId}`, payload),
   close: (alertId: string) =>
     api.post<PreassessmentAlert>(`/checkup/preassessment/alerts/${alertId}/close`),
+  mute: (alertId: string) =>
+    api.post<PreassessmentAlert>(`/checkup/preassessment/alerts/${alertId}/mute`),
+  restore: (alertId: string) =>
+    api.post<PreassessmentAlert>(`/checkup/preassessment/alerts/${alertId}/restore`),
+  archive: (alertId: string) =>
+    api.post<PreassessmentAlert>(`/checkup/preassessment/alerts/${alertId}/archive`),
   delete: (alertId: string) =>
     api.delete<void>(`/checkup/preassessment/alerts/${alertId}`),
+  getExpiring: () =>
+    api.get<PreassessmentAlert[]>('/checkup/preassessment/alerts/expiring'),
+};
+
+export interface CoParticipant {
+  id: string;
+  nome: string;
+  cognome: string;
+}
+
+export const preassessmentCoParticipantsApi = {
+  list: (preassessmentId: string) =>
+    api.get<CoParticipant[]>(`/checkup/preassessment/${preassessmentId}/co-participants`),
 };
 
 export interface PreassessmentDocument {
@@ -266,25 +273,8 @@ export const preassessmentDocumentsApi = {
       formData,
     );
   },
-  download: async (id: string) => {
-    const token = getAccessToken();
-    const response = await fetch(`${apiBase}/checkup/preassessment/documents/${id}/download`, {
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    });
-    if (response.status === 401) {
-      localStorage.removeItem('checkup_refresh_token');
-      localStorage.removeItem('checkup_user');
-      window.location.href = '/checkup/login';
-      throw new Error('Non autorizzato');
-    }
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Errore di rete' }));
-      throw new Error(error.message || `Errore ${response.status}`);
-    }
-    return response.blob();
-  },
+  download: (id: string) =>
+    requestBlob(`/checkup/preassessment/documents/${id}/download`),
   delete: (id: string) => api.delete(`/checkup/preassessment/documents/${id}`),
 };
 
@@ -292,10 +282,10 @@ export const preassessmentDocumentsApi = {
 
 export const threadsUnreadApi = {
   getCounts: (preassessmentId: string) =>
-    api.get<{ tickets: number; alerts: number }>(
+    api.get<{ tickets: number; alerts: number; chat: number }>(
       `/checkup/preassessment/${preassessmentId}/unread-counts`,
     ),
-  markSeen: (preassessmentId: string, type: 'tickets' | 'alerts') =>
+  markSeen: (preassessmentId: string, type: 'tickets' | 'alerts' | 'chat') =>
     api.post<void>(`/checkup/preassessment/${preassessmentId}/mark-seen`, { type }),
 };
 

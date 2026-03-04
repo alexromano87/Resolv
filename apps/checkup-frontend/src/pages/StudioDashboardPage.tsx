@@ -5,7 +5,6 @@ import {
   BadgeCheck,
   BarChart3,
   Bell,
-  Building2,
   ChartPie,
   ClipboardList,
   Eye,
@@ -17,7 +16,7 @@ import {
   Ticket,
   Users,
 } from 'lucide-react';
-import { preassessmentApi, PreassessmentClientEntry } from '../api/preassessment';
+import { preassessmentApi, threadsUnreadApi, PreassessmentClientEntry } from '../api/preassessment';
 import { usersApi } from '../api/users';
 import { studiosApi, CheckupSublicenseOption, CheckupStudioProfile } from '../api/studios';
 import type { CheckupUser } from '../api/auth';
@@ -42,6 +41,23 @@ export default function StudioDashboardPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'tutti' | 'in_corso' | 'completati' | 'overdue'>('tutti');
   const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, { tickets: number; alerts: number; chat: number }>>({});
+
+  const fetchUnreadCounts = async (clientList: PreassessmentClientEntry[]) => {
+    const withPre = clientList.filter((e) => e.preassessment?.id);
+    const results = await Promise.allSettled(
+      withPre.map((e) =>
+        threadsUnreadApi.getCounts(e.preassessment!.id).then((c) => ({ id: e.preassessment!.id, ...c })),
+      ),
+    );
+    const counts: Record<string, { tickets: number; alerts: number; chat: number }> = {};
+    results.forEach((r) => {
+      if (r.status === 'fulfilled') {
+        counts[r.value.id] = { tickets: r.value.tickets, alerts: r.value.alerts, chat: r.value.chat };
+      }
+    });
+    setUnreadCounts(counts);
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -58,10 +74,25 @@ export default function StudioDashboardPage() {
         setProfile(profileData);
         setSublicenses(sublicensesData);
         setUsage(usageData);
+        fetchUnreadCounts(clientEntries);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Errore nel caricamento'))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (clients.length === 0) return;
+    const interval = setInterval(() => fetchUnreadCounts(clients), 30_000);
+    return () => clearInterval(interval);
+  }, [clients]);
+
+  // Refresh unread counts immediately when a page marks items as seen
+  useEffect(() => {
+    if (clients.length === 0) return;
+    const handler = () => fetchUnreadCounts(clients);
+    window.addEventListener('checkup:mark-seen', handler);
+    return () => window.removeEventListener('checkup:mark-seen', handler);
+  }, [clients]);
 
   useEffect(() => {
     let alive = true;
@@ -260,19 +291,7 @@ export default function StudioDashboardPage() {
         <div className="wow-panel p-10 text-center text-slate-500">Caricamento...</div>
       ) : (
         <>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Clienti</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">{totalClients}</p>
-                <p className="mt-1 text-xs text-slate-500">Totale aziende in portafoglio</p>
-              </div>
-              <div className="rounded-2xl bg-slate-100 p-2">
-                <Building2 className="h-5 w-5 text-slate-500" />
-              </div>
-            </div>
-          </div>
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
               <div className="flex items-start justify-between">
                 <div>
@@ -442,7 +461,7 @@ export default function StudioDashboardPage() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Cerca cliente o azienda..."
-                    className="bg-transparent text-xs text-slate-600 outline-none"
+                    className="bg-transparent text-xs text-slate-600 outline-none border-0 shadow-none focus:ring-0 rounded-none"
                   />
                 </div>
                 <div className="flex items-center gap-1 rounded-full border border-slate-200 p-1 text-[11px]">
@@ -492,6 +511,8 @@ export default function StudioDashboardPage() {
                       const sublicensesCount = sublicensesByClientId[entry.client.id] || 0;
                       const usageInfo = usageByClientId.get(entry.client.id);
                       const isOnline = entry.preassessment?.id ? onlineIds.has(entry.preassessment.id) : false;
+                                      const preId = entry.preassessment?.id ?? '';
+                      const unread = unreadCounts[preId] ?? { tickets: 0, alerts: 0, chat: 0 };
                       return (
                         <tr key={entry.client.id} className="hover:bg-slate-50/70">
                           <td className="px-4 py-3 font-semibold text-slate-900">
@@ -551,28 +572,43 @@ export default function StudioDashboardPage() {
                               <button
                                 type="button"
                                 onClick={() => navigate(`/checkup/clienti/${entry.client.id}?panel=chat`)}
-                                className="group relative rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition"
+                                className={`group relative rounded-lg p-1.5 transition ${unread.chat > 0 ? 'text-rose-500 hover:bg-rose-50 hover:text-rose-600' : 'text-slate-400 hover:bg-slate-100 hover:text-indigo-600'}`}
                                 title="Chat"
                               >
                                 <MessageCircle className="h-3.5 w-3.5" />
+                                {unread.chat > 0 && (
+                                  <span className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-500 px-0.5 text-[9px] font-bold text-white leading-none">
+                                    {unread.chat > 9 ? '9+' : unread.chat}
+                                  </span>
+                                )}
                                 <span className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white opacity-0 shadow transition group-hover:opacity-100">Chat</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => navigate(`/checkup/clienti/${entry.client.id}/tickets`)}
-                                className="group relative rounded-lg p-1.5 text-slate-400 hover:bg-amber-50 hover:text-amber-600 transition"
+                                className={`group relative rounded-lg p-1.5 transition ${unread.tickets > 0 ? 'text-rose-500 hover:bg-rose-50 hover:text-rose-600' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600'}`}
                                 title="Ticket"
                               >
                                 <Ticket className="h-3.5 w-3.5" />
+                                {unread.tickets > 0 && (
+                                  <span className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-500 px-0.5 text-[9px] font-bold text-white leading-none">
+                                    {unread.tickets > 9 ? '9+' : unread.tickets}
+                                  </span>
+                                )}
                                 <span className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white opacity-0 shadow transition group-hover:opacity-100">Ticket</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => navigate(`/checkup/clienti/${entry.client.id}/alerts`)}
-                                className="group relative rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition"
+                                className={`group relative rounded-lg p-1.5 transition ${unread.alerts > 0 ? 'text-rose-500 hover:bg-rose-50 hover:text-rose-600' : 'text-slate-400 hover:bg-rose-50 hover:text-rose-600'}`}
                                 title="Alert"
                               >
                                 <Bell className="h-3.5 w-3.5" />
+                                {unread.alerts > 0 && (
+                                  <span className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-500 px-0.5 text-[9px] font-bold text-white leading-none">
+                                    {unread.alerts > 9 ? '9+' : unread.alerts}
+                                  </span>
+                                )}
                                 <span className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white opacity-0 shadow transition group-hover:opacity-100">Alert</span>
                               </button>
                             </div>

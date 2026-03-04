@@ -80,7 +80,7 @@ export default function App() {
       <Route
         path="/checkup/dashboard-studio"
         element={
-          <ProtectedRoute requiredRole="admin_studio">
+          <ProtectedRoute requiredRole={['admin_studio', 'segreteria', 'collaboratore']}>
             <CheckupAppLayout>
               <StudioDashboardPage />
             </CheckupAppLayout>

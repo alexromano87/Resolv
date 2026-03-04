@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react';
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, memo, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -39,6 +39,7 @@ import {
   preassessmentTicketApi,
   preassessmentAlertApi,
   preassessmentDocumentsApi,
+  threadsUnreadApi,
   PreassessmentClientEntry,
   PreassessmentClientRecord,
   PreassessmentChatMessage,
@@ -48,6 +49,8 @@ import {
 } from '../api/preassessment';
 import { preassessmentReportApi } from '../api/reports';
 import { useAuth } from '../contexts/AuthContext';
+import { usePreassessmentNav } from '../contexts/PreassessmentNavContext';
+import { useStudio } from '../contexts/StudioContext';
 import { DocumentPreviewModal } from '../components/DocumentPreviewModal';
 
 const DOC_ICON_FIELDS = new Set([
@@ -220,7 +223,7 @@ const getOwnerInfo = (data: Record<string, string> | null | undefined, macroId: 
   const email = (data[fields.email] || '').trim();
   if (!name && !role && !email) return null;
   const primary = name || email || '—';
-  const secondary = [role, email && email !== primary ? email : ''].filter(Boolean).join(' • ');
+  const secondary = email && email !== primary ? email : '';
   return { name, role, email, primary, secondary };
 };
 
@@ -238,6 +241,8 @@ export default function PreassessmentPage() {
   const { clientId } = useParams<{ clientId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { setNavState, collapsed, setCollapsed, search, setSearch, registerSectionClick, unregisterSectionClick } = usePreassessmentNav();
+  const { logoUrl: studioLogoUrl } = useStudio();
   const isClient = user?.ruolo === 'cliente';
   const isStaff = !!user && user.ruolo !== 'cliente';
   const canChat = user?.ruolo === 'cliente'
@@ -325,8 +330,8 @@ export default function PreassessmentPage() {
   const [clientInfo, setClientInfo] = useState<PreassessmentClientRecord['client'] | null>(null);
   const [view, setView] = useState<'dashboard' | number>('dashboard');
   const lastSectionIdRef = useRef<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // search + collapsed come from PreassessmentNavContext (shared with CheckupAppLayout)
+  const [expandedMacros, setExpandedMacros] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
   const [exportMode, setExportMode] = useState<'excludeNA' | 'includeNA'>('excludeNA');
   const [exportIncludeConsultantNotes, setExportIncludeConsultantNotes] = useState(true);
@@ -339,7 +344,7 @@ export default function PreassessmentPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
+
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
   const [chatMessages, setChatMessages] = useState<PreassessmentChatMessage[]>([]);
@@ -358,11 +363,7 @@ export default function PreassessmentPage() {
     return clientInfo?.sublicense?.allowDocuments !== false;
   }, [isClient, user?.sublicense?.allowDocuments, clientInfo?.sublicense?.allowDocuments]);
 
-  useEffect(() => {
-    if (isClient) {
-      setExportIncludeConsultantNotes(false);
-    }
-  }, [isClient]);
+  // exportIncludeConsultantNotes defaults to true for all users
 
   useEffect(() => {
     setData((prev) => ({ ...getInitialData(sections), ...prev }));
@@ -402,6 +403,64 @@ export default function PreassessmentPage() {
   const showAssessment = !!activeClientId && !!preassessmentId;
   const activeSection = typeof view === 'number' ? sections[view] : null;
   const activeMacro = activeSection ? macroAreas.find((m) => m.id === activeSection.macro) : null;
+
+  // ── Register section click in nav context (useLayoutEffect: sincrono pre-paint, no flash) ──
+  useLayoutEffect(() => {
+    registerSectionClick((idx) => {
+      setView(idx);
+      setPanel(null);
+    });
+    return () => {
+      unregisterSectionClick();
+    };
+  }, [registerSectionClick, unregisterSectionClick]);
+
+  // ── Populate nav context for sidebar persistence across routes ──────────────
+  useEffect(() => {
+    const allGrouped = macroAreas
+      .map((m) => ({ ...m, sections: sections.filter((s) => s.macro === m.id) }))
+      .filter((g) => g.sections.length > 0);
+    const sectionStats: Record<string, { done: number; total: number; na: number }> = {};
+    sections.forEach((s) => {
+      sectionStats[s.id] = {
+        done: s.fields.filter((f) => f.required && !naFields[f.id] && data[f.id]?.trim()).length,
+        total: s.fields.filter((f) => f.required && !naFields[f.id]).length,
+        na: s.fields.filter((f) => naFields[f.id]).length,
+      };
+    });
+    setNavState({
+      grouped: allGrouped,
+      sections,
+      sectionStats,
+      macroValidations,
+      chatCount: chatUnreadCount,
+      hasAssessment: !!activeClientId,
+      isClient,
+    });
+  }, [sections, macroAreas, data, naFields, macroValidations, chatUnreadCount, activeClientId, isClient]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Scroll to top when section changes ───────────────────────────────────────
+  useEffect(() => {
+    if (typeof view === 'number') {
+      document.getElementById('checkup-main-scroll')?.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+    }
+  }, [view]);
+
+  // ── Handle ?section=N URL param (navigation from Ticket/Alert pages) ────────
+  useEffect(() => {
+    if (!preassessmentId) return;
+    const params = new URLSearchParams(location.search);
+    const sParam = params.get('section');
+    if (sParam !== null) {
+      const idx = parseInt(sParam, 10);
+      if (!isNaN(idx) && idx >= 0 && idx < sections.length) {
+        setView(idx);
+        setPanel(null);
+        navigate(location.pathname, { replace: true });
+      }
+    }
+  }, [preassessmentId, location.search]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const lastRemoteUpdatedAtRef = useRef<string | null>(null);
   const lastLocalChangeRef = useRef<number>(0);
   const onlineUsers = useMemo(() => {
@@ -611,6 +670,13 @@ export default function PreassessmentPage() {
 
   useEffect(() => {
     if (!activeClientId) return;
+    // Staff always starts at dashboard overview when entering a client's checkup
+    if (isStaff) {
+      setView('dashboard');
+      setPanel(null);
+      return;
+    }
+    // For clients, restore the last view so they can continue where they left off
     const key = `checkup_preassessment_view_${activeClientId}`;
     const raw = localStorage.getItem(key);
     if (raw) {
@@ -629,7 +695,7 @@ export default function PreassessmentPage() {
     }
     setView('dashboard');
     setPanel(null);
-  }, [activeClientId]);
+  }, [activeClientId, isStaff]);
 
   useEffect(() => {
     if (location.pathname.startsWith('/checkup/ricerca-clienti')) {
@@ -761,7 +827,6 @@ export default function PreassessmentPage() {
     if (!canEditAnswers && !(isStaff && consultantNoteDirtyRef.current)) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      setSaving(true);
       const payload = isStaff && !canEditAnswers
         ? { fieldNotes }
         : {
@@ -779,18 +844,24 @@ export default function PreassessmentPage() {
       promise
         .then((res) => {
           setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
+          // Aggiorna il ref del timestamp remoto così il polling non ri-applica
+          // i dati appena salvati al prossimo tick.
+          lastRemoteUpdatedAtRef.current = res.updatedAt;
           if (res.status) {
             setAssessmentStatus(res.status);
           }
           if (res.fieldMeta) {
             setFieldMeta(res.fieldMeta);
           }
+          // NON aggiornare macroValidations/sectionValidations dalla risposta del save:
+          // sono già corrette nello stato locale e aggiornarle triggera un re-salvataggio
+          // infinito (entrambe sono nelle dipendenze di questo useEffect).
+          // Il polling ogni 4s sincronizza eventuali differenze server-side.
           consultantNoteDirtyRef.current = false;
         })
         .catch((err) => {
           setError(err instanceof Error ? err.message : 'Errore durante il salvataggio');
-        })
-        .finally(() => setSaving(false));
+        });
     }, 700);
   }, [data, notes, fieldNotes, userFieldNotes, naFields, macroValidations, sectionValidations, canEditAnswers, isClient, isStaff, activeClientId, preassessmentId]);
 
@@ -978,50 +1049,9 @@ export default function PreassessmentPage() {
         ? 'N/A'
         : 'Tutti';
 
-  const exportJSON = () => {
-    const excludeNA = exportMode === 'excludeNA';
-    const includeNotes = !isClient && exportIncludeConsultantNotes;
-    const exp = {
-      tool: 'Governance Pre-Assessment Tool v13',
-      data_compilazione: new Date().toISOString(),
-      modalita: excludeNA ? 'Escludi N/A' : 'Completo',
-      note_consulente: includeNotes ? 'incluse' : 'escluse',
-      note_utente: 'incluse',
-      sezioni: sections.map((s) => ({
-        id: s.id,
-        titolo: s.title,
-        macro_area: macroAreas.find((m) => m.id === s.macro)?.label,
-        risposte: Object.fromEntries(
-          s.fields
-            .filter((f) => !(excludeNA && naFields[f.id]))
-            .map((f) => {
-              const isNA = !!naFields[f.id];
-              const value = isNA ? 'N/A' : (data[f.id] || '');
-              const entry: Record<string, string> = { label: f.label, valore: value };
-              if (!isNA && userFieldNotes[f.id]) {
-                entry.nota_utente = userFieldNotes[f.id] || '';
-              }
-              if (includeNotes && fieldNotes[f.id] && !isNA) {
-                entry.nota_consulente = fieldNotes[f.id] || '';
-              }
-              return [f.id, entry];
-            }),
-        ),
-        note_sezione: notes[s.id] || '',
-      })),
-    };
-    const blob = new Blob([JSON.stringify(exp, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pre_assessment_${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const exportCSV = () => {
     const excludeNA = exportMode === 'excludeNA';
-    const includeNotes = !isClient && exportIncludeConsultantNotes;
+    const includeNotes = exportIncludeConsultantNotes;
     let csv = 'Macro Area;Sezione;Campo;Obbligatorio;Valore';
     csv += ';Nota utente';
     if (includeNotes) csv += ';Nota consulente';
@@ -1071,15 +1101,66 @@ export default function PreassessmentPage() {
     }
   }, []);
 
+  // Flattens transparent pixels against a solid background color.
+  // Needed because Puppeteer PDF does not composite <img> transparent pixels
+  // against CSS background-color — they render against the white PDF page instead.
+  const flattenLogoTransparency = useCallback((dataUrl: string, bgColor: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || 1;
+        canvas.height = img.naturalHeight || 1;
+        // alpha: false → opaque canvas, toDataURL will produce PNG with no alpha channel
+        const ctx = canvas.getContext('2d', { alpha: false });
+        if (!ctx) { resolve(dataUrl); return; }
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/jpeg', 0.95));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  }, []);
+
   const buildReportHtml = useCallback(async () => {
     const nowDate = new Date();
     const nowLabel = nowDate.toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric' });
     const nowTime = nowDate.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-    const ragione = data.ragione_sociale || 'Società non specificata';
+    const clientNomeCompleto = clientInfo
+      ? `${clientInfo.nome || ''} ${clientInfo.cognome || ''}`.trim()
+      : '';
+    const ragione =
+      data.ragione_sociale ||
+      clientInfo?.ragioneSociale ||
+      clientInfo?.azienda ||
+      clientNomeCompleto ||
+      'Società non specificata';
+    const clientEmail = clientInfo?.email || '';
     const logoUrl = await getLogoDataUrl();
+    // Cover card background color (cover gradient ~#1e3a8a blended with rgba(15,23,42,0.35) = ~#192e68)
+    const coverCardBg = 'rgb(25, 46, 104)';
+    const logoForCover = studioLogoUrl
+      ? await flattenLogoTransparency(studioLogoUrl, coverCardBg)
+      : logoUrl;
     const sanitize = (value?: string) => (value || '').replace(/[✅✔️✔🟢🟩]/g, '').trim();
+
+    // Carica tutti i documenti del preassessment per includerli nel report
+    let allDocsByField: Record<string, { nomeOriginale: string }[]> = {};
+    if (documentsEnabled && preassessmentId) {
+      try {
+        const allDocs = await preassessmentDocumentsApi.list(preassessmentId);
+        allDocs.forEach((d) => {
+          if (!allDocsByField[d.fieldId]) allDocsByField[d.fieldId] = [];
+          allDocsByField[d.fieldId].push({ nomeOriginale: d.nomeOriginale });
+        });
+      } catch {
+        // silently ignore — documenti non disponibili
+      }
+    }
     const excludeNA = exportMode === 'excludeNA';
-    const includeNotes = !isClient && exportIncludeConsultantNotes;
+    const includeNotes = exportIncludeConsultantNotes;
 
     let html = `<!doctype html><html lang="it"><head><meta charset="utf-8">
     <title>Report Pre-Assessment — ${ragione}</title>
@@ -1151,8 +1232,8 @@ export default function PreassessmentPage() {
         background: rgba(37, 99, 235, 0.2);
         filter: blur(12px);
       }
-      .cover-top { display: flex; align-items: center; gap: 16px; }
-      .cover-top img { height: 64px; width: auto; }
+      .cover-top { display: flex; align-items: center; gap: 16px; background: rgba(15, 23, 42, 0.35); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; padding: 12px 14px; }
+      .cover-top img { height: 64px; width: auto; max-width: 200px; object-fit: contain; }
       .cover-title { font-size: 28px; font-weight: 700; letter-spacing: 0.02em; }
       .cover-subtitle { font-size: 14px; opacity: 0.85; margin-top: 6px; }
       .cover-center { margin-top: 22px; }
@@ -1336,6 +1417,18 @@ export default function PreassessmentPage() {
         flex-direction: column;
       }
       .section-body { flex: 1; }
+      .doc-list {
+        margin-top: 8px;
+        padding: 8px 12px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 9.5px;
+        color: #475569;
+      }
+      .doc-list-title { font-weight: 700; margin-bottom: 4px; color: #334155; }
+      .doc-item { padding: 2px 0; }
+      .doc-item::before { content: '📎 '; }
 
       .footer {
         margin-top: 26px;
@@ -1357,7 +1450,7 @@ export default function PreassessmentPage() {
             <div class="cover">
               <div class="cover-content">
                 <div class="cover-top">
-                  <img src="${logoUrl}" alt="Resolv" />
+                  <img src="${logoForCover}" alt="Logo" />
                   <div>
                     <div class="cover-title">CHECKUP</div>
                     <div class="cover-subtitle">Checkup Governance • Pre-Assessment</div>
@@ -1396,6 +1489,8 @@ export default function PreassessmentPage() {
           <div class="client-summary">
             <h3>Cliente</h3>
             <div class="client-grid">
+              ${clientNomeCompleto ? `<div class="client-item"><div class="label">Nominativo</div><div class="value">${clientNomeCompleto}</div></div>` : ''}
+              ${clientEmail ? `<div class="client-item"><div class="label">Email</div><div class="value">${clientEmail}</div></div>` : ''}
               <div class="client-item"><div class="label">Ragione sociale</div><div class="value">${ragione}</div></div>
               <div class="client-item"><div class="label">Codice fiscale / Partita IVA</div><div class="value">${data.cf_piva || '-'}</div></div>
               <div class="client-item"><div class="label">Sede legale</div><div class="value">${data.sede_legale || '-'}</div></div>
@@ -1470,6 +1565,17 @@ export default function PreassessmentPage() {
       if (chunkIndex === chunkCount - 1 && sectionNote) {
         html += `<div class="section-note"><strong>Note sezione:</strong> ${sectionNote.replace(/\n/g, '<br>')}</div>`;
       }
+      // Documenti allegati alla sezione (ultimo chunk della sezione)
+      if (chunkIndex === chunkCount - 1 && documentsEnabled) {
+        const sectionDocs = section.fields.flatMap((f) => allDocsByField[f.id] || []);
+        if (sectionDocs.length > 0) {
+          html += `<div class="doc-list"><div class="doc-list-title">Documenti allegati (${sectionDocs.length})</div>`;
+          sectionDocs.forEach((d) => {
+            html += `<div class="doc-item">${d.nomeOriginale}</div>`;
+          });
+          html += `</div>`;
+        }
+      }
       html += `</div></div>`;
       if (isLastPage) {
         html += `
@@ -1502,10 +1608,15 @@ export default function PreassessmentPage() {
     exportMode,
     exportIncludeConsultantNotes,
     isClient,
+    clientInfo,
     getLogoDataUrl,
+    flattenLogoTransparency,
     totalReq,
     totalFilled,
     pct,
+    documentsEnabled,
+    preassessmentId,
+    studioLogoUrl,
   ]);
 
   const generatePDF = async () => {
@@ -1553,6 +1664,9 @@ export default function PreassessmentPage() {
         for (const msg of unread) {
           preassessmentChatApi.markAsRead(msg.id).catch(() => {});
         }
+        // Bulk-mark chat as seen so the dashboard badge resets
+        threadsUnreadApi.markSeen(preassessmentId, 'chat').catch(() => {});
+        window.dispatchEvent(new CustomEvent('checkup:mark-seen', { detail: 'chat' }));
         setChatUnreadCount(0);
       }
     } catch {
@@ -1840,7 +1954,7 @@ export default function PreassessmentPage() {
               <p className="text-sm text-white/80">
                 {readOnly ? 'Modalità visualizzazione (sola lettura)' : 'Compilazione assessment'}
               </p>
-              {compilerName && (
+              {compilerName && isClient && (
                 <p className="text-xs text-white/70 mt-1">
                   In compilazione: {compilerName}
                 </p>
@@ -1993,8 +2107,23 @@ export default function PreassessmentPage() {
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {macroRows.map((row) => (
-                  <tr key={row.id} className="text-slate-700">
-                    <td className="px-3 py-3 font-medium text-slate-900">{row.label}</td>
+                  <Fragment key={row.id}>
+                  <tr
+                    className="text-slate-700 cursor-pointer hover:bg-slate-50 transition-colors"
+                    onClick={() => setExpandedMacros((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(row.id)) next.delete(row.id); else next.add(row.id);
+                      return next;
+                    })}
+                  >
+                    <td className="px-3 py-3 font-medium">
+                      <span className="flex items-center gap-1.5">
+                        {expandedMacros.has(row.id)
+                          ? <ChevronDown size={13} className="text-slate-400 flex-shrink-0" />
+                          : <ChevronRight size={13} className="text-slate-400 flex-shrink-0" />}
+                        <span style={{ color: row.color }} className="font-semibold">{row.label}</span>
+                      </span>
+                    </td>
                     <td className="px-3 py-3">
                       {row.ownerInfo ? (
                         <div className="text-xs text-slate-600">
@@ -2092,6 +2221,98 @@ export default function PreassessmentPage() {
                       )}
                     </td>
                   </tr>
+                  {/* ── Sezioni espanse ─────────────────────────────────── */}
+                  {expandedMacros.has(row.id) && (() => {
+                    const rowSects = sections.filter((s) => s.macro === row.id);
+                    return (
+                      <tr>
+                        <td colSpan={10} className="px-3 pb-3 pt-0 bg-slate-50/60">
+                          <div className="ml-5 rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                            <table className="min-w-full text-xs">
+                              <thead className="bg-slate-100">
+                                <tr className="text-left text-[10px] uppercase tracking-wider text-slate-400">
+                                  <th className="px-3 py-2">Sezione</th>
+                                  <th className="px-3 py-2">Obb.</th>
+                                  <th className="px-3 py-2">Compilati</th>
+                                  <th className="px-3 py-2">N/A</th>
+                                  <th className="px-3 py-2">Stato</th>
+                                  <th className="px-3 py-2">Progresso</th>
+                                  <th className="px-3 py-2">Validata</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 bg-white">
+                                {rowSects.map((s) => {
+                                  const done = sDone(s);
+                                  const total = sTotal(s);
+                                  const naCount = sNA(s);
+                                  const sp = total > 0 ? Math.round((done / total) * 100) : 0;
+                                  const validated = !!sectionValidations[s.id];
+                                  const realIndex = sections.findIndex((sec) => sec.id === s.id);
+                                  return (
+                                    <tr
+                                      key={s.id}
+                                      className="hover:bg-indigo-50 cursor-pointer transition-colors"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (realIndex < 0) return;
+                                        setView(realIndex);
+                                        setPanel(null);
+                                      }}
+                                    >
+                                      <td className="px-3 py-2 font-medium text-slate-700">{s.title}</td>
+                                      <td className="px-3 py-2 text-slate-500">{total}</td>
+                                      <td className="px-3 py-2 text-slate-500">{done}</td>
+                                      <td className="px-3 py-2">
+                                        <span className={naCount > 0 ? 'font-semibold text-rose-600' : 'text-slate-400'}>
+                                          {naCount > 0 ? naCount : '—'}
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                          sp === 0
+                                            ? 'bg-slate-100 text-slate-500'
+                                            : sp === 100 && validated
+                                              ? 'bg-emerald-100 text-emerald-600'
+                                              : sp === 100
+                                                ? 'bg-amber-100 text-amber-700'
+                                                : 'bg-blue-100 text-blue-600'
+                                        }`}>
+                                          {sp === 0
+                                            ? 'Da iniziare'
+                                            : sp === 100 && validated
+                                              ? 'Completo'
+                                              : sp === 100
+                                                ? 'In attesa'
+                                                : 'In corso'}
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <div className="flex items-center gap-2">
+                                          <div className="h-1.5 w-20 rounded-full bg-slate-200">
+                                            <div
+                                              className={`h-full rounded-full ${sp === 100 && !validated ? 'bg-amber-400' : 'bg-blue-500'}`}
+                                              style={{ width: `${sp}%` }}
+                                            />
+                                          </div>
+                                          <span className="text-slate-500">{sp}%</span>
+                                        </div>
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        {validated
+                                          ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Sì</span>
+                                          : <span className="text-slate-400">No</span>}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })()}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -2164,6 +2385,7 @@ export default function PreassessmentPage() {
     const sectionValidation = sectionValidations[activeSection.id];
     const ownerInfo = getOwnerInfo(data, activeSection.macro);
     const isSectionValidated = !!sectionValidation;
+    const isOwnerSection = activeSection.fields.some((f) => /^owner_[a-j]_/.test(f.id));
     return (
       <div className="space-y-4">
         {readOnly && (
@@ -2217,6 +2439,30 @@ export default function PreassessmentPage() {
           </div>
 
           <div className="space-y-5 p-6">
+            {/* Griglia validazione macro — mostrata solo nella sezione owner */}
+            {isOwnerSection && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Stato validazione macro aree</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+                  {macroAreas.map((m) => {
+                    const val = macroValidations[m.id];
+                    return (
+                      <div
+                        key={m.id}
+                        className={`rounded-lg border px-3 py-2 text-xs ${val ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}
+                      >
+                        <div className="font-semibold text-slate-700 truncate">{m.label}</div>
+                        {val ? (
+                          <div className="mt-0.5 text-emerald-600 font-medium truncate">✓ {val.by.name}</div>
+                        ) : (
+                          <div className="mt-0.5 text-slate-400">Non validata</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {visibleFields.length === 0 && (
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
                 Nessun campo corrispondente al filtro selezionato.
@@ -2318,14 +2564,23 @@ export default function PreassessmentPage() {
               className="wow-button-ghost"
             >
               <ChevronLeft className="h-4 w-4" />
-              {view === 0 ? 'Dashboard' : 'Precedente'}
+              {view === 0 ? 'Panoramica' : 'Precedente'}
             </button>
-            <span className="text-xs font-semibold text-slate-400">{(view as number) + 1}/{sections.length}</span>
+            <div className="flex flex-col items-center gap-1">
+              <button
+                type="button"
+                onClick={() => { setView('dashboard'); setPanel(null); }}
+                className="text-xs font-semibold text-slate-400 hover:text-indigo-600 transition-colors"
+              >
+                ↑ Panoramica
+              </button>
+              <span className="text-[10px] font-semibold text-slate-300">{(view as number) + 1}/{sections.length}</span>
+            </div>
             <button
               onClick={() => (view === sections.length - 1 ? setView('dashboard') : setView((view as number) + 1))}
               className="wow-button"
             >
-              {view === sections.length - 1 ? 'Dashboard' : 'Successiva'}
+              {view === sections.length - 1 ? 'Panoramica' : 'Successiva'}
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
@@ -2407,9 +2662,6 @@ export default function PreassessmentPage() {
                   {isClient ? 'Report' : 'Esporta'}
                 </button>
               )}
-              {saving && (
-                <span className="text-xs font-semibold text-slate-500">Salvataggio…</span>
-              )}
             </div>
             {showExport && activeClientId && (
               <div className="flex flex-col items-start gap-2">
@@ -2426,22 +2678,17 @@ export default function PreassessmentPage() {
                   >
                     Includi N/A
                   </button>
-                  {!isClient && (
-                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={exportIncludeConsultantNotes}
-                        onChange={(e) => setExportIncludeConsultantNotes(e.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                      />
-                      Note consulente
-                    </label>
-                  )}
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={exportIncludeConsultantNotes}
+                      onChange={(e) => setExportIncludeConsultantNotes(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                    />
+                    Note consulente
+                  </label>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {!isClient && (
-                    <button onClick={exportJSON} className="wow-button-ghost">JSON</button>
-                  )}
                   <button onClick={exportCSV} className="wow-button-ghost">CSV</button>
                   <button onClick={generatePDF} className="wow-button" disabled={pdfLoading}>
                     {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
@@ -2595,7 +2842,7 @@ function PreassessmentSidebar({
         )}
       </div>
 
-      {hasAssessment && !panel && (
+      {hasAssessment && (
         <>
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -2627,13 +2874,14 @@ function PreassessmentSidebar({
                   {g.label}
                   <ChevronDown className={`h-3 w-3 text-slate-500 transition ${collapsed[g.id] ? '-rotate-90' : ''}`} />
                 </button>
-                {!collapsed[g.id] && g.sections.map((s) => {
+                {!collapsed[g.id] && g.sections.map((s, sIdx) => {
                   const idx = sections.findIndex((sec) => sec.id === s.id);
                   const active = view === idx && !panel;
                   const done = sDone(s);
                   const total = sTotal(s);
                   const na = sNA(s);
                   const isValidated = !!validations[s.macro];
+                  const sectionNum = `${g.id.toUpperCase()}.${sIdx + 1}`;
                   return (
                     <button
                       key={s.id}
@@ -2642,18 +2890,22 @@ function PreassessmentSidebar({
                         setView(idx);
                         setPanel(null);
                       }}
-                      className={`group relative flex w-full items-center justify-between rounded-2xl px-3 py-2 text-xs transition-colors ${active ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
+                      className={`group relative flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-xs transition-colors ${active ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
                     >
                       <span
                         className={[
-                          'h-6 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                          'h-6 w-1 flex-shrink-0 rounded-full bg-indigo-400 transition-all duration-300',
                           active
                             ? 'opacity-100 translate-x-0'
                             : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
                         ].join(' ')}
                       />
-                      <span className="truncate">{s.title}</span>
-                      <span className={`flex items-center gap-2 text-[10px] font-semibold ${total > 0 && done === total ? 'text-emerald-300' : done > 0 ? 'text-blue-200' : 'text-slate-500'}`}>
+                      <span className="flex-1 min-w-0 text-left truncate">
+                        <span className="font-semibold opacity-70">{sectionNum}</span>
+                        <span className="mx-1 opacity-50">—</span>
+                        {s.title.replace(/^[A-Za-z]\.\d+\s*/, '')}
+                      </span>
+                      <span className={`flex flex-shrink-0 items-center gap-2 text-[10px] font-semibold ${total > 0 && done === total ? 'text-emerald-300' : done > 0 ? 'text-blue-200' : 'text-slate-500'}`}>
                         {isValidated && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
                         {na > 0 && <span className="text-rose-300">N/A {na}</span>}
                         <span>{done}/{total}</span>
@@ -2740,8 +2992,22 @@ function ChatPanel({
             <ChevronLeft className="h-4 w-4" />
           </button>
         )}
-        <span className="text-sm font-semibold text-slate-900">Chat con {otherName}</span>
+        <span className="text-sm font-semibold text-slate-900 flex-1">Chat con {otherName}</span>
+        <button
+          onClick={() => window.print()}
+          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+          title="Stampa conversazione"
+        >
+          <Printer className="h-4 w-4" />
+        </button>
       </div>
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: white !important; }
+          aside, header, nav { display: none !important; }
+        }
+      `}</style>
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
         {messages.length === 0 && (
           <div className="text-center text-xs text-slate-400">Nessun messaggio. Inizia la conversazione.</div>
@@ -3037,6 +3303,7 @@ const FormField = memo(function FormField({
           disabled={disabled}
           onOpen={() => onFieldFocus?.(field.id)}
           onClose={() => onFieldBlur?.(field.id)}
+          allowClear={!disabled}
         />
       )}
 
@@ -3168,7 +3435,20 @@ const FormField = memo(function FormField({
 
       {showUserNote && canEditUserNotes && !naChecked && (
         <div className="space-y-1">
-          <label className="text-[11px] font-semibold text-blue-700">Nota utente</label>
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-semibold text-blue-700">Nota utente</label>
+            {userNote && (
+              <button
+                type="button"
+                onClick={() => { onUserNoteChange(field.id, ''); setShowUserNote(false); }}
+                className="inline-flex items-center gap-1 text-[10px] text-rose-400 hover:text-rose-600 transition-colors"
+                title="Elimina nota"
+              >
+                <Trash2 className="h-3 w-3" />
+                Elimina
+              </button>
+            )}
+          </div>
           <textarea
             value={userNote || ''}
             onChange={(e) => onUserNoteChange(field.id, e.target.value)}
@@ -3190,7 +3470,20 @@ const FormField = memo(function FormField({
 
       {showConsultantNote && canEditConsultantNotes && !naChecked && (
         <div className="space-y-1">
-          <label className="text-[11px] font-semibold text-amber-700">Nota consulente</label>
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-semibold text-amber-700">Nota consulente</label>
+            {consultantNote && (
+              <button
+                type="button"
+                onClick={() => { onConsultantNoteChange(field.id, ''); setShowConsultantNote(false); }}
+                className="inline-flex items-center gap-1 text-[10px] text-rose-400 hover:text-rose-600 transition-colors"
+                title="Elimina nota"
+              >
+                <Trash2 className="h-3 w-3" />
+                Elimina
+              </button>
+            )}
+          </div>
           <textarea
             value={consultantNote || ''}
             onChange={(e) => onConsultantNoteChange(field.id, e.target.value)}

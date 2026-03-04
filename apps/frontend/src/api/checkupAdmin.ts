@@ -199,6 +199,96 @@ export interface UpsertCheckupSublicenseDto {
   allowDocuments?: boolean;
 }
 
+export interface CheckupDashboardStats {
+  studios: {
+    total: number;
+    active: number;
+    inactive: number;
+    licenziatari: number;
+    licenziatariAttivi: number;
+    clientiStudio: number;
+  };
+  clients: {
+    total: number;
+    active: number;
+    inactive: number;
+    preassessmentCompleted: number;
+    preassessmentInProgress: number;
+    completionRate: number;
+  };
+  licenses: {
+    total: number;
+    assigned: number;
+    unassigned: number;
+    expiringSoon: number;
+    expired: number;
+    totalUtenze: number;
+  };
+  sublicenses: {
+    total: number;
+    active: number;
+    inactive: number;
+    assignedToClient: number;
+    unassigned: number;
+    expiringSoon: number;
+    expired: number;
+  };
+  users: {
+    total: number;
+    active: number;
+    inactive: number;
+    byRole: Record<string, number>;
+    with2fa: number;
+    recentlyLoggedIn: number;
+    neverLoggedIn: number;
+    mustChangePassword: number;
+  };
+  preassessments: {
+    total: number;
+    inProgress: number;
+    completed: number;
+    completionRate: number;
+  };
+  models: {
+    total: number;
+    published: number;
+    breakdown: Array<{
+      id: string;
+      code: string;
+      label: string;
+      status: string;
+      activeSublicenseCount: number;
+    }>;
+  };
+  licenziatariBreakdown: Array<{
+    id: string;
+    nome: string;
+    attivo: boolean;
+    hasLicense: boolean;
+    licenzaScadenza: string | null;
+    licenzaScaduta: boolean;
+    licenzaInScadenza: boolean;
+    totalSublicenses: number;
+    activeSublicenses: number;
+    expiringSoonSublicenses: number;
+    expiredSublicenses: number;
+    totalClients: number;
+    activeClients: number;
+    preassessmentCompleted: number;
+    preassessmentInProgress: number;
+  }>;
+  criticalItems: Array<{
+    type: string;
+    label: string;
+    detail: string;
+    severity: 'critical' | 'warning';
+    studioNome?: string;
+    expiryDate?: string;
+    daysRemaining?: number;
+  }>;
+  generatedAt: string;
+}
+
 export const checkupAdminApi = {
   getStudios: async (): Promise<CheckupStudio[]> => {
     return api.get<CheckupStudio[]>('/admin/checkup/studios');
@@ -272,5 +362,9 @@ export const checkupAdminApi = {
 
   upsertSublicense: async (dto: UpsertCheckupSublicenseDto): Promise<CheckupSublicense> => {
     return api.post<CheckupSublicense>('/admin/checkup/sublicenses', dto);
+  },
+
+  getDashboardStats: async (): Promise<CheckupDashboardStats> => {
+    return api.get<CheckupDashboardStats>('/admin/checkup/dashboard');
   },
 };

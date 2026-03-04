@@ -15,6 +15,8 @@ import {
   ArrowLeft,
   User,
   AlertTriangle,
+  Archive,
+  Printer,
 } from 'lucide-react';
 import {
   preassessmentTicketApi,
@@ -60,11 +62,13 @@ export function PreassessmentTicketsPage() {
   const isCliente = user?.ruolo === 'cliente';
 
   const [preassessmentId, setPreassessmentId] = useState<string | null>(null);
+  const [clientNome, setClientNome] = useState<string>('');
   const [tickets, setTickets] = useState<PreassessmentTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [filtroStato, setFiltroStato] = useState<StatusFilter>('tutti');
+  const [showArchived, setShowArchived] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
   // Create modal (cliente only)
@@ -92,6 +96,7 @@ export function PreassessmentTicketsPage() {
         } else if (clientId) {
           const data = await preassessmentApi.getClient(clientId);
           setPreassessmentId(data.preassessment.id);
+          setClientNome(data.client.azienda || data.client.nome || '');
         } else {
           setError('Pre-assessment non trovato');
           setLoading(false);
@@ -107,11 +112,9 @@ export function PreassessmentTicketsPage() {
   useEffect(() => {
     if (preassessmentId) {
       loadTickets();
-      // Mark tickets as seen to reset the sidebar badge
-      if (isCliente) {
-        threadsUnreadApi.markSeen(preassessmentId, 'tickets').catch(() => {});
-        window.dispatchEvent(new CustomEvent('checkup:mark-seen', { detail: 'tickets' }));
-      }
+      // Mark tickets as seen to reset unread badges for all users
+      threadsUnreadApi.markSeen(preassessmentId, 'tickets').catch(() => {});
+      window.dispatchEvent(new CustomEvent('checkup:mark-seen', { detail: 'tickets' }));
     }
   }, [preassessmentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -148,9 +151,14 @@ export function PreassessmentTicketsPage() {
   };
 
   // ── Filtering & pagination ──────────────────────────────────────────────────
-  const filteredTickets = filtroStato === 'tutti'
-    ? tickets
-    : tickets.filter(t => t.status === filtroStato);
+  const filteredTickets = tickets.filter((t) => {
+    if (!showArchived && t.archiviato) return false;
+    if (showArchived && !t.archiviato) return false;
+    if (filtroStato !== 'tutti' && t.status !== filtroStato) return false;
+    return true;
+  });
+
+  const archivedCount = tickets.filter((t) => t.archiviato).length;
 
   const paginatedTickets = filteredTickets.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -237,6 +245,11 @@ export function PreassessmentTicketsPage() {
       if (showThreadModal && selectedTicket?.id === ticketId) {
         setShowThreadModal(false);
       }
+      // Azzera immediatamente il badge della campanella senza attendere il polling
+      if (preassessmentId) {
+        threadsUnreadApi.markSeen(preassessmentId, 'tickets').catch(() => {});
+        window.dispatchEvent(new CustomEvent('checkup:mark-seen', { detail: 'tickets' }));
+      }
       showSuccess('Ticket chiuso con successo');
       loadTickets();
     } catch (err: any) {
@@ -261,10 +274,102 @@ export function PreassessmentTicketsPage() {
     }
   };
 
+  const handleArchiveTicket = async (ticketId: string) => {
+    try {
+      await preassessmentTicketApi.archive(ticketId);
+      showSuccess('Ticket archiviato');
+      loadTickets();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Errore durante l\'archiviazione');
+    }
+  };
+
   const openThread = (ticket: PreassessmentTicket) => {
     setSelectedTicket(ticket);
     setReplyMsg('');
     setShowThreadModal(true);
+  };
+
+  const escHtml = (s: string) =>
+    (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const handlePrint = () => {
+    const now = new Date().toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric' });
+    const nowTime = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+
+    const statusColors: Record<PreassessmentTicket['status'], string> = {
+      open: '#4f46e5', in_progress: '#d97706', pending_close: '#ea580c', closed: '#64748b',
+    };
+    const statusBadge = (s: PreassessmentTicket['status']) =>
+      `<span style="background:${statusColors[s]}1a;color:${statusColors[s]};padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;border:1px solid ${statusColors[s]}40">${STATUS_LABELS[s]}</span>`;
+
+    const ticketsHtml = filteredTickets.map((t, i) => `
+      <div class="ticket">
+        <div class="ticket-header">
+          <span class="ticket-num">#${i + 1}</span>
+          <h3>${escHtml(t.subject)}</h3>
+          ${statusBadge(t.status)}
+        </div>
+        <div class="ticket-meta">
+          Aperto da: <strong>${escHtml(`${t.createdBy?.nome || ''} ${t.createdBy?.cognome || ''}`.trim())}</strong>
+          ${t.assignedTo ? ` &nbsp;·&nbsp; In carico a: <strong>${escHtml(`${t.assignedTo.nome} ${t.assignedTo.cognome}`)}</strong>` : ''}
+          &nbsp;·&nbsp; ${new Date(t.createdAt).toLocaleDateString('it-IT')}
+        </div>
+        <div class="ticket-body">${escHtml(t.body)}</div>
+        ${t.messages && t.messages.length > 0 ? `
+          <div class="messages-title">Messaggi (${t.messages.length})</div>
+          ${t.messages.map((m) => `
+            <div class="message">
+              <div class="message-author">${escHtml(`${m.user?.nome || ''} ${m.user?.cognome || ''}`.trim())} &nbsp;·&nbsp; ${m.user?.ruolo === 'cliente' ? escHtml(clientNome || 'Cliente') : 'Studio'} &nbsp;·&nbsp; ${new Date(m.createdAt).toLocaleString('it-IT')}</div>
+              <div class="message-text">${escHtml(m.messaggio)}</div>
+            </div>
+          `).join('')}
+        ` : '<div class="no-messages">Nessun messaggio</div>'}
+        ${t.status === 'closed' && t.closedBy ? `<div class="ticket-closed">Chiuso da ${escHtml(`${t.closedBy.nome} ${t.closedBy.cognome}`)}${t.closedAt ? ` il ${new Date(t.closedAt).toLocaleDateString('it-IT')}` : ''}</div>` : ''}
+        ${t.status === 'pending_close' && t.closeRequestedBy ? `<div class="ticket-pending">Chiusura richiesta da ${escHtml(`${t.closeRequestedBy.nome} ${t.closeRequestedBy.cognome}`)}${t.closeRequestedAt ? ` il ${new Date(t.closeRequestedAt).toLocaleDateString('it-IT')}` : ''}</div>` : ''}
+      </div>
+    `).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="it"><head>
+<meta charset="utf-8"/>
+<title>Ticket di supporto</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#1e293b;padding:32px 36px;background:#fff}
+.print-header{border-bottom:2px solid #e2e8f0;padding-bottom:14px;margin-bottom:24px}
+.print-header h1{font-size:20px;font-weight:700;color:#1e293b}
+.print-header .sub{color:#64748b;font-size:11px;margin-top:3px}
+.ticket{border:1px solid #e2e8f0;border-left:4px solid #6366f1;border-radius:8px;padding:14px 16px;margin-bottom:18px;page-break-inside:avoid}
+.ticket-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.ticket-num{font-size:10px;font-weight:700;color:#94a3b8;min-width:24px}
+.ticket-header h3{font-size:13px;font-weight:600;color:#1e293b;flex:1;min-width:0}
+.ticket-meta{color:#64748b;font-size:11px;margin-bottom:10px;line-height:1.5}
+.ticket-body{color:#334155;font-size:12px;line-height:1.7;white-space:pre-wrap;background:#f8fafc;padding:10px 12px;border-radius:6px;margin-bottom:12px;border:1px solid #e2e8f0}
+.messages-title{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px}
+.no-messages{font-size:11px;color:#94a3b8;font-style:italic;margin-bottom:4px}
+.message{padding:8px 10px;border-radius:6px;background:#f1f5f9;margin-bottom:6px;border:1px solid #e9eef4}
+.message-author{font-size:10px;font-weight:600;color:#64748b;margin-bottom:4px}
+.message-text{font-size:12px;color:#334155;white-space:pre-wrap;line-height:1.6}
+.ticket-closed{font-size:11px;color:#94a3b8;font-style:italic;margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px}
+.ticket-pending{font-size:11px;color:#ea580c;font-style:italic;margin-top:8px;border-top:1px dashed #fed7aa;padding-top:6px}
+@media print{body{padding:16px}@page{margin:20mm}}
+</style></head>
+<body>
+<div class="print-header">
+  <h1>Ticket di supporto${clientNome ? ` — ${escHtml(clientNome)}` : ''}</h1>
+  <div class="sub">Generato il ${now} alle ${nowTime} &nbsp;·&nbsp; ${filteredTickets.length} ticket</div>
+</div>
+${ticketsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Nessun ticket da stampare</p>'}
+</body></html>`;
+
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => win.print(), 400);
+    }
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -292,21 +397,30 @@ export function PreassessmentTicketsPage() {
               : 'Gestisci e rispondi alle richieste di supporto dei clienti.'}
           </p>
         </div>
-        {isCliente && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              setShowCreateModal(true);
-              setSubmitAttempted(false);
-              setCreateForm({ subject: '', body: '' });
-            }}
-            className="wow-button"
+            onClick={handlePrint}
+            className="wow-button-ghost"
+            title="Stampa ticket"
           >
-            <Plus className="h-4 w-4" />
-            Nuovo Ticket
+            <Printer className="h-4 w-4" />
+            Stampa
           </button>
-        )}
+          {isCliente && (
+            <button
+              onClick={() => {
+                setShowCreateModal(true);
+                setSubmitAttempted(false);
+                setCreateForm({ subject: '', body: '' });
+              }}
+              className="wow-button"
+            >
+              <Plus className="h-4 w-4" />
+              Nuovo Ticket
+            </button>
+          )}
+        </div>
       </div>
-
       {/* Success/Error banners */}
       {successMsg && (
         <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-xs text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
@@ -320,7 +434,7 @@ export function PreassessmentTicketsPage() {
       )}
 
       {/* Filters */}
-      <div className="wow-panel p-4 relative z-20">
+      <div className="wow-panel p-4 relative z-20 no-print">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-600 dark:text-slate-400">Stato:</span>
@@ -340,14 +454,27 @@ export function PreassessmentTicketsPage() {
               ))}
             </div>
           </div>
-          <button
-            onClick={loadTickets}
-            disabled={loading}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white/80 rounded-full hover:bg-white dark:text-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Aggiorna
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setShowArchived(!showArchived); setCurrentPage(1); }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition ${
+                showArchived
+                  ? 'bg-slate-700 text-white'
+                  : 'bg-white/80 text-slate-600 hover:bg-white dark:bg-slate-800 dark:text-slate-300'
+              }`}
+            >
+              <Archive className="h-3 w-3" />
+              Archiviati{archivedCount > 0 && !showArchived ? ` (${archivedCount})` : ''}
+            </button>
+            <button
+              onClick={loadTickets}
+              disabled={loading}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white/80 rounded-full hover:bg-white dark:text-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+              Aggiorna
+            </button>
+          </div>
         </div>
       </div>
 
@@ -463,6 +590,17 @@ export function PreassessmentTicketsPage() {
                       title="Riapri ticket"
                     >
                       <RefreshCw className="h-4 w-4" />
+                    </button>
+                  )}
+
+                  {/* Archive (closed + not archived) */}
+                  {ticket.status === 'closed' && !ticket.archiviato && (
+                    <button
+                      onClick={() => handleArchiveTicket(ticket.id)}
+                      className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg dark:hover:bg-slate-700 transition-colors"
+                      title="Archivia ticket"
+                    >
+                      <Archive className="h-4 w-4" />
                     </button>
                   )}
 
@@ -628,7 +766,9 @@ export function PreassessmentTicketsPage() {
                           <p className="text-[10px] font-semibold mb-1 opacity-80">
                             {msg.user?.nome} {msg.user?.cognome}
                             {' · '}
-                            {msg.user?.ruolo === 'cliente' ? 'Cliente' : 'Studio'}
+                            {msg.user?.ruolo === 'cliente'
+                              ? (clientNome || `${msg.user.nome} ${msg.user.cognome}`)
+                              : 'Studio'}
                           </p>
                           <p className="text-sm whitespace-pre-wrap">{msg.messaggio}</p>
                           <p className="text-[10px] mt-1 opacity-60 text-right">

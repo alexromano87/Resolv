@@ -138,7 +138,7 @@ export default function SavedReportsPage() {
             value={reportQuery}
             onChange={(e) => setReportQuery(e.target.value)}
             placeholder="Filtra per nome file o data..."
-            className="flex-1 bg-transparent outline-none"
+            className="flex-1 bg-transparent outline-none border-0 shadow-none focus:ring-0 rounded-none"
           />
         </div>
       </div>

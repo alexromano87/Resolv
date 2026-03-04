@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, X } from 'lucide-react';
 
 export interface SelectOption {
   value: string;
@@ -22,6 +22,7 @@ export interface CustomSelectProps {
   triggerClassName?: string;
   onOpen?: () => void;
   onClose?: () => void;
+  allowClear?: boolean;
 }
 
 export function CustomSelect({
@@ -37,6 +38,7 @@ export function CustomSelect({
   triggerClassName = '',
   onOpen,
   onClose,
+  allowClear = false,
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -135,7 +137,22 @@ export function CustomSelect({
       ) : (
         <span className="text-slate-400">{placeholder}</span>
       )}
-        <ChevronDown className={`h-4 w-4 text-slate-400 transition ${isOpen ? 'rotate-180' : ''}`} />
+        <span className="flex items-center gap-1">
+          {allowClear && value && (
+            <span
+              role="button"
+              aria-label="Deseleziona"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange('');
+              }}
+              className="flex h-4 w-4 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition cursor-pointer"
+            >
+              <X className="h-3 w-3" />
+            </span>
+          )}
+          <ChevronDown className={`h-4 w-4 text-slate-400 transition ${isOpen ? 'rotate-180' : ''}`} />
+        </span>
       </button>
 
       {isOpen && createPortal(

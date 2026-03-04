@@ -60,7 +60,7 @@ export class CheckupStudio {
   @Column({ type: 'varchar', length: 120, nullable: true })
   sitoWeb: string | null;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  @Column({ type: 'longtext', nullable: true })
   logoUrl: string | null;
 
   @Column({ type: 'text', nullable: true })

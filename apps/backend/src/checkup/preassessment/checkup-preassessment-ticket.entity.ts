@@ -47,6 +47,9 @@ export class CheckupPreassessmentTicket {
   @Column({ type: 'datetime', nullable: true })
   closedAt: Date | null;
 
+  @Column({ default: false })
+  archiviato: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

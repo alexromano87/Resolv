@@ -156,6 +156,271 @@ export class CheckupAdminController {
     await this.preassessmentRepository.save(record);
   }
 
+  @Get('dashboard')
+  async getDashboardStats() {
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const in30daysStr = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const isExpiredDate = (date?: string | null) => !!date && date < todayStr;
+    const isExpiringSoonDate = (date?: string | null) => !!date && date >= todayStr && date <= in30daysStr;
+    const daysUntil = (date?: string | null): number | null => {
+      if (!date) return null;
+      return Math.ceil((new Date(date).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    };
+
+    const [studios, licenses, sublicenses, clients, users, allPreassessments, allModels] = await Promise.all([
+      this.studioRepository.find(),
+      this.licenseRepository.find(),
+      this.sublicenseRepository.find(),
+      this.clientRepository.find(),
+      this.userRepository.find(),
+      this.preassessmentRepository.find(),
+      this.questionModelRepository.find(),
+    ]);
+
+    // Deduplicate preassessments by clientId keeping most recently updated
+    const latestByClient = new Map<string, CheckupPreassessment>();
+    allPreassessments.forEach((p) => {
+      if (!p.clientId) return;
+      const existing = latestByClient.get(p.clientId);
+      if (!existing || new Date(p.updatedAt) > new Date(existing.updatedAt)) {
+        latestByClient.set(p.clientId, p);
+      }
+    });
+    const preassessments = [...latestByClient.values()];
+
+    // Studios
+    const licenziatari = studios.filter((s) => s.tipo === 'licenziatario');
+    const clientiStudio = studios.filter((s) => s.tipo === 'cliente');
+
+    // Licenses
+    const assignedLicenses = licenses.filter((l) => l.studioId);
+    const expiredLicenses = licenses.filter((l) => isExpiredDate(l.dataScadenza));
+    const expiringSoonLicenses = licenses.filter((l) => isExpiringSoonDate(l.dataScadenza));
+    const totalUtenze = licenses.reduce((sum, l) => sum + (l.numeroUtenze || 0), 0);
+
+    // Sublicenses
+    const activeSublicenses = sublicenses.filter((s) => s.attiva);
+    const assignedToClient = sublicenses.filter((s) => s.clientId);
+    const unassigned = sublicenses.filter((s) => !s.clientId && !s.clienteStudioId);
+    const expiredSublicenses = sublicenses.filter((s) => isExpiredDate(s.dataScadenza));
+    const expiringSoonSublicenses = sublicenses.filter((s) => isExpiringSoonDate(s.dataScadenza));
+
+    // Users
+    const activeUsers = users.filter((u) => u.attivo);
+    const with2fa = users.filter((u) => u.twoFactorEnabled);
+    const recentlyLoggedIn = users.filter((u) => u.lastLogin && new Date(u.lastLogin) > sevenDaysAgo);
+    const neverLoggedIn = users.filter((u) => !u.lastLogin);
+    const mustChangePwd = users.filter((u) => u.mustChangePassword);
+    const byRole = users.reduce((acc, u) => {
+      acc[u.ruolo] = (acc[u.ruolo] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Preassessments
+    const completed = preassessments.filter((p) => p.status === 'concluso');
+    const inProgress = preassessments.filter((p) => p.status === 'in_progress');
+
+    // Lookup maps for licenziatari breakdown
+    const licenseByStudioId = new Map<string, CheckupLicense>();
+    licenses.forEach((l) => { if (l.studioId) licenseByStudioId.set(l.studioId, l); });
+
+    const sublicensesByLicenseId = new Map<string, CheckupSublicense[]>();
+    sublicenses.forEach((s) => {
+      if (!sublicensesByLicenseId.has(s.licenseId)) sublicensesByLicenseId.set(s.licenseId, []);
+      sublicensesByLicenseId.get(s.licenseId)!.push(s);
+    });
+
+    const clientsById = new Map(clients.map((c) => [c.id, c]));
+    const preassessmentsByClientId = new Map(preassessments.map((p) => [p.clientId, p]));
+
+    const licenziatariBreakdown = licenziatari.map((studio) => {
+      const license = licenseByStudioId.get(studio.id) ?? null;
+      const studioSublicenses = license ? (sublicensesByLicenseId.get(license.id) ?? []) : [];
+      const clientIds = [...new Set(studioSublicenses.filter((s) => s.clientId).map((s) => s.clientId!))];
+      const studioClients = clientIds.map((id) => clientsById.get(id)).filter(Boolean) as CheckupClient[];
+
+      const paCompleted = studioClients.filter((c) => preassessmentsByClientId.get(c.id)?.status === 'concluso').length;
+      const paInProgress = studioClients.filter((c) => preassessmentsByClientId.get(c.id)?.status === 'in_progress').length;
+
+      return {
+        id: studio.id,
+        nome: studio.nome,
+        attivo: studio.attivo,
+        hasLicense: !!license,
+        licenzaScadenza: license?.dataScadenza ?? null,
+        licenzaScaduta: isExpiredDate(license?.dataScadenza),
+        licenzaInScadenza: isExpiringSoonDate(license?.dataScadenza),
+        totalSublicenses: studioSublicenses.length,
+        activeSublicenses: studioSublicenses.filter((s) => s.attiva).length,
+        expiringSoonSublicenses: studioSublicenses.filter((s) => isExpiringSoonDate(s.dataScadenza)).length,
+        expiredSublicenses: studioSublicenses.filter((s) => isExpiredDate(s.dataScadenza)).length,
+        totalClients: studioClients.length,
+        activeClients: studioClients.filter((c) => c.attivo).length,
+        preassessmentCompleted: paCompleted,
+        preassessmentInProgress: paInProgress,
+      };
+    });
+
+    // Build critical items list
+    type CriticalItem = {
+      type: string;
+      label: string;
+      detail: string;
+      severity: 'critical' | 'warning';
+      studioNome?: string;
+      expiryDate?: string;
+      daysRemaining?: number;
+    };
+    const criticalItems: CriticalItem[] = [];
+
+    assignedToClient
+      .filter((s) => isExpiredDate(s.dataScadenza))
+      .forEach((s) => {
+        const licenseEntry = licenses.find((l) => l.id === s.licenseId);
+        const studioEntry = licenseEntry?.studioId ? licenziatari.find((st) => st.id === licenseEntry.studioId) : null;
+        criticalItems.push({
+          type: 'sublicense_expired',
+          label: `Sublicenza ${s.numeroSublicenza ?? s.id.slice(0, 8).toUpperCase()}`,
+          detail: `Scaduta il ${s.dataScadenza ?? '—'}`,
+          severity: 'critical',
+          studioNome: studioEntry?.nome,
+          expiryDate: s.dataScadenza ?? undefined,
+          daysRemaining: daysUntil(s.dataScadenza) ?? undefined,
+        });
+      });
+
+    assignedToClient
+      .filter((s) => isExpiringSoonDate(s.dataScadenza) && !isExpiredDate(s.dataScadenza))
+      .forEach((s) => {
+        const licenseEntry = licenses.find((l) => l.id === s.licenseId);
+        const studioEntry = licenseEntry?.studioId ? licenziatari.find((st) => st.id === licenseEntry.studioId) : null;
+        const days = daysUntil(s.dataScadenza);
+        criticalItems.push({
+          type: 'sublicense_expiring',
+          label: `Sublicenza ${s.numeroSublicenza ?? s.id.slice(0, 8).toUpperCase()}`,
+          detail: `Scade tra ${days} giorn${days === 1 ? 'o' : 'i'} (${s.dataScadenza})`,
+          severity: 'warning',
+          studioNome: studioEntry?.nome,
+          expiryDate: s.dataScadenza ?? undefined,
+          daysRemaining: days ?? undefined,
+        });
+      });
+
+    licenziatari
+      .filter((s) => s.attivo && !licenseByStudioId.has(s.id))
+      .forEach((studio) => {
+        criticalItems.push({
+          type: 'studio_no_license',
+          label: studio.nome,
+          detail: 'Nessuna licenza assegnata',
+          severity: 'critical',
+          studioNome: studio.nome,
+        });
+      });
+
+    licenziatari
+      .filter((s) => isExpiredDate(licenseByStudioId.get(s.id)?.dataScadenza))
+      .forEach((studio) => {
+        const lic = licenseByStudioId.get(studio.id)!;
+        criticalItems.push({
+          type: 'license_expired',
+          label: `Licenza — ${studio.nome}`,
+          detail: `Scaduta il ${lic.dataScadenza}`,
+          severity: 'critical',
+          studioNome: studio.nome,
+          expiryDate: lic.dataScadenza ?? undefined,
+          daysRemaining: daysUntil(lic.dataScadenza) ?? undefined,
+        });
+      });
+
+    criticalItems.sort((a, b) => {
+      if (a.severity !== b.severity) return a.severity === 'critical' ? -1 : 1;
+      if (a.daysRemaining != null && b.daysRemaining != null) return a.daysRemaining - b.daysRemaining;
+      return 0;
+    });
+
+    // Models breakdown: count active sublicenses per model
+    const activeSublicensesByModelId = new Map<string, number>();
+    sublicenses.filter((s) => s.attiva && s.modelId).forEach((s) => {
+      activeSublicensesByModelId.set(s.modelId!, (activeSublicensesByModelId.get(s.modelId!) || 0) + 1);
+    });
+
+    const publishedModels = allModels.filter((m) => m.attivo && m.status === 'published');
+    const modelsBreakdown = allModels
+      .filter((m) => m.attivo)
+      .map((m) => ({
+        id: m.id,
+        code: m.code,
+        label: m.label,
+        status: m.status,
+        activeSublicenseCount: activeSublicensesByModelId.get(m.id) || 0,
+      }))
+      .sort((a, b) => b.activeSublicenseCount - a.activeSublicenseCount);
+
+    return {
+      studios: {
+        total: studios.length,
+        active: studios.filter((s) => s.attivo).length,
+        inactive: studios.filter((s) => !s.attivo).length,
+        licenziatari: licenziatari.length,
+        licenziatariAttivi: licenziatari.filter((s) => s.attivo).length,
+        clientiStudio: clientiStudio.length,
+      },
+      clients: {
+        total: clients.length,
+        active: clients.filter((c) => c.attivo).length,
+        inactive: clients.filter((c) => !c.attivo).length,
+        preassessmentCompleted: completed.length,
+        preassessmentInProgress: inProgress.length,
+        completionRate: clients.length > 0 ? Math.round((completed.length / clients.length) * 100) : 0,
+      },
+      licenses: {
+        total: licenses.length,
+        assigned: assignedLicenses.length,
+        unassigned: licenses.length - assignedLicenses.length,
+        expiringSoon: expiringSoonLicenses.length,
+        expired: expiredLicenses.length,
+        totalUtenze,
+      },
+      sublicenses: {
+        total: sublicenses.length,
+        active: activeSublicenses.length,
+        inactive: sublicenses.filter((s) => !s.attiva).length,
+        assignedToClient: assignedToClient.length,
+        unassigned: unassigned.length,
+        expiringSoon: expiringSoonSublicenses.length,
+        expired: expiredSublicenses.length,
+      },
+      users: {
+        total: users.length,
+        active: activeUsers.length,
+        inactive: users.filter((u) => !u.attivo).length,
+        byRole,
+        with2fa: with2fa.length,
+        recentlyLoggedIn: recentlyLoggedIn.length,
+        neverLoggedIn: neverLoggedIn.length,
+        mustChangePassword: mustChangePwd.length,
+      },
+      preassessments: {
+        total: preassessments.length,
+        inProgress: inProgress.length,
+        completed: completed.length,
+        completionRate: preassessments.length > 0 ? Math.round((completed.length / preassessments.length) * 100) : 0,
+      },
+      models: {
+        total: allModels.filter((m) => m.attivo).length,
+        published: publishedModels.length,
+        breakdown: modelsBreakdown,
+      },
+      licenziatariBreakdown,
+      criticalItems: criticalItems.slice(0, 50),
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
   @Get('studios')
   async listStudios(): Promise<CheckupStudio[]> {
     return this.studioRepository.find({ order: { nome: 'ASC' } });

@@ -16,8 +16,11 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Access token lives ONLY in React state + api/config.ts memory (never localStorage)
-  const [token, setToken] = useState<string | null>(null);
+  // Access token is cached in memory and localStorage for refresh resilience
+  const [token, setToken] = useState<string | null>(() => {
+    const stored = localStorage.getItem('checkup_access_token');
+    return stored || null;
+  });
   const [user, setUser] = useState<CheckupUser | null>(() => {
     try {
       const stored = localStorage.getItem('checkup_user');
@@ -38,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setUser(null);
     setAccessToken(null);
+    localStorage.removeItem('checkup_access_token');
     localStorage.removeItem('checkup_refresh_token');
     localStorage.removeItem('checkup_user');
     window.location.href = '/checkup/login';
@@ -65,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then((res) => {
         setToken(res.access_token);
         setAccessToken(res.access_token);
+        localStorage.setItem('checkup_access_token', res.access_token);
         localStorage.setItem('checkup_refresh_token', res.refresh_token);
         // Refresh profile in background (user data from localStorage may be stale)
         return authApi.getProfile();
@@ -73,13 +78,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(profile);
         localStorage.setItem('checkup_user', JSON.stringify(profile));
       })
-      .catch(() => {
-        // Refresh token invalid or expired → clear and show login
-        setToken(null);
-        setUser(null);
-        setAccessToken(null);
-        localStorage.removeItem('checkup_refresh_token');
-        localStorage.removeItem('checkup_user');
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : '';
+        const isAuthFailure = /credenziali non valide|refresh_token mancante|sessione scaduta/i.test(message);
+        if (isAuthFailure) {
+          // Refresh token invalid or expired → clear and show login
+          setToken(null);
+          setUser(null);
+          setAccessToken(null);
+          localStorage.removeItem('checkup_access_token');
+          localStorage.removeItem('checkup_refresh_token');
+          localStorage.removeItem('checkup_user');
+        }
       })
       .finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -92,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(res.access_token);
       setUser(res.user);
       setAccessToken(res.access_token);
+      localStorage.setItem('checkup_access_token', res.access_token);
       localStorage.setItem('checkup_refresh_token', res.refresh_token);
       localStorage.setItem('checkup_user', JSON.stringify(res.user));
     }
@@ -101,6 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(accessToken);
     setUser(userData);
     setAccessToken(accessToken);
+    localStorage.setItem('checkup_access_token', accessToken);
     localStorage.setItem('checkup_refresh_token', refreshToken);
     localStorage.setItem('checkup_user', JSON.stringify(userData));
   }, []);
@@ -110,6 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(res.access_token);
     setUser(res.user);
     setAccessToken(res.access_token);
+    localStorage.setItem('checkup_access_token', res.access_token);
     localStorage.setItem('checkup_refresh_token', res.refresh_token);
     localStorage.setItem('checkup_user', JSON.stringify(res.user));
   }, []);

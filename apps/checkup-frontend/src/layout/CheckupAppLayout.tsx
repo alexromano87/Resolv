@@ -1,9 +1,33 @@
-import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Menu, ChevronLeft, ChevronRight, X, ArrowLeft, LayoutDashboard, FileText, Shield, Settings, Search, Ticket, Bell, ClipboardList } from 'lucide-react';
+import { LogOut, Menu, ChevronLeft, ChevronRight, ChevronDown, X, ArrowLeft, LayoutDashboard, FileText, Shield, Settings, Search, Ticket, Bell, ClipboardList } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { usePreassessmentNav } from '../contexts/PreassessmentNavContext';
+import { useStudio } from '../contexts/StudioContext';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
-import { preassessmentApi, threadsUnreadApi } from '../api/preassessment';
+import { preassessmentApi, threadsUnreadApi, preassessmentAlertApi } from '../api/preassessment';
+import { ToastNotification, type AlertToast } from '../components/ui/ToastNotification';
+
+// ── Web Audio beep ────────────────────────────────────────────────────────────
+function playAlertSound() {
+  try {
+    const ctx = new AudioContext();
+    const beep = (freq: number, start: number, duration: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.25, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + duration);
+    };
+    beep(880, 0, 0.3);
+    beep(1100, 0.35, 0.25);
+  } catch { /* AudioContext not available */ }
+}
 
 interface CheckupAppLayoutProps {
   children: ReactNode;
@@ -13,12 +37,23 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { navState, setNavState, collapsed, setCollapsed, search, setSearch, onSectionClick } = usePreassessmentNav();
+  const navSearchNorm = search.trim().toLowerCase();
+  // Derive base path for section navigation (handles /checkup/clienti/:id routes)
+  const sectionBasePath = useMemo(() => {
+    const match = location.pathname.match(/^(\/checkup\/clienti\/[^/]+)/);
+    return match ? match[1] : '/checkup';
+  }, [location.pathname]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { confirm, ConfirmDialog } = useConfirmDialog();
   // Unsaved changes are handled by the Settings page custom modal.
   const [unread, setUnread] = useState<{ tickets: number; alerts: number }>({ tickets: 0, alerts: 0 });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [alertToasts, setAlertToasts] = useState<AlertToast[]>([]);
+  const toastIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // In-memory dismissed set — cleared on logout/remount so toasts reappear on every login
+  const dismissedToastIds = useRef<Set<string>>(new Set());
 
   const initials = useMemo(() => {
     const name = `${user?.nome || ''} ${user?.cognome || ''}`.trim();
@@ -58,12 +93,20 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     }
     return 'Pre-Assessment';
   }, [location.pathname, user?.ruolo]);
+  const { logoUrl: studioLogoUrl, nome: studioNome } = useStudio();
   const isStaff = user ? user.ruolo !== 'cliente' : false;
   const dashboardPath = user?.ruolo === 'admin_studio' ? '/checkup/dashboard-studio' : '/checkup';
 
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
+
+  // ── Azzera navState quando l'utente torna alla dashboard (nessun cliente attivo) ──
+  useEffect(() => {
+    if (location.pathname.startsWith('/checkup/dashboard-studio')) {
+      setNavState(null);
+    }
+  }, [location.pathname, setNavState]);
 
   // ── Unread badge polling (cliente only) ────────────────────────────────────
   useEffect(() => {
@@ -96,6 +139,54 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     window.addEventListener('checkup:mark-seen', handler);
     return () => window.removeEventListener('checkup:mark-seen', handler);
   }, []);
+
+  // ── Expiring alerts toast polling ───────────────────────────────────────────
+  const dismissToast = useCallback((id: string) => {
+    dismissedToastIds.current.add(id);
+    setAlertToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const alertsPagePath = useMemo(() => {
+    if (!user) return '/checkup/alerts';
+    return user.ruolo === 'cliente' ? '/checkup/alerts' : '/checkup/dashboard-studio';
+  }, [user?.ruolo]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const checkExpiring = async () => {
+      try {
+        const expiring = await preassessmentAlertApi.getExpiring();
+        if (expiring.length === 0) return;
+        const newToasts: AlertToast[] = expiring
+          .filter((a) => !dismissedToastIds.current.has(a.id) && a.dataScadenza && a.preavvisoGiorni)
+          .map((a) => ({
+            id: a.id,
+            messaggio: a.messaggio,
+            priority: a.priority,
+            dataScadenza: a.dataScadenza!,
+            preavvisoGiorni: a.preavvisoGiorni!,
+          }));
+        if (newToasts.length > 0) {
+          setAlertToasts((prev) => {
+            const existingIds = new Set(prev.map((t) => t.id));
+            const fresh = newToasts.filter((t) => !existingIds.has(t.id));
+            if (fresh.length > 0) {
+              playAlertSound();
+              return [...prev, ...fresh];
+            }
+            return prev;
+          });
+        }
+      } catch { /* silently ignore */ }
+    };
+
+    checkExpiring();
+    toastIntervalRef.current = setInterval(checkExpiring, 5 * 60 * 1000); // ogni 5 minuti
+    return () => {
+      if (toastIntervalRef.current) clearInterval(toastIntervalRef.current);
+    };
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogout = async () => {
     await logout();
@@ -332,7 +423,95 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                   </NavLink>
                 </>
               )}
-              <div id="checkup-subnav" className="space-y-3" />
+              {/* Unico contenitore: target del portal quando PreassessmentPage è montata,
+                  nav contestuale (stesso wrapper CSS di PreassessmentSidebar) quando non lo è */}
+              <div id="checkup-subnav" className="space-y-3">
+                {!sidebarCollapsed && navState !== null && navState.hasAssessment && onSectionClick === null && (
+                  <div className="space-y-4">
+                    {/* div vuoto identico al container del pulsante Chat in PreassessmentSidebar
+                        — garantisce la stessa spaziatura in tutti i contesti */}
+                    <div className="space-y-1" />
+                    {/* Ricerca */}
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Cerca sezione o campo..."
+                        className="w-full rounded-2xl border border-blue-900/40 bg-blue-950/40 py-2 pl-9 pr-3 text-xs text-slate-200 outline-none placeholder:text-slate-500"
+                      />
+                    </div>
+
+                    {/* Gruppi macro area */}
+                    <nav className="space-y-2 max-h-[40vh] overflow-y-auto no-scrollbar">
+                      {navState.grouped.map((g) => {
+                        const visibleSections = navSearchNorm
+                          ? g.sections.filter((s) =>
+                              s.title.toLowerCase().includes(navSearchNorm)
+                              || s.description.toLowerCase().includes(navSearchNorm)
+                              || s.fields.some((f) => f.label.toLowerCase().includes(navSearchNorm)),
+                            )
+                          : g.sections;
+                        if (visibleSections.length === 0) return null;
+                        return (
+                          <div key={g.id} className="space-y-1">
+                            <button
+                              onClick={() =>
+                                setCollapsed((p) => {
+                                  const isCollapsed = !!p[g.id];
+                                  const next: Record<string, boolean> = {};
+                                  navState.grouped.forEach((macro) => {
+                                    next[macro.id] = macro.id === g.id ? !isCollapsed : true;
+                                  });
+                                  return next;
+                                })
+                              }
+                              className="flex w-full items-center justify-between px-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400"
+                            >
+                              {g.label}
+                              <ChevronDown className={`h-3 w-3 text-slate-500 transition ${collapsed[g.id] ? '-rotate-90' : ''}`} />
+                            </button>
+                            {!collapsed[g.id] && visibleSections.map((s) => {
+                              const sIdx = g.sections.indexOf(s);
+                              const idx = navState.sections.findIndex((sec) => sec.id === s.id);
+                              const stat = navState.sectionStats[s.id];
+                              const done = stat?.done ?? 0;
+                              const total = stat?.total ?? 0;
+                              const na = stat?.na ?? 0;
+                              const isValidated = !!navState.macroValidations[s.macro];
+                              const sectionNum = `${g.id.toUpperCase()}.${sIdx + 1}`;
+                              return (
+                                <button
+                                  key={s.id}
+                                  onClick={() => {
+                                    if (idx < 0) return;
+                                    navigate(`${sectionBasePath}?section=${idx}`);
+                                  }}
+                                  className="group relative flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-xs text-slate-300 hover:bg-white/5 hover:text-white transition-colors"
+                                >
+                                  <span className="h-6 w-1 flex-shrink-0 rounded-full bg-indigo-400 opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0 transition-all duration-300" />
+                                  <span className="flex-1 min-w-0 text-left truncate">
+                                    <span className="font-semibold opacity-70">{sectionNum}</span>
+                                    <span className="mx-1 opacity-50">—</span>
+                                    {s.title.replace(/^[A-Za-z]\.\d+\s*/, '')}
+                                  </span>
+                                  <span className={`flex flex-shrink-0 items-center gap-2 text-[10px] font-semibold ${total > 0 && done === total ? 'text-emerald-300' : done > 0 ? 'text-blue-200' : 'text-slate-500'}`}>
+                                    {isValidated && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
+                                    {na > 0 && <span className="text-rose-300">N/A {na}</span>}
+                                    <span>{done}/{total}</span>
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </nav>
+                    <div className="border-t border-blue-800/30 pt-4" />
+                  </div>
+                )}
+              </div>
             </div>
 
             {isStaff && (
@@ -503,7 +682,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
               </button>
             ) : (
               <div className="flex items-center justify-between">
-                <span>v1.0 • 2025</span>
+                <span>v1.0 • 2026</span>
                 <button
                   type="button"
                   onClick={handleLogoutConfirm}
@@ -518,7 +697,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col overflow-visible">
-          <header className="mx-6 mt-6 flex h-16 shrink-0 items-center justify-between rounded-2xl border border-indigo-200/60 bg-white/85 px-6 backdrop-blur transition-colors duration-300 shadow-[0_20px_60px_rgba(10,16,32,0.16)]">
+          <header className="mx-6 mt-6 relative flex h-16 shrink-0 items-center justify-between rounded-2xl border border-indigo-200/60 bg-white/85 px-6 backdrop-blur transition-colors duration-300 shadow-[0_20px_60px_rgba(10,16,32,0.16)]">
             <div className="flex items-center gap-4">
               <button
                 type="button"
@@ -539,6 +718,26 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                 </div>
               </div>
             </div>
+
+            {/* Studio branding — center of header */}
+            {(studioLogoUrl || studioNome) && (
+              <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-2 max-w-[240px] pointer-events-none select-none">
+                {studioLogoUrl ? (
+                  <img
+                    src={studioLogoUrl}
+                    alt="Logo studio"
+                    className="h-8 w-auto max-w-[180px] object-contain"
+                  />
+                ) : (
+                  studioNome && (
+                    <div className="flex flex-col items-center leading-none gap-[3px]">
+                      <span className="text-[9px] font-semibold tracking-[0.22em] uppercase text-blue-400 select-none">Licenziatario</span>
+                      <span className="text-[15px] font-extrabold tracking-[0.02em] text-slate-900 truncate max-w-[240px]">{studioNome}</span>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
 
             <div className="flex items-center gap-4">
               {(location.pathname.startsWith('/checkup/utenti') || location.pathname.startsWith('/checkup/impostazioni') || location.pathname.startsWith('/checkup/amministrazione')) && (
@@ -581,15 +780,15 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                   </p>
                   <p className="text-[10px] text-slate-500 truncate max-w-[160px]">
                     {user?.ruolo === 'cliente'
-                      ? `Cliente${clientCompanyName ? ` · ${clientCompanyName}` : ''}`
-                      : user?.ruolo}
+                      ? (clientCompanyName || '')
+                      : (user?.studioNome || '')}
                   </p>
                 </div>
               </div>
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto px-6 pb-6 pt-5">
+          <main id="checkup-main-scroll" className="flex-1 overflow-y-auto px-6 pb-6 pt-5">
             <div className="mx-auto max-w-7xl space-y-8">
               <div className="wow-card p-5 md:p-6">
                 {children}
@@ -600,6 +799,13 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
       </div>
 
       <ConfirmDialog />
+
+      {/* ── Expiring alert toasts ─────────────────────────────────────────── */}
+      <ToastNotification
+        toasts={alertToasts}
+        onDismiss={dismissToast}
+        onNavigate={() => navigate(alertsPagePath)}
+      />
     </div>
   );
 }

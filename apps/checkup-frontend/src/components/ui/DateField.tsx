@@ -243,7 +243,7 @@ export function DateField({
                     const selectedYear = Number(event.target.value);
                     handleVisibleMonthChange(new Date(selectedYear, visibleMonth.getMonth(), 1));
                   }}
-                  className="bg-transparent font-semibold text-slate-600 dark:text-slate-300 focus:outline-none"
+                  className="bg-transparent font-semibold text-slate-600 dark:text-slate-300 focus:outline-none border-0 shadow-none focus:ring-0 rounded-none"
                 >
                   {Array.from({ length: maxYear - minYear + 1 }, (_, index) => minYear + index).map((year) => (
                     <option key={year} value={year}>

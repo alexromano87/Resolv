@@ -117,7 +117,7 @@ export async function exportCheckupData(request: CheckupExportRequest, token?: s
   if (contentDisposition) {
     const match = contentDisposition.match(/filename="?(.+)"?/);
     if (match && match[1]) {
-      filename = match[1];
+      filename = match[1].replace(/"+$/, '');
     }
   }
 
@@ -151,7 +151,7 @@ export async function exportCheckupBackup(request: CheckupBackupRequest, token?:
   if (contentDisposition) {
     const match = contentDisposition.match(/filename="?(.+)"?/);
     if (match && match[1]) {
-      filename = match[1];
+      filename = match[1].replace(/"+$/, '');
     }
   }
 

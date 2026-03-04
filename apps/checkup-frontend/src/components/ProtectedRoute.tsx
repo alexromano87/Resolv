@@ -3,7 +3,13 @@ import { useAuth } from '../contexts/AuthContext';
 
 interface Props {
   children: React.ReactNode;
-  requiredRole?: 'superadmin' | 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
+  requiredRole?:
+    | 'superadmin'
+    | 'admin_studio'
+    | 'segreteria'
+    | 'collaboratore'
+    | 'cliente'
+    | Array<'superadmin' | 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente'>;
 }
 
 export function ProtectedRoute({ children, requiredRole }: Props) {
@@ -25,8 +31,11 @@ export function ProtectedRoute({ children, requiredRole }: Props) {
     return <Navigate to="/checkup/cambio-password" replace />;
   }
 
-  if (requiredRole && user.ruolo !== requiredRole) {
-    return <Navigate to="/checkup/" replace />;
+  if (requiredRole) {
+    const allowed = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+    if (!allowed.includes(user.ruolo)) {
+      return <Navigate to="/checkup/" replace />;
+    }
   }
 
   return <>{children}</>;

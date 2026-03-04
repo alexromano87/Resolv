@@ -4,11 +4,13 @@ import { studiosApi, type CheckupStudioProfile, type UpdateCheckupStudioPayload,
 import { usersApi } from '../api/users';
 import type { CheckupUser } from '../api/auth';
 import { useAuth } from '../contexts/AuthContext';
+import { useStudio } from '../contexts/StudioContext';
 import { ModalPortal } from '../components/ModalPortal';
 type AdminTab = 'studio' | 'licenza' | 'sublicenze' | 'utenti';
 
 export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialTab?: AdminTab }) {
   const { refreshProfile } = useAuth();
+  const { refresh: refreshStudio } = useStudio();
   const [profile, setProfile] = useState<CheckupStudioProfile | null>(null);
   const [formData, setFormData] = useState<UpdateCheckupStudioPayload>({});
   const [loading, setLoading] = useState(true);
@@ -32,6 +34,113 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
   const formRef = useRef<HTMLFormElement>(null);
   const pendingClickRef = useRef<HTMLElement | null>(null);
   const allowNextClickRef = useRef(false);
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const MAX_W = 400, MAX_H = 150;
+        const ratio = Math.min(MAX_W / img.naturalWidth, MAX_H / img.naturalHeight, 1);
+        const w = Math.round(img.naturalWidth * ratio);
+        const h = Math.round(img.naturalHeight * ratio);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, w, h);
+
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const d = imageData.data;
+
+        // ── Step 1: BFS flood-fill from all 4 corners to remove solid background ──
+        // Detects logos designed for white (or other solid-color) backgrounds and
+        // makes the background transparent so they render correctly on dark cards/PDF.
+        const THRESHOLD = 30; // max channel difference from corner color
+        const corners: [number, number][] = [[0,0],[w-1,0],[0,h-1],[w-1,h-1]];
+        const visited = new Uint8Array(w * h);
+        const bfsSeeds: [number, number][] = [];
+
+        for (const [cx, cy] of corners) {
+          const ci = (cy * w + cx) * 4;
+          if (d[ci + 3] < 128) continue; // already transparent — skip
+          const cr = d[ci], cg = d[ci + 1], cb = d[ci + 2];
+          // Only flood-fill corners that are near-white or near-solid (not mid-dark)
+          // We check all corners share a similar color
+          bfsSeeds.push([cx, cy]);
+          // Sample corner color once (use the first opaque corner found)
+          if (bfsSeeds.length === 1) {
+            // BFS using this corner's color as reference background
+            const refR = cr, refG = cg, refB = cb;
+            const queue: [number, number][] = [[cx, cy]];
+            visited[cy * w + cx] = 1;
+            let qi = 0;
+            while (qi < queue.length) {
+              const [qx, qy] = queue[qi++];
+              const qi4 = (qy * w + qx) * 4;
+              d[qi4 + 3] = 0; // make transparent
+              for (const [nx, ny] of [[qx-1,qy],[qx+1,qy],[qx,qy-1],[qx,qy+1]] as [number,number][]) {
+                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                const ni = ny * w + nx;
+                if (visited[ni]) continue;
+                visited[ni] = 1;
+                const ni4 = ni * 4;
+                if (d[ni4 + 3] < 128) continue; // already transparent
+                const dr = Math.abs(d[ni4] - refR);
+                const dg = Math.abs(d[ni4 + 1] - refG);
+                const db = Math.abs(d[ni4 + 2] - refB);
+                if (dr <= THRESHOLD && dg <= THRESHOLD && db <= THRESHOLD) {
+                  queue.push([nx, ny]);
+                }
+              }
+            }
+          }
+        }
+        ctx.putImageData(imageData, 0, 0);
+
+        // ── Step 2: Trim transparent border ──────────────────────────────────────
+        const imageData2 = ctx.getImageData(0, 0, w, h);
+        const d2 = imageData2.data;
+        let minX = w, maxX = 0, minY = h, maxY = 0;
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            if (d2[(y * w + x) * 4 + 3] > 0) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+
+        if (maxX < minX) {
+          setFormData((p) => ({ ...p, logoUrl: canvas.toDataURL('image/png') }));
+          return;
+        }
+
+        const cw = maxX - minX + 1;
+        const ch = maxY - minY + 1;
+        const trimmed = document.createElement('canvas');
+        trimmed.width = cw;
+        trimmed.height = ch;
+        const tCtx = trimmed.getContext('2d');
+        if (!tCtx) return;
+        tCtx.drawImage(canvas, minX, minY, cw, ch, 0, 0, cw, ch);
+
+        setFormData((p) => ({ ...p, logoUrl: trimmed.toDataURL('image/png') }));
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   const loadProfile = async () => {
     setLoading(true);
@@ -187,6 +296,7 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
       await studiosApi.updateMyStudio(formData);
       await loadProfile();
       await refreshProfile();
+      refreshStudio();
       setEditMode(false);
       setSuccess('Dati studio aggiornati');
     } catch (err: any) {
@@ -434,13 +544,48 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
               <p className="text-sm text-slate-500 mt-1">Logo e informazioni interne.</p>
               <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className="text-sm font-medium text-slate-700">Logo URL</label>
-                  <input
-                    value={formData.logoUrl ?? ''}
-                    onChange={(e) => setFormData((p) => ({ ...p, logoUrl: e.target.value }))}
-                    disabled={!editMode}
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50 disabled:text-slate-400 focus:ring-2 focus:ring-primary-500"
-                  />
+                  <label className="text-sm font-medium text-slate-700">Logo aziendale</label>
+                  <div className="mt-1">
+                    {formData.logoUrl ? (
+                      <div className="flex items-start gap-3">
+                        <img
+                          src={formData.logoUrl}
+                          alt="Logo studio"
+                          className="h-12 w-auto max-w-[200px] rounded-lg border border-slate-200 bg-slate-50 object-contain p-1"
+                        />
+                        {editMode && (
+                          <button
+                            type="button"
+                            onClick={() => setFormData((p) => ({ ...p, logoUrl: '' }))}
+                            className="mt-1 text-xs text-rose-500 hover:text-rose-700 transition-colors"
+                          >
+                            Rimuovi logo
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      !editMode && <p className="text-sm text-slate-400">Nessun logo caricato</p>
+                    )}
+                    {editMode && (
+                      <>
+                        <input
+                          ref={logoFileInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={handleLogoFileChange}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => logoFileInputRef.current?.click()}
+                          className="mt-2 wow-button-ghost text-xs"
+                        >
+                          {formData.logoUrl ? 'Sostituisci logo' : 'Carica logo'}
+                        </button>
+                        <p className="mt-1 text-[11px] text-slate-400">PNG, JPEG o WebP · max 300×100 px</p>
+                      </>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-slate-700">Note</label>
@@ -580,7 +725,6 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
                     <th className="px-4 py-3 text-left">Email</th>
                     <th className="px-4 py-3 text-left">Ruolo</th>
                     <th className="px-4 py-3 text-left">Stato</th>
-                    <th className="px-4 py-3 text-left">Cliente</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -594,7 +738,6 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
                           {u.attivo ? 'Attivo' : 'Disattivo'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-500">{u.clientNome || u.azienda || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

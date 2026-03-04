@@ -8,6 +8,7 @@ import { CheckupUser } from '../users/checkup-user.entity';
 import { CheckupPreassessmentTicket } from './checkup-preassessment-ticket.entity';
 import { CheckupPreassessmentTicketMessage } from './checkup-preassessment-ticket-message.entity';
 import { CheckupPreassessmentAlert } from './checkup-preassessment-alert.entity';
+import { CheckupPreassessmentMessage } from './checkup-preassessment-message.entity';
 import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
@@ -34,6 +35,8 @@ export class CheckupPreassessmentThreadsService {
     private ticketMessageRepository: Repository<CheckupPreassessmentTicketMessage>,
     @InjectRepository(CheckupPreassessmentAlert)
     private alertRepository: Repository<CheckupPreassessmentAlert>,
+    @InjectRepository(CheckupPreassessmentMessage)
+    private chatMessageRepository: Repository<CheckupPreassessmentMessage>,
     @InjectRepository(CheckupLicense)
     private licenseRepository: Repository<CheckupLicense>,
     @InjectRepository(CheckupSublicense)
@@ -111,34 +114,63 @@ export class CheckupPreassessmentThreadsService {
     return `checkup:seen:${type}:${userId}:${preassessmentId}`;
   }
 
-  async getUnreadCounts(userId: string, preassessmentId: string): Promise<{ tickets: number; alerts: number }> {
+  async getUnreadCounts(userId: string, preassessmentId: string): Promise<{ tickets: number; alerts: number; chat: number }> {
     const [ticketsSeen, alertsSeen] = await Promise.all([
       this.redis.get(this.seenKey('tickets', userId, preassessmentId)),
       this.redis.get(this.seenKey('alerts', userId, preassessmentId)),
     ]);
 
+    // Only count items created by OTHER users (not the current user themselves)
     const countAfter = async (
       repo: Repository<any>,
       field: string,
       since: string | null,
     ): Promise<number> => {
-      const qb = repo.createQueryBuilder('e').where(`e.${field} = :pid`, { pid: preassessmentId });
+      const qb = repo.createQueryBuilder('e')
+        .where(`e.${field} = :pid`, { pid: preassessmentId })
+        .andWhere('e.createdById != :uid', { uid: userId });
       if (since) {
-        qb.andWhere('e.updatedAt > :since', { since: new Date(since) });
+        qb.andWhere('e.createdAt > :since', { since: new Date(since) });
       }
       return qb.getCount();
     };
 
-    const [tickets, alerts] = await Promise.all([
+    const [tickets, alerts, chat] = await Promise.all([
       countAfter(this.ticketRepository, 'preassessmentId', ticketsSeen),
       countAfter(this.alertRepository, 'preassessmentId', alertsSeen),
+      // Chat: count messages not sent by current user that are unread (letto = false)
+      this.chatMessageRepository.count({
+        where: { preassessmentId, sectionId: 'general', letto: false } as any,
+      }).then(async (total) => {
+        if (total === 0) return 0;
+        return this.chatMessageRepository
+          .createQueryBuilder('m')
+          .where('m.preassessmentId = :pid', { pid: preassessmentId })
+          .andWhere('m.sectionId = :sid', { sid: 'general' })
+          .andWhere('m.letto = false')
+          .andWhere('m.userId != :uid', { uid: userId })
+          .getCount();
+      }),
     ]);
 
-    return { tickets, alerts };
+    return { tickets, alerts, chat };
   }
 
-  async markSeen(userId: string, preassessmentId: string, type: 'tickets' | 'alerts'): Promise<void> {
-    await this.redis.set(this.seenKey(type, userId, preassessmentId), new Date().toISOString(), 'EX', SEEN_TTL);
+  async markSeen(userId: string, preassessmentId: string, type: 'tickets' | 'alerts' | 'chat'): Promise<void> {
+    if (type === 'chat') {
+      // Bulk-mark all unread chat messages (not sent by current user) as read
+      await this.chatMessageRepository
+        .createQueryBuilder()
+        .update()
+        .set({ letto: true })
+        .where('preassessmentId = :pid', { pid: preassessmentId })
+        .andWhere('sectionId = :sid', { sid: 'general' })
+        .andWhere('letto = false')
+        .andWhere('userId != :uid', { uid: userId })
+        .execute();
+    } else {
+      await this.redis.set(this.seenKey(type, userId, preassessmentId), new Date().toISOString(), 'EX', SEEN_TTL);
+    }
   }
 
   // ─── Tickets ───────────────────────────────────────────────────────────────
@@ -414,13 +446,26 @@ export class CheckupPreassessmentThreadsService {
 
   // ─── Alerts ────────────────────────────────────────────────────────────────
 
+  /** Returns other active users that share the same clientId as the current user (cliente only). */
+  async getCoParticipants(preassessmentId: string, user: CheckupCurrentUserData) {
+    if (user.ruolo !== 'cliente' || !user.clientId) return [];
+    await this.ensureAccess(preassessmentId, user);
+    const all = await this.userRepository.find({
+      where: { clientId: user.clientId, ruolo: 'cliente', attivo: true },
+      select: ['id', 'nome', 'cognome'],
+    });
+    return all.filter((p) => p.id !== user.id);
+  }
+
   async listAlerts(preassessmentId: string, user: CheckupCurrentUserData) {
     await this.ensureAccess(preassessmentId, user);
 
     const qb = this.alertRepository
       .createQueryBuilder('alert')
       .leftJoinAndSelect('alert.createdBy', 'createdBy')
+      .leftJoinAndSelect('createdBy.client', 'createdByClient')
       .leftJoinAndSelect('alert.targetUser', 'targetUser')
+      .leftJoinAndSelect('targetUser.client', 'targetUserClient')
       .where('alert.preassessmentId = :preassessmentId', { preassessmentId });
 
     if (user.ruolo === 'cliente') {
@@ -447,45 +492,62 @@ export class CheckupPreassessmentThreadsService {
   ) {
     const { pre: _pre, clientId } = await this.ensureAccess(preassessmentId, user);
 
-    let targetUserId: string | null;
+    let targetUserId: string | null = null;
 
-    if (user.ruolo === 'admin_studio') {
+    if (user.ruolo !== 'cliente') {
+      // Staff (admin_studio, segreteria, collaboratore) can create alerts
       if (dto.targetUserId) {
-        const target = await this.userRepository.findOne({ where: { id: dto.targetUserId, attivo: true } });
-        if (!target || target.ruolo !== 'cliente' || !target.clientId) {
-          throw new ForbiddenException('Destinatario non valido');
+        if (dto.targetUserId === user.id) {
+          // Self-target = private reminder
+          targetUserId = user.id;
+        } else {
+          // Try by CheckupUser.id first; fallback to CheckupClient.id (sent by frontend's getClient)
+          let target = await this.userRepository.findOne({ where: { id: dto.targetUserId, attivo: true } });
+          if (!target) {
+            target = await this.userRepository.findOne({ where: { clientId: dto.targetUserId, ruolo: 'cliente', attivo: true } });
+          }
+          if (!target) throw new ForbiddenException('Destinatario non valido');
+
+          if (target.ruolo === 'cliente') {
+            // Alert directed to the client — validate sublicense access
+            if (!target.clientId) throw new ForbiddenException('Destinatario non valido');
+            if (!user.studioId) throw new ForbiddenException('Destinatario non valido');
+            const license = await this.licenseRepository.findOne({ where: { studioId: user.studioId } });
+            if (!license) throw new ForbiddenException('Destinatario non valido');
+            const sublicense = await this.sublicenseRepository.findOne({
+              where: { licenseId: license.id, clientId: target.clientId, attiva: true },
+            });
+            if (!sublicense) throw new ForbiddenException('Destinatario non valido');
+            if (target.clientId !== clientId) throw new ForbiddenException('Alert non coerente con il checkup selezionato');
+            targetUserId = target.id;
+          } else {
+            // Alert directed to a studio colleague — must be in the same studio
+            if (!user.studioId || target.studioId !== user.studioId) {
+              throw new ForbiddenException('Destinatario non valido: collega non appartenente allo stesso studio');
+            }
+            targetUserId = target.id;
+          }
         }
-        if (!user.studioId) {
-          throw new ForbiddenException('Destinatario non valido');
-        }
-        const license = await this.licenseRepository.findOne({ where: { studioId: user.studioId } });
-        if (!license) {
-          throw new ForbiddenException('Destinatario non valido');
-        }
-        const sublicense = await this.sublicenseRepository.findOne({
-          where: { licenseId: license.id, clientId: target.clientId, attiva: true },
-        });
-        if (!sublicense) {
-          throw new ForbiddenException('Destinatario non valido');
-        }
-        if (target.clientId !== clientId) {
-          throw new ForbiddenException('Alert non coerente con il checkup selezionato');
-        }
-        targetUserId = target.id;
       } else {
         targetUserId = null;
       }
     } else if (user.ruolo === 'cliente') {
       if (dto.targetUserId) {
-        if (dto.targetUserId !== user.id) {
-          throw new ForbiddenException('Il cliente può targetizzare solo se stesso');
+        if (dto.targetUserId === user.id) {
+          // Self-target = private reminder
+          targetUserId = user.id;
+        } else {
+          // Must be another active cliente with the same clientId (co-participant)
+          if (!user.clientId) throw new ForbiddenException('Il cliente può targetizzare solo se stesso o altri partecipanti del proprio account');
+          const target = await this.userRepository.findOne({ where: { id: dto.targetUserId, attivo: true } });
+          if (!target || target.ruolo !== 'cliente' || target.clientId !== user.clientId) {
+            throw new ForbiddenException('Il cliente può targetizzare solo se stesso o altri partecipanti del proprio account');
+          }
+          targetUserId = target.id;
         }
-        targetUserId = user.id;
       } else {
         targetUserId = null;
       }
-    } else {
-      throw new ForbiddenException('Non autorizzato');
     }
 
     const alert = this.alertRepository.create({
@@ -573,8 +635,17 @@ export class CheckupPreassessmentThreadsService {
   async closeAlert(alertId: string, user: CheckupCurrentUserData) {
     const alert = await this.alertRepository.findOne({ where: { id: alertId } });
     if (!alert) throw new NotFoundException('Alert non trovato');
-    if (alert.createdById !== user.id) throw new ForbiddenException('Solo il creatore può chiudere l\'alert');
     if (alert.stato === 'chiuso') throw new ForbiddenException('Alert già chiuso');
+
+    // Creator can always close their own alert
+    // Staff (non-cliente) can close any alert on preassessments they can access
+    if (alert.createdById !== user.id) {
+      if (user.ruolo === 'cliente') {
+        throw new ForbiddenException('Solo il creatore può chiudere l\'alert');
+      }
+      // Verify staff has access to this preassessment
+      await this.ensureAccess(alert.preassessmentId, user);
+    }
 
     alert.stato = 'chiuso';
     return this.alertRepository.save(alert);
@@ -586,6 +657,73 @@ export class CheckupPreassessmentThreadsService {
     if (alert.createdById !== user.id) throw new ForbiddenException('Solo il creatore può eliminare l\'alert');
 
     await this.alertRepository.delete(alertId);
+  }
+
+  // ─── Expiring alerts (for toast notification) ──────────────────────────────
+
+  private isAlertInWarningWindow(alert: CheckupPreassessmentAlert): boolean {
+    if (!alert.dataScadenza || !alert.preavvisoGiorni) return false;
+    const now = Date.now();
+    const expiry = new Date(alert.dataScadenza).getTime();
+    const warnMs = alert.preavvisoGiorni * 24 * 60 * 60 * 1000;
+    return expiry > now && expiry - now <= warnMs;
+  }
+
+  async getExpiringAlerts(user: CheckupCurrentUserData): Promise<CheckupPreassessmentAlert[]> {
+    let alerts: CheckupPreassessmentAlert[];
+
+    if (user.ruolo === 'cliente' && user.clientId) {
+      const pre = await this.preassessmentRepository.findOne({
+        where: { clientId: user.clientId, isLatest: true },
+      });
+      if (!pre) return [];
+      alerts = await this.alertRepository.find({
+        where: { preassessmentId: pre.id, stato: 'aperto', taciuto: false, archiviato: false },
+      });
+    } else {
+      // Staff: only self-targeted private alerts
+      alerts = await this.alertRepository.find({
+        where: { targetUserId: user.id, stato: 'aperto', taciuto: false, archiviato: false },
+      });
+    }
+
+    return alerts.filter((a) => this.isAlertInWarningWindow(a));
+  }
+
+  // ─── Archive ───────────────────────────────────────────────────────────────
+
+  async archiveAlert(alertId: string, user: CheckupCurrentUserData) {
+    const alert = await this.alertRepository.findOne({ where: { id: alertId } });
+    if (!alert) throw new NotFoundException('Alert non trovato');
+    if (alert.stato === 'aperto') throw new ForbiddenException('Solo alert chiusi o scaduti possono essere archiviati');
+    await this.ensureAccess(alert.preassessmentId, user);
+    alert.archiviato = true;
+    return this.alertRepository.save(alert);
+  }
+
+  async archiveTicket(ticketId: string, user: CheckupCurrentUserData) {
+    const ticket = await this.ticketRepository.findOne({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundException('Ticket non trovato');
+    if (ticket.status !== 'closed') throw new ForbiddenException('Solo i ticket chiusi possono essere archiviati');
+    await this.ensureAccess(ticket.preassessmentId, user);
+    ticket.archiviato = true;
+    return this.ticketRepository.save(ticket);
+  }
+
+  async muteAlert(alertId: string, user: CheckupCurrentUserData) {
+    const alert = await this.alertRepository.findOne({ where: { id: alertId } });
+    if (!alert) throw new NotFoundException('Alert non trovato');
+    await this.ensureAccess(alert.preassessmentId, user);
+    alert.taciuto = true;
+    return this.alertRepository.save(alert);
+  }
+
+  async restoreAlert(alertId: string, user: CheckupCurrentUserData) {
+    const alert = await this.alertRepository.findOne({ where: { id: alertId } });
+    if (!alert) throw new NotFoundException('Alert non trovato');
+    await this.ensureAccess(alert.preassessmentId, user);
+    alert.taciuto = false;
+    return this.alertRepository.save(alert);
   }
 
   /** Cron: ogni notte alle 2:00 segna come 'scaduto' gli alert aperti con dataScadenza passata */
@@ -600,6 +738,41 @@ export class CheckupPreassessmentThreadsService {
     );
     if ((result.affected ?? 0) > 0) {
       this.logger.log(`Alert scaduti: ${result.affected} alert marcati come 'scaduto'`);
+    }
+  }
+
+  /** Cron: ogni mattina alle 8:00 invia email di preavviso scadenza alert */
+  @Cron('0 8 * * *')
+  async sendPreavvisoNotifications() {
+    const now = new Date();
+    const alerts = await this.alertRepository.find({
+      where: { stato: 'aperto', taciuto: false },
+      relations: ['targetUser', 'createdBy'],
+    });
+
+    for (const alert of alerts) {
+      if (!alert.dataScadenza || !alert.preavvisoGiorni) continue;
+      const expiry = new Date(alert.dataScadenza).getTime();
+      const warnMs = alert.preavvisoGiorni * 24 * 60 * 60 * 1000;
+      const nowMs = now.getTime();
+      const isInWindow = expiry > nowMs && expiry - nowMs <= warnMs;
+      if (!isInWindow) continue;
+
+      const recipient = (alert.targetUser as any) || (alert.createdBy as any);
+      const email: string | undefined = recipient?.email;
+      if (!email) continue;
+
+      const scadeIl = new Date(alert.dataScadenza).toLocaleDateString('it-IT', { dateStyle: 'medium' });
+      this.mailService.sendMail({
+        to: email,
+        subject: `[Checkup] Promemoria: alert in scadenza il ${scadeIl}`,
+        html: `<p>Ti ricordiamo che un alert è in prossima scadenza.</p>
+               <p style="background:#f8fafc;padding:10px 14px;border-radius:6px;border-left:3px solid #f59e0b;margin:12px 0;">
+                 ${alert.messaggio}
+               </p>
+               <p style="color:#64748b;font-size:13px;">Scade il <strong>${scadeIl}</strong></p>
+               ${this.mailService.signature()}`,
+      });
     }
   }
 }

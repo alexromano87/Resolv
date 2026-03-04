@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Bell,
+  BellOff,
   Plus,
   X,
   Save,
@@ -17,13 +18,20 @@ import {
   CheckCircle,
   Lock,
   CalendarClock,
+  RotateCcw,
+  Archive,
+  Printer,
 } from 'lucide-react';
 import {
   preassessmentAlertApi,
   preassessmentApi,
+  preassessmentCoParticipantsApi,
   threadsUnreadApi,
+  type CoParticipant,
   type PreassessmentAlert,
 } from '../api/preassessment';
+import { api } from '../api/config';
+import { usersApi } from '../api/users';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BodyPortal } from '../components/ui/BodyPortal';
@@ -65,10 +73,28 @@ const STATO_LABELS: Record<'aperto' | 'chiuso' | 'scaduto', string> = {
 
 const ITEMS_PER_PAGE = 10;
 
+interface StudioMember {
+  id: string;
+  nome: string;
+  cognome: string;
+  ruolo: string;
+}
+
+interface ClientUser {
+  id: string;
+  nome: string;
+  cognome: string;
+}
+
 interface AlertFormData {
   messaggio: string;
   priority: 'info' | 'warning' | 'urgent';
-  destinatario: 'me' | 'interlocutore';
+  destinatario: 'me' | 'interlocutore' | 'collega' | 'partecipante';
+  colleagueId: string;
+  /** 'tutti' or a specific CheckupUser.id for the client side (staff targeting clients) */
+  interlocutoreUserId: 'tutti' | string;
+  /** CheckupUser.id for a co-participant (cliente targeting another cliente same clientId) */
+  partecipanteId: string;
   dataScadenza: string;
   preavvisoGiorni: string;
 }
@@ -77,6 +103,9 @@ const emptyForm = (): AlertFormData => ({
   messaggio: '',
   priority: 'info',
   destinatario: 'interlocutore',
+  colleagueId: '',
+  interlocutoreUserId: 'tutti',
+  partecipanteId: '',
   dataScadenza: '',
   preavvisoGiorni: '',
 });
@@ -103,12 +132,17 @@ export function PreassessmentAlertsPage() {
 
   const [preassessmentId, setPreassessmentId] = useState<string | null>(null);
   const [clientUserId, setClientUserId] = useState<string | null>(null);
+  const [clientNome, setClientNome] = useState<string>('');
   const [alerts, setAlerts] = useState<PreassessmentAlert[]>([]);
+  const [studioMembers, setStudioMembers] = useState<StudioMember[]>([]);
+  const [clientUsers, setClientUsers] = useState<ClientUser[]>([]);
+  const [coParticipants, setCoParticipants] = useState<CoParticipant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [filtroPriority, setFiltroPriority] = useState<PriorityFilter>('tutti');
   const [filtroStato, setFiltroStato] = useState<StatoFilter>('tutti');
+  const [showArchived, setShowArchived] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
   // Create modal
@@ -119,7 +153,7 @@ export function PreassessmentAlertsPage() {
 
   // Edit modal
   const [editingAlert, setEditingAlert] = useState<PreassessmentAlert | null>(null);
-  const [editForm, setEditForm] = useState<Omit<AlertFormData, 'destinatario'>>(
+  const [editForm, setEditForm] = useState<Omit<AlertFormData, 'destinatario' | 'colleagueId' | 'interlocutoreUserId' | 'partecipanteId'>>(
     { messaggio: '', priority: 'info', dataScadenza: '', preavvisoGiorni: '' }
   );
   const [editSubmitAttempted, setEditSubmitAttempted] = useState(false);
@@ -138,6 +172,7 @@ export function PreassessmentAlertsPage() {
           const data = await preassessmentApi.getClient(clientId);
           setPreassessmentId(data.preassessment.id);
           setClientUserId(data.client.id);
+          setClientNome(data.client.azienda || data.client.nome || '');
         } else {
           setError('Pre-assessment non trovato');
           setLoading(false);
@@ -153,13 +188,41 @@ export function PreassessmentAlertsPage() {
   useEffect(() => {
     if (preassessmentId) {
       loadAlerts();
-      // Mark alerts as seen to reset the sidebar badge
-      if (isCliente) {
-        threadsUnreadApi.markSeen(preassessmentId, 'alerts').catch(() => {});
-        window.dispatchEvent(new CustomEvent('checkup:mark-seen', { detail: 'alerts' }));
-      }
+      // Mark alerts as seen to reset the badge for all users
+      threadsUnreadApi.markSeen(preassessmentId, 'alerts').catch(() => {});
+      window.dispatchEvent(new CustomEvent('checkup:mark-seen', { detail: 'alerts' }));
     }
   }, [preassessmentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Fetch studio colleagues and client users (staff only) ──────────────────
+  useEffect(() => {
+    if (isCliente) return;
+    // Studio colleagues (admin_studio only)
+    if (user?.ruolo === 'admin_studio') {
+      api.get<StudioMember[]>('/checkup/users')
+        .then((members) => setStudioMembers(members.filter((m) => m.id !== user?.id && m.ruolo !== 'cliente')))
+        .catch(() => setStudioMembers([]));
+    }
+    // Client users for this specific client
+    if (clientUserId) {
+      usersApi.getAll(undefined, false)
+        .then((all) => {
+          const cu = all
+            .filter((u) => u.ruolo === 'cliente' && u.clientId === clientUserId)
+            .map((u) => ({ id: u.id, nome: u.nome, cognome: u.cognome }));
+          setClientUsers(cu);
+        })
+        .catch(() => setClientUsers([]));
+    }
+  }, [isCliente, user?.ruolo, user?.id, clientUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Fetch co-participants (cliente only) ───────────────────────────────────
+  useEffect(() => {
+    if (!isCliente || !preassessmentId) return;
+    preassessmentCoParticipantsApi.list(preassessmentId)
+      .then(setCoParticipants)
+      .catch(() => setCoParticipants([]));
+  }, [isCliente, preassessmentId]);
 
   // ── Data loading ────────────────────────────────────────────────────────────
   const loadAlerts = async () => {
@@ -183,10 +246,14 @@ export function PreassessmentAlertsPage() {
 
   // ── Filtering & pagination ──────────────────────────────────────────────────
   const filteredAlerts = alerts.filter((a) => {
+    if (!showArchived && a.archiviato) return false;
+    if (showArchived && !a.archiviato) return false;
     if (filtroPriority !== 'tutti' && a.priority !== filtroPriority) return false;
     if (filtroStato !== 'tutti' && a.stato !== filtroStato) return false;
     return true;
   });
+
+  const archivedCount = alerts.filter((a) => a.archiviato).length;
 
   const paginatedAlerts = filteredAlerts.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -201,28 +268,47 @@ export function PreassessmentAlertsPage() {
   };
 
   const handleCreateAlert = async () => {
-    if (!createForm.messaggio.trim()) {
+    const missingTarget =
+      (createForm.destinatario === 'collega' && !createForm.colleagueId) ||
+      (createForm.destinatario === 'partecipante' && !createForm.partecipanteId);
+    if (!createForm.messaggio.trim() || missingTarget) {
       setSubmitAttempted(true);
       return;
     }
     if (!preassessmentId) return;
 
-    let targetUserId: string | undefined;
-    if (isCliente) {
-      targetUserId = createForm.destinatario === 'me' ? user?.id : undefined;
-    } else {
-      targetUserId = createForm.destinatario === 'interlocutore' && clientUserId ? clientUserId : undefined;
-    }
+    const payload = {
+      messaggio: createForm.messaggio.trim(),
+      priority: createForm.priority,
+      dataScadenza: createForm.dataScadenza || null,
+      preavvisoGiorni: createForm.preavvisoGiorni ? parseInt(createForm.preavvisoGiorni, 10) : null,
+    };
 
     setCreateLoading(true);
     try {
-      await preassessmentAlertApi.create(preassessmentId, {
-        messaggio: createForm.messaggio.trim(),
-        priority: createForm.priority,
-        targetUserId,
-        dataScadenza: createForm.dataScadenza || null,
-        preavvisoGiorni: createForm.preavvisoGiorni ? parseInt(createForm.preavvisoGiorni, 10) : null,
-      });
+      if (isCliente) {
+        let targetUserId: string | undefined;
+        if (createForm.destinatario === 'me') targetUserId = user?.id;
+        else if (createForm.destinatario === 'partecipante') targetUserId = createForm.partecipanteId || undefined;
+        // 'interlocutore' → undefined (goes to studio)
+        await preassessmentAlertApi.create(preassessmentId, { ...payload, targetUserId });
+      } else if (createForm.destinatario === 'me') {
+        await preassessmentAlertApi.create(preassessmentId, { ...payload, targetUserId: user?.id });
+      } else if (createForm.destinatario === 'collega') {
+        await preassessmentAlertApi.create(preassessmentId, { ...payload, targetUserId: createForm.colleagueId || undefined });
+      } else {
+        // 'interlocutore' — per il cliente
+        if (createForm.interlocutoreUserId === 'tutti') {
+          // Create one alert per client user (or fallback to CheckupClient.id if no users)
+          const targets = clientUsers.length > 0 ? clientUsers.map((u) => u.id) : [clientUserId ?? undefined];
+          await Promise.all(
+            targets.map((tid) => preassessmentAlertApi.create(preassessmentId!, { ...payload, targetUserId: tid ?? undefined })),
+          );
+        } else {
+          await preassessmentAlertApi.create(preassessmentId, { ...payload, targetUserId: createForm.interlocutoreUserId || undefined });
+        }
+      }
+
       setShowCreateModal(false);
       setSubmitAttempted(false);
       showSuccess('Alert creato con successo');
@@ -305,6 +391,37 @@ export function PreassessmentAlertsPage() {
     }
   };
 
+  // ── Mute / Restore ───────────────────────────────────────────────────────────
+  const handleMuteAlert = async (alert: PreassessmentAlert) => {
+    try {
+      await preassessmentAlertApi.mute(alert.id);
+      showSuccess('Alert tacitato — non riceverai preavvisi via email');
+      loadAlerts();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Errore durante la tacitazione dell\'alert');
+    }
+  };
+
+  const handleRestoreAlert = async (alert: PreassessmentAlert) => {
+    try {
+      await preassessmentAlertApi.restore(alert.id);
+      showSuccess('Alert ripristinato — riceverai di nuovo i preavvisi via email');
+      loadAlerts();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Errore durante il ripristino dell\'alert');
+    }
+  };
+
+  const handleArchiveAlert = async (alert: PreassessmentAlert) => {
+    try {
+      await preassessmentAlertApi.archive(alert.id);
+      showSuccess('Alert archiviato');
+      loadAlerts();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Errore durante l\'archiviazione dell\'alert');
+    }
+  };
+
   // ── Helpers ──────────────────────────────────────────────────────────────────
   const getTargetLabel = (alert: PreassessmentAlert) => {
     // Private alert (target = creator)
@@ -312,16 +429,32 @@ export function PreassessmentAlertsPage() {
       return '🔒 Privato';
     }
     if (alert.targetUser) {
-      const ruolo = alert.targetUser.ruolo === 'cliente' ? 'Cliente' : 'Studio';
-      return `${ruolo}: ${alert.targetUser.nome} ${alert.targetUser.cognome}`;
+      const name = `${alert.targetUser.nome} ${alert.targetUser.cognome}`;
+      if (alert.targetUser.ruolo === 'cliente') {
+        const azienda =
+          alert.targetUser.client?.ragioneSociale ||
+          alert.targetUser.client?.nome ||
+          alert.targetUser.azienda ||
+          clientNome;
+        return azienda ? `${azienda} · ${name}` : name;
+      }
+      return `Studio · ${name}`;
     }
     return 'Studio';
   };
 
   const getCreatorLabel = (alert: PreassessmentAlert) => {
     if (!alert.createdBy) return 'Sconosciuto';
-    const ruolo = alert.createdBy.ruolo === 'cliente' ? 'Cliente' : 'Studio';
-    return `${ruolo} · ${alert.createdBy.nome} ${alert.createdBy.cognome}`;
+    const name = `${alert.createdBy.nome} ${alert.createdBy.cognome}`;
+    if (alert.createdBy.ruolo === 'cliente') {
+      const azienda =
+        alert.createdBy.client?.ragioneSociale ||
+        alert.createdBy.client?.nome ||
+        alert.createdBy.azienda ||
+        clientNome;
+      return azienda ? `${azienda} · ${name}` : name;
+    }
+    return `Studio · ${name}`;
   };
 
   const isMyAlert = (alert: PreassessmentAlert) => alert.createdById === user?.id;
@@ -331,6 +464,90 @@ export function PreassessmentAlertsPage() {
 
   const formatDateOnly = (d: string) =>
     new Date(d).toLocaleDateString('it-IT', { dateStyle: 'medium' });
+
+  const escHtml = (s: string) =>
+    (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const handlePrint = () => {
+    const now = new Date().toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric' });
+    const nowTime = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+
+    const priorityColors: Record<PreassessmentAlert['priority'], string> = {
+      info: '#4f46e5', warning: '#d97706', urgent: '#e11d48',
+    };
+    const statoColors: Record<string, string> = {
+      aperto: '#16a34a', chiuso: '#64748b', scaduto: '#dc2626',
+    };
+
+    const priorityBadge = (p: PreassessmentAlert['priority']) =>
+      `<span style="background:${priorityColors[p]}1a;color:${priorityColors[p]};padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;border:1px solid ${priorityColors[p]}40">${PRIORITY_LABELS[p]}</span>`;
+
+    const statoBadge = (stato: string) => {
+      const c = statoColors[stato] || '#64748b';
+      const label = STATO_LABELS[stato as 'aperto' | 'chiuso' | 'scaduto'] || stato;
+      return `<span style="background:${c}1a;color:${c};padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;border:1px solid ${c}40">${label}</span>`;
+    };
+
+    const alertsHtml = filteredAlerts.map((a, i) => {
+      const stato = a.stato ?? 'aperto';
+      const isExpired = a.dataScadenza && stato === 'aperto' && new Date(a.dataScadenza).getTime() < Date.now();
+      const statoEffettivo = isExpired ? 'scaduto' : stato;
+      const borderColor = priorityColors[a.priority];
+      return `
+      <div class="alert-card" style="border-left-color:${borderColor}">
+        <div class="alert-header">
+          <span class="alert-num">#${i + 1}</span>
+          <div class="alert-badges">${priorityBadge(a.priority)} ${statoBadge(statoEffettivo)}</div>
+          <span class="alert-date">${new Date(a.createdAt).toLocaleDateString('it-IT')}</span>
+        </div>
+        <div class="alert-msg">${escHtml(a.messaggio)}</div>
+        <div class="alert-meta">
+          <span>Da: <strong>${escHtml(getCreatorLabel(a))}</strong></span>
+          <span>A: <strong>${escHtml(getTargetLabel(a))}</strong></span>
+          ${a.dataScadenza ? `<span>Scadenza: <strong>${formatDateOnly(a.dataScadenza)}</strong>${a.preavvisoGiorni ? ` (preavviso ${a.preavvisoGiorni}gg)` : ''}</span>` : ''}
+        </div>
+        ${a.stato === 'chiuso' ? `<div class="alert-closed">Alert chiuso</div>` : ''}
+      </div>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="it"><head>
+<meta charset="utf-8"/>
+<title>Alert</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#1e293b;padding:32px 36px;background:#fff}
+.print-header{border-bottom:2px solid #e2e8f0;padding-bottom:14px;margin-bottom:24px}
+.print-header h1{font-size:20px;font-weight:700;color:#1e293b}
+.print-header .sub{color:#64748b;font-size:11px;margin-top:3px}
+.alert-card{border:1px solid #e2e8f0;border-left:4px solid #6366f1;border-radius:8px;padding:14px 16px;margin-bottom:16px;page-break-inside:avoid}
+.alert-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.alert-num{font-size:10px;font-weight:700;color:#94a3b8;min-width:24px}
+.alert-badges{display:flex;gap:6px;flex-wrap:wrap}
+.alert-date{margin-left:auto;font-size:11px;color:#94a3b8}
+.alert-msg{font-size:13px;font-weight:500;color:#1e293b;line-height:1.6;white-space:pre-wrap;margin-bottom:10px;background:#f8fafc;padding:10px 12px;border-radius:6px;border:1px solid #e2e8f0}
+.alert-meta{display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:#64748b;margin-bottom:6px}
+.alert-note{font-size:11px;color:#475569;background:#fefce8;border:1px solid #fde68a;padding:8px 10px;border-radius:6px;margin-top:8px;white-space:pre-wrap}
+.note-label{font-weight:700;color:#92400e}
+.alert-closed{font-size:11px;color:#94a3b8;font-style:italic;margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px}
+@media print{body{padding:16px}@page{margin:20mm}}
+</style></head>
+<body>
+<div class="print-header">
+  <h1>Alert${clientNome ? ` — ${escHtml(clientNome)}` : ''}</h1>
+  <div class="sub">Generato il ${now} alle ${nowTime} &nbsp;·&nbsp; ${filteredAlerts.length} alert</div>
+</div>
+${alertsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Nessun alert da stampare</p>'}
+</body></html>`;
+
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => win.print(), 400);
+    }
+  };
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -357,12 +574,21 @@ export function PreassessmentAlertsPage() {
               : 'Invia alert al cliente e visualizza le notifiche ricevute.'}
           </p>
         </div>
-        <button onClick={openCreateModal} className="wow-button">
-          <Plus className="h-4 w-4" />
-          Nuovo Alert
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handlePrint}
+            className="wow-button-ghost"
+            title="Stampa alert"
+          >
+            <Printer className="h-4 w-4" />
+            Stampa
+          </button>
+          <button onClick={openCreateModal} className="wow-button">
+            <Plus className="h-4 w-4" />
+            Nuovo Alert
+          </button>
+        </div>
       </div>
-
       {/* Success/Error banners */}
       {successMsg && (
         <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-xs text-emerald-700">
@@ -376,7 +602,7 @@ export function PreassessmentAlertsPage() {
       )}
 
       {/* Filters */}
-      <div className="wow-panel p-4 relative z-20">
+      <div className="wow-panel p-4 relative z-20 no-print">
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-slate-600 w-14">Stato:</span>
@@ -415,14 +641,27 @@ export function PreassessmentAlertsPage() {
                 ))}
               </div>
             </div>
-            <button
-              onClick={loadAlerts}
-              disabled={loading}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white/80 rounded-full hover:bg-white flex-shrink-0"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-              Aggiorna
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => { setShowArchived(!showArchived); setCurrentPage(1); }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition ${
+                  showArchived
+                    ? 'bg-slate-700 text-white'
+                    : 'bg-white/80 text-slate-600 hover:bg-white'
+                }`}
+              >
+                <Archive className="h-3 w-3" />
+                Archiviati{archivedCount > 0 && !showArchived ? ` (${archivedCount})` : ''}
+              </button>
+              <button
+                onClick={loadAlerts}
+                disabled={loading}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white/80 rounded-full hover:bg-white"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Aggiorna
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -444,8 +683,10 @@ export function PreassessmentAlertsPage() {
             const warning = isInWarningWindow(alert);
             const expired = isExpiredOrClose(alert);
             const canEdit = isMyAlert(alert) && (alert.stato ?? 'aperto') === 'aperto';
-            const canClose = isMyAlert(alert) && (alert.stato ?? 'aperto') === 'aperto';
+            // Staff can close any open alert; clients can only close their own
+            const canClose = (isMyAlert(alert) || !isCliente) && (alert.stato ?? 'aperto') === 'aperto';
             const canDelete = isMyAlert(alert);
+            const canArchive = (alert.stato ?? 'aperto') !== 'aperto' && !alert.archiviato;
             const isPrivate = alert.targetUserId != null && alert.targetUserId === alert.createdById;
 
             return (
@@ -472,6 +713,13 @@ export function PreassessmentAlertsPage() {
                         {(alert.stato ?? 'aperto') === 'scaduto' && <AlertTriangle className="h-3 w-3" />}
                         {STATO_LABELS[alert.stato ?? 'aperto']}
                       </span>
+                      {/* Taciuto */}
+                      {alert.taciuto && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">
+                          <BellOff className="h-3 w-3" />
+                          Tacitato
+                        </span>
+                      )}
                       {/* Private */}
                       {isPrivate && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
@@ -517,8 +765,28 @@ export function PreassessmentAlertsPage() {
                   </div>
 
                   {/* Action buttons */}
-                  {(canEdit || canClose || canDelete) && (
+                  {(canEdit || canClose || canDelete || canArchive || (alert.stato ?? 'aperto') === 'aperto') && (
                     <div className="flex items-center gap-1 flex-shrink-0">
+                      {/* Mute / Restore (visible when in warning window or taciuto) */}
+                      {(alert.stato ?? 'aperto') === 'aperto' && (warning || alert.taciuto) && (
+                        alert.taciuto ? (
+                          <button
+                            onClick={() => handleRestoreAlert(alert)}
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg transition-colors"
+                            title="Ripristina notifiche"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleMuteAlert(alert)}
+                            className="p-1.5 text-slate-400 hover:text-amber-600 rounded-lg transition-colors"
+                            title="Tacita notifiche email"
+                          >
+                            <BellOff className="h-4 w-4" />
+                          </button>
+                        )
+                      )}
                       {canEdit && (
                         <button
                           onClick={() => openEditModal(alert)}
@@ -544,6 +812,15 @@ export function PreassessmentAlertsPage() {
                           title="Elimina"
                         >
                           <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                      {canArchive && (
+                        <button
+                          onClick={() => handleArchiveAlert(alert)}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg transition-colors"
+                          title="Archivia"
+                        >
+                          <Archive className="h-4 w-4" />
                         </button>
                       )}
                     </div>
@@ -586,10 +863,10 @@ export function PreassessmentAlertsPage() {
                 {/* Destinatario */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Destinatario</label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => setCreateForm({ ...createForm, destinatario: 'interlocutore' })}
+                      onClick={() => setCreateForm({ ...createForm, destinatario: 'interlocutore', colleagueId: '', partecipanteId: '' })}
                       className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition ${
                         createForm.destinatario === 'interlocutore'
                           ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
@@ -598,9 +875,35 @@ export function PreassessmentAlertsPage() {
                     >
                       {isCliente ? 'Per lo Studio' : 'Per il Cliente'}
                     </button>
+                    {isCliente && coParticipants.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setCreateForm({ ...createForm, destinatario: 'partecipante', colleagueId: '' })}
+                        className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                          createForm.destinatario === 'partecipante'
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        Per un partecipante
+                      </button>
+                    )}
+                    {!isCliente && studioMembers.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setCreateForm({ ...createForm, destinatario: 'collega', colleagueId: '', partecipanteId: '' })}
+                        className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                          createForm.destinatario === 'collega'
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        Per un collega
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => setCreateForm({ ...createForm, destinatario: 'me' })}
+                      onClick={() => setCreateForm({ ...createForm, destinatario: 'me', colleagueId: '', partecipanteId: '' })}
                       className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition ${
                         createForm.destinatario === 'me'
                           ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
@@ -610,10 +913,70 @@ export function PreassessmentAlertsPage() {
                       Per me (privato)
                     </button>
                   </div>
+                  {/* Co-participant selector (cliente only) */}
+                  {createForm.destinatario === 'partecipante' && isCliente && (
+                    <>
+                      <select
+                        value={createForm.partecipanteId}
+                        onChange={(e) => setCreateForm({ ...createForm, partecipanteId: e.target.value })}
+                        className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 ${
+                          submitAttempted && !createForm.partecipanteId ? 'border-rose-400' : 'border-slate-300'
+                        }`}
+                      >
+                        <option value="">— Seleziona un partecipante —</option>
+                        {coParticipants.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.nome} {p.cognome}
+                          </option>
+                        ))}
+                      </select>
+                      {submitAttempted && !createForm.partecipanteId && (
+                        <p className="mt-1 text-xs text-rose-500">Seleziona un partecipante</p>
+                      )}
+                    </>
+                  )}
+                  {/* Colleague selector */}
+                  {createForm.destinatario === 'collega' && (
+                    <select
+                      value={createForm.colleagueId}
+                      onChange={(e) => setCreateForm({ ...createForm, colleagueId: e.target.value })}
+                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                    >
+                      <option value="">— Seleziona un collega —</option>
+                      {studioMembers.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.nome} {m.cognome} ({m.ruolo})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {/* Client user picker (staff only, when interlocutore) */}
+                  {createForm.destinatario === 'interlocutore' && !isCliente && clientUsers.length > 0 && (
+                    <select
+                      value={createForm.interlocutoreUserId}
+                      onChange={(e) => setCreateForm({ ...createForm, interlocutoreUserId: e.target.value })}
+                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                    >
+                      <option value="tutti">Tutti i partecipanti</option>
+                      {clientUsers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.nome} {u.cognome}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <p className="mt-1 text-[11px] text-slate-400">
                     {createForm.destinatario === 'interlocutore'
-                      ? (isCliente ? 'L\'alert sarà visibile allo studio consulente.' : 'L\'alert sarà visibile al cliente.')
-                      : 'Promemoria privato visibile solo a te.'}
+                      ? (isCliente
+                          ? 'L\'alert sarà visibile allo studio consulente.'
+                          : createForm.interlocutoreUserId === 'tutti'
+                            ? 'L\'alert sarà inviato a tutti i partecipanti del cliente.'
+                            : 'L\'alert sarà visibile al partecipante selezionato.')
+                      : createForm.destinatario === 'partecipante'
+                        ? 'L\'alert sarà visibile al partecipante selezionato.'
+                        : createForm.destinatario === 'collega'
+                          ? 'L\'alert sarà visibile al collega selezionato.'
+                          : 'Promemoria privato visibile solo a te.'}
                   </p>
                 </div>
 
