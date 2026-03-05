@@ -85,10 +85,20 @@ export class CheckupAuditLogInterceptor implements NestInterceptor {
   }
 
   private isAnswerUpdate(method: string, url: string) {
-    if (method !== 'PUT') return false;
-    if (url.startsWith('/checkup/preassessment/clients/')) return true;
-    if (url === '/checkup/preassessment') return true;
-    if (url.includes('/checkup/questionnaires/') && url.includes('/answers')) return true;
+    // Answer saves (PUT) — already excluded
+    if (method === 'PUT') {
+      if (url.startsWith('/checkup/preassessment/clients/')) return true;
+      if (url === '/checkup/preassessment') return true;
+      if (url.includes('/checkup/questionnaires/') && url.includes('/answers')) return true;
+    }
+    // Presence heartbeat
+    if (url.includes('/presence/active') || url.includes('/presence/inactive')) return true;
+    // Typing indicators
+    if (url.includes('/typing')) return true;
+    // Mark-seen
+    if (url.includes('/mark-seen')) return true;
+    // Chat read-status updates
+    if (method === 'PATCH' && url.includes('/chat/') && url.endsWith('/read')) return true;
     return false;
   }
 

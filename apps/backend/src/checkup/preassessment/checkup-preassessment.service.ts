@@ -12,6 +12,7 @@ import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
 import { EmailService } from '../../notifications/email.service';
 import { QuestionManagementService } from '../services/question-management.service';
+import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
 import puppeteer from 'puppeteer';
 import sanitizeHtml from 'sanitize-html';
 
@@ -57,6 +58,7 @@ export class CheckupPreassessmentService {
     private clientRepository: Repository<CheckupClient>,
     private emailService: EmailService,
     private questionManagementService: QuestionManagementService,
+    private auditLogService: CheckupAuditLogService,
   ) {}
 
   private static OWNER_EMAIL_BY_MACRO: Record<string, string> = {
@@ -319,6 +321,24 @@ export class CheckupPreassessmentService {
       }
 
       record.sectionValidations = next;
+
+      // Log esplicito per ogni sezione appena validata
+      const newlyValidated = Array.from(keys).filter((k) => !prev[k] && next[k]);
+      if (newlyValidated.length > 0) {
+        const sectionNames = newlyValidated.join(', ');
+        this.auditLogService.log({
+          userId: user.id,
+          userEmail: user.email,
+          userRole: user.ruolo,
+          action: 'UPDATE',
+          entityType: 'PREASSESSMENT',
+          entityId: record.id,
+          description: `Sezione${newlyValidated.length > 1 ? 'i' : ''} validat${newlyValidated.length > 1 ? 'e' : 'a'}: ${sectionNames}`,
+          studioId: user.studioId ?? undefined,
+          success: true,
+          metadata: { validatedSections: newlyValidated },
+        }).catch(() => {});
+      }
 
       const sectionsToValidate = Array.from(sectionMeta.entries())
         .filter(([_, meta]) => !this.isOwnerMacroArea(meta.macroId))
