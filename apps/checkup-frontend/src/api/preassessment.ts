@@ -372,4 +372,11 @@ export const auditApi = {
     if (!response.ok) throw new Error('Errore export CSV');
     return response.blob();
   },
+
+  cleanupLogs: (beforeDate?: string): Promise<{ message: string; deletedCount: number }> => {
+    const path = beforeDate
+      ? `/checkup/audit-logs/cleanup?beforeDate=${encodeURIComponent(beforeDate)}`
+      : '/checkup/audit-logs/cleanup';
+    return api.delete<{ message: string; deletedCount: number }>(path);
+  },
 };

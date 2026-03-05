@@ -118,17 +118,15 @@ export class AuditLogController {
   }
 
   /**
-   * Elimina log più vecchi di X giorni
+   * Elimina log precedenti a beforeDate (se omesso, elimina tutti)
    */
   @Delete('cleanup')
-  async cleanupOldLogs(@Body() body: { daysToKeep?: number }) {
-    const daysToKeep = body.daysToKeep || 90;
-    const deletedCount = await this.auditLogService.cleanOldLogs(daysToKeep);
-
-    return {
-      message: `Eliminati ${deletedCount} log più vecchi di ${daysToKeep} giorni`,
-      deletedCount,
-      daysToKeep,
-    };
+  async cleanupOldLogs(@Query('beforeDate') beforeDate?: string) {
+    const cutoff = beforeDate ? new Date(beforeDate) : undefined;
+    const deletedCount = await this.auditLogService.cleanOldLogs(cutoff);
+    const message = cutoff
+      ? `Eliminati ${deletedCount} log precedenti al ${cutoff.toLocaleDateString('it-IT')}`
+      : `Eliminati ${deletedCount} log`;
+    return { message, deletedCount };
   }
 }

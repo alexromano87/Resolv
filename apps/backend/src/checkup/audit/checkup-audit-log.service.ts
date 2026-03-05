@@ -108,6 +108,21 @@ export class CheckupAuditLogService {
   }
 
   /**
+   * Elimina log precedenti a beforeDate (se omesso, elimina tutti).
+   * Se studioId è fornito, limita la cancellazione allo studio.
+   */
+  async cleanLogs(beforeDate?: Date, studioId?: string): Promise<number> {
+    const qb = this.auditLogRepository.createQueryBuilder().delete();
+    const conditions: string[] = [];
+    const params: Record<string, any> = {};
+    if (beforeDate) { conditions.push('createdAt < :beforeDate'); params.beforeDate = beforeDate; }
+    if (studioId) { conditions.push('studioId = :studioId'); params.studioId = studioId; }
+    if (conditions.length) qb.where(conditions.join(' AND '), params);
+    const result = await qb.execute();
+    return result.affected || 0;
+  }
+
+  /**
    * Retention policy: delete audit logs older than CHECKUP_AUDIT_RETENTION_DAYS (default 90).
    * Runs daily at 03:00 to avoid peak-hour load.
    */

@@ -125,7 +125,10 @@ export const auditLogsApi = {
     return response.blob();
   },
 
-  cleanupOldLogs: async (): Promise<{ message: string; deletedCount: number; daysToKeep: number }> => {
-    return api.delete<{ message: string; deletedCount: number; daysToKeep: number }>('/admin/audit-logs/cleanup');
+  cleanupOldLogs: async (beforeDate?: string): Promise<{ message: string; deletedCount: number }> => {
+    const path = beforeDate
+      ? `/admin/audit-logs/cleanup?beforeDate=${encodeURIComponent(beforeDate)}`
+      : '/admin/audit-logs/cleanup';
+    return api.delete<{ message: string; deletedCount: number }>(path);
   },
 };

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { SuperadminGuard } from '../../auth/superadmin.guard';
@@ -46,6 +46,16 @@ export class CheckupAuditLogController {
       startDate,
       endDate,
     });
+  }
+
+  @Delete('cleanup')
+  async cleanupLogs(@Query('beforeDate') beforeDate?: string) {
+    const cutoff = beforeDate ? new Date(beforeDate) : undefined;
+    const deletedCount = await this.auditLogService.cleanLogs(cutoff);
+    const message = cutoff
+      ? `Eliminati ${deletedCount} log precedenti al ${cutoff.toLocaleDateString('it-IT')}`
+      : `Eliminati ${deletedCount} log`;
+    return { message, deletedCount };
   }
 
   @Get('export')

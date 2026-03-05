@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupAdminStudioGuard } from '../auth/checkup-admin-studio.guard';
@@ -33,6 +33,19 @@ export class CheckupAuditController {
       startDate: from || undefined,
       endDate: to || undefined,
     });
+  }
+
+  @Delete('cleanup')
+  async cleanupLogs(
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+    @Query('beforeDate') beforeDate?: string,
+  ) {
+    const cutoff = beforeDate ? new Date(beforeDate) : undefined;
+    const deletedCount = await this.auditService.cleanLogs(cutoff, user.studioId ?? undefined);
+    const message = cutoff
+      ? `Eliminati ${deletedCount} log precedenti al ${cutoff.toLocaleDateString('it-IT')}`
+      : `Eliminati ${deletedCount} log`;
+    return { message, deletedCount };
   }
 
   @Get('export.csv')

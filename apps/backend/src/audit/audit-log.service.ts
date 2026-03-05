@@ -184,18 +184,14 @@ export class AuditLogService {
   }
 
   /**
-   * Elimina log più vecchi di X giorni
+   * Elimina log precedenti a beforeDate (se omesso, elimina tutti)
    */
-  async cleanOldLogs(daysToKeep: number = 90): Promise<number> {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
-
-    const result = await this.auditLogRepository
-      .createQueryBuilder()
-      .delete()
-      .where('createdAt < :cutoffDate', { cutoffDate })
-      .execute();
-
+  async cleanOldLogs(beforeDate?: Date): Promise<number> {
+    const qb = this.auditLogRepository.createQueryBuilder().delete();
+    if (beforeDate) {
+      qb.where('createdAt < :beforeDate', { beforeDate });
+    }
+    const result = await qb.execute();
     return result.affected || 0;
   }
 

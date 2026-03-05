@@ -98,6 +98,13 @@ export const checkupAuditLogsApi = {
     return api.get<CheckupAuditLogStats>('/admin/checkup/audit-logs/stats', filters);
   },
 
+  cleanupLogs: async (beforeDate?: string): Promise<{ message: string; deletedCount: number }> => {
+    const path = beforeDate
+      ? `/admin/checkup/audit-logs/cleanup?beforeDate=${encodeURIComponent(beforeDate)}`
+      : '/admin/checkup/audit-logs/cleanup';
+    return api.delete<{ message: string; deletedCount: number }>(path);
+  },
+
   exportLogs: async (filters?: Omit<CheckupAuditLogFilters, 'page' | 'limit'>): Promise<Blob> => {
     const params = new URLSearchParams();
     if (filters) {

@@ -7,7 +7,7 @@ import {
   type CheckupAuditAction,
   type CheckupAuditEntity,
 } from '../api/checkup-audit-logs';
-import { Download, FileText, AlertCircle, CheckCircle, XCircle, Filter } from 'lucide-react';
+import { Download, FileText, AlertCircle, CheckCircle, XCircle, Filter, X, Trash2 } from 'lucide-react';
 import { Pagination } from '../components/Pagination';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { DateField } from '../components/ui/DateField';
@@ -25,6 +25,10 @@ export default function AdminCheckupAuditLogsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [appliedFilters, setAppliedFilters] = useState<CheckupAuditLogFilters | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePreset, setDeletePreset] = useState<'30d' | '90d' | '180d' | '365d' | 'all'>('90d');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<string | null>(null);
 
   const [filters, setFilters] = useState<CheckupAuditLogFilters>({
     limit: 10,
@@ -113,6 +117,31 @@ export default function AdminCheckupAuditLogsPage() {
       page: 1,
       limit: 10,
     });
+  };
+
+  const handleDeleteLogs = async () => {
+    try {
+      setDeleting(true);
+      let beforeDate: string | undefined;
+      if (deletePreset !== 'all') {
+        const days = { '30d': 30, '90d': 90, '180d': 180, '365d': 365 }[deletePreset];
+        const d = new Date();
+        d.setDate(d.getDate() - days);
+        beforeDate = d.toISOString();
+      }
+      const result = await checkupAuditLogsApi.cleanupLogs(beforeDate);
+      setDeleteResult(result.message);
+      setShowDeleteModal(false);
+      if (appliedFilters) {
+        loadLogs(appliedFilters);
+        loadStats(appliedFilters);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Errore durante l\'eliminazione');
+      setShowDeleteModal(false);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const clearFilters = () => {
@@ -227,8 +256,76 @@ export default function AdminCheckupAuditLogsPage() {
             <Download className="h-4 w-4" />
             {exporting ? 'Esportazione...' : 'Esporta CSV'}
           </button>
+          <button
+            onClick={() => { setDeleteResult(null); setShowDeleteModal(true); }}
+            className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 transition-colors"
+          >
+            <Trash2 className="h-4 w-4" />
+            Elimina log
+          </button>
         </div>
       </div>
+
+      {deleteResult && (
+        <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <CheckCircle className="h-4 w-4 flex-shrink-0" />
+          {deleteResult}
+          <button onClick={() => setDeleteResult(null)} className="ml-auto text-emerald-600 hover:text-emerald-800">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 flex-shrink-0">
+                <Trash2 className="h-5 w-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">Elimina log audit pre-assessment</h3>
+                <p className="text-sm text-slate-500 mt-0.5">Seleziona il periodo da eliminare. L'operazione è irreversibile.</p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 mb-6">
+              {([
+                ['30d', 'Ultimi 30 giorni'],
+                ['90d', 'Ultimi 90 giorni'],
+                ['180d', 'Ultimi 6 mesi'],
+                ['365d', 'Ultimo anno'],
+                ['all', 'Tutti i log'],
+              ] as const).map(([value, label]) => (
+                <label key={value} className="flex items-center gap-3 cursor-pointer rounded-xl border border-slate-200 px-4 py-3 hover:bg-slate-50 has-[:checked]:border-rose-400 has-[:checked]:bg-rose-50">
+                  <input
+                    type="radio"
+                    name="deletePresetCheckup"
+                    value={value}
+                    checked={deletePreset === value}
+                    onChange={() => setDeletePreset(value)}
+                    className="accent-rose-600"
+                  />
+                  <span className={`text-sm font-medium ${value === 'all' ? 'text-rose-700' : 'text-slate-700'}`}>{label}</span>
+                  {value === 'all' && <span className="ml-auto text-xs font-semibold text-rose-500">ATTENZIONE</span>}
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowDeleteModal(false)} className="wow-button-ghost" disabled={deleting}>
+                Annulla
+              </button>
+              <button
+                onClick={handleDeleteLogs}
+                disabled={deleting}
+                className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50 transition-colors"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleting ? 'Eliminazione...' : 'Elimina'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-2xl flex items-center gap-2">

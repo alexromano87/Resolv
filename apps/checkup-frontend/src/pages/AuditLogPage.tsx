@@ -8,6 +8,8 @@ import {
   XCircle,
   Filter,
   ClipboardList,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { auditApi, type AuditLogEntry, type AuditLogResponse } from '../api/preassessment';
 import { Pagination } from '../components/Pagination';
@@ -72,6 +74,10 @@ export function AuditLogPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePreset, setDeletePreset] = useState<'30d' | '90d' | '180d' | '365d' | 'all'>('90d');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<string | null>(null);
 
   // Filters
   const [searchEmail, setSearchEmail] = useState('');
@@ -142,6 +148,28 @@ export function AuditLogPage() {
     }
   };
 
+  const handleDeleteLogs = async () => {
+    try {
+      setDeleting(true);
+      let beforeDate: string | undefined;
+      if (deletePreset !== 'all') {
+        const days = { '30d': 30, '90d': 90, '180d': 180, '365d': 365 }[deletePreset];
+        const d = new Date();
+        d.setDate(d.getDate() - days);
+        beforeDate = d.toISOString();
+      }
+      const result = await auditApi.cleanupLogs(beforeDate);
+      setDeleteResult(result.message);
+      setShowDeleteModal(false);
+      load();
+    } catch (err: any) {
+      setError(err?.message || 'Errore durante l\'eliminazione');
+      setShowDeleteModal(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const resetFilters = () => {
     setSearchEmail('');
     setAction('');
@@ -176,6 +204,13 @@ export function AuditLogPage() {
             Aggiorna
           </button>
           <button
+            onClick={() => { setDeleteResult(null); setShowDeleteModal(true); }}
+            className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-700 bg-rose-50 rounded-full border border-rose-200 hover:bg-rose-100 transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Elimina log
+          </button>
+          <button
             onClick={handleExportCsv}
             disabled={exporting || loading}
             className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-white bg-indigo-600 rounded-full hover:bg-indigo-700 disabled:opacity-60 transition-colors"
@@ -189,6 +224,67 @@ export function AuditLogPage() {
           </button>
         </div>
       </div>
+
+      {deleteResult && (
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-800">
+          <CheckCircle className="h-3.5 w-3.5 flex-shrink-0" />
+          {deleteResult}
+          <button onClick={() => setDeleteResult(null)} className="ml-auto text-emerald-600 hover:text-emerald-800">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 flex-shrink-0">
+                <Trash2 className="h-5 w-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">Elimina log attività</h3>
+                <p className="text-sm text-slate-500 mt-0.5">Seleziona il periodo da eliminare. L'operazione è irreversibile.</p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 mb-6">
+              {([
+                ['30d', 'Ultimi 30 giorni'],
+                ['90d', 'Ultimi 90 giorni'],
+                ['180d', 'Ultimi 6 mesi'],
+                ['365d', 'Ultimo anno'],
+                ['all', 'Tutti i log'],
+              ] as const).map(([value, label]) => (
+                <label key={value} className="flex items-center gap-3 cursor-pointer rounded-xl border border-slate-200 px-4 py-3 hover:bg-slate-50 has-[:checked]:border-rose-400 has-[:checked]:bg-rose-50">
+                  <input
+                    type="radio"
+                    name="deletePresetAudit"
+                    value={value}
+                    checked={deletePreset === value}
+                    onChange={() => setDeletePreset(value)}
+                    className="accent-rose-600"
+                  />
+                  <span className={`text-sm font-medium ${value === 'all' ? 'text-rose-700' : 'text-slate-700'}`}>{label}</span>
+                  {value === 'all' && <span className="ml-auto text-xs font-semibold text-rose-500">ATTENZIONE</span>}
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowDeleteModal(false)} disabled={deleting} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
+                Annulla
+              </button>
+              <button
+                onClick={handleDeleteLogs}
+                disabled={deleting}
+                className="flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50 transition-colors"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleting ? 'Eliminazione...' : 'Elimina'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
