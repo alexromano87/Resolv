@@ -11,6 +11,7 @@ import { Download, FileText, AlertCircle, CheckCircle, XCircle, Filter, X, Trash
 import { Pagination } from '../components/Pagination';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { DateField } from '../components/ui/DateField';
+import { BodyPortal } from '../components/ui/BodyPortal';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function AuditLogsPage() {
@@ -273,6 +274,7 @@ export default function AuditLogsPage() {
       )}
 
       {showDeleteModal && (
+        <BodyPortal>
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6">
             <div className="flex items-start gap-3 mb-4">
@@ -321,6 +323,7 @@ export default function AuditLogsPage() {
             </div>
           </div>
         </div>
+        </BodyPortal>
       )}
 
       {error && (

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { auditApi, type AuditLogEntry, type AuditLogResponse } from '../api/preassessment';
 import { Pagination } from '../components/Pagination';
+import { BodyPortal } from '../components/ui/BodyPortal';
 import { DateField } from '../components/ui/DateField';
 
 const ITEMS_PER_PAGE = 50;
@@ -236,6 +237,7 @@ export function AuditLogPage() {
       )}
 
       {showDeleteModal && (
+        <BodyPortal>
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6">
             <div className="flex items-start gap-3 mb-4">
@@ -284,6 +286,7 @@ export function AuditLogPage() {
             </div>
           </div>
         </div>
+        </BodyPortal>
       )}
 
       {/* Error */}
