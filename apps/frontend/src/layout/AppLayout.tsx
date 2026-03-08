@@ -113,11 +113,11 @@ const adminCheckupNavSections: Array<{ title: string; items: NavItem[] }> = [
     title: 'Gestione',
     items: [
       { path: '/admin/checkup-dashboard', label: 'Dashboard pre-assessment', icon: BarChart3 },
+      { path: '/admin/checkup-licenses', label: 'Gestione licenze', icon: KeyRound },
       { path: '/admin/checkup-studios', label: 'Gestione licenziatari', icon: Building2 },
+      { path: '/admin/checkup-sublicenses', label: 'Gestione sublicenze', icon: KeyRound },
       { path: '/admin/checkup-clients', label: 'Gestione sublicenziatari', icon: Building2 },
       { path: '/admin/checkup-users', label: 'Gestione utenti', icon: Users },
-      { path: '/admin/checkup-licenses', label: 'Gestione licenze', icon: KeyRound },
-      { path: '/admin/checkup-sublicenses', label: 'Gestione sublicenze', icon: KeyRound },
       { path: '/admin/checkup-models', label: 'Gestione modelli', icon: Layers },
       { path: '/admin/checkup-questions', label: 'Gestione domande', icon: FileText },
     ],

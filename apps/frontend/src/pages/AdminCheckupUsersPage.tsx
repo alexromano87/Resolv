@@ -36,10 +36,19 @@ export default function AdminCheckupUsersPage() {
     sublicenseId: '',
     azienda: '',
     telefono: '',
+    macroAreaAssignments: [] as string[],
     macroAreaOwner: [] as string[],
+    superOwner: false,
   });
+  const [assignAllMacroAreas, setAssignAllMacroAreas] = useState(true);
+  const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
   const inputClassName =
     'mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100';
+  const inputClass = (field: string) =>
+    `${inputClassName} ${formErrors[field] ? '!border-rose-300 !ring-2 !ring-rose-200 focus:!border-rose-400 focus:!ring-rose-200' : ''}`;
+  const selectTriggerClass = (field: string) =>
+    formErrors[field] ? '!border-rose-300 !ring-2 !ring-rose-200 focus:!border-rose-400 focus:!ring-rose-200' : '';
+  const labelClass = (_field?: string) => 'block text-sm font-medium text-slate-700 dark:text-slate-300';
   const roleBadges: Record<CheckupAdminUser['ruolo'], { label: string; className: string }> = {
     admin_studio: { label: 'Admin studio', className: 'bg-indigo-100 text-indigo-700' },
     segreteria: { label: 'Segreteria', className: 'bg-cyan-100 text-cyan-700' },
@@ -85,13 +94,16 @@ export default function AdminCheckupUsersPage() {
       sublicenseId: '',
       azienda: '',
       telefono: '',
+      macroAreaAssignments: [] as string[],
       macroAreaOwner: [] as string[],
+      superOwner: false,
     });
   };
 
   const handleOpenCreateUser = () => {
     setIsEditing(false);
     setSelectedUser(null);
+    setFormErrors({});
     resetUserForm();
     setShowUserModal(true);
   };
@@ -99,6 +111,7 @@ export default function AdminCheckupUsersPage() {
   const handleOpenEditUser = (user: CheckupAdminUser) => {
     setIsEditing(true);
     setSelectedUser(user);
+    setFormErrors({});
     const userSublicense =
       sublicenses.find((s) => s.id === user.sublicenseId) ||
       (user.clientId ? sublicenses.find((s) => s.clientId === user.clientId) : undefined);
@@ -113,12 +126,19 @@ export default function AdminCheckupUsersPage() {
       sublicenseId: userSublicense?.id || '',
       azienda: user.azienda || '',
       telefono: user.telefono || '',
+      macroAreaAssignments: Array.isArray(user.macroAreaAssignments)
+        ? user.macroAreaAssignments
+        : user.macroAreaAssignments
+        ? [user.macroAreaAssignments as unknown as string]
+        : [],
       macroAreaOwner: Array.isArray(user.macroAreaOwner)
         ? user.macroAreaOwner
         : user.macroAreaOwner
         ? [user.macroAreaOwner as unknown as string]
         : [],
+      superOwner: Boolean(user.superOwner),
     });
+    setAssignAllMacroAreas(!user.macroAreaAssignments || user.macroAreaAssignments.length === 0);
     setShowUserModal(true);
   };
 
@@ -126,39 +146,40 @@ export default function AdminCheckupUsersPage() {
     setShowUserModal(false);
     setIsEditing(false);
     setSelectedUser(null);
+    setFormErrors({});
+    setAssignAllMacroAreas(true);
     resetUserForm();
   };
 
   const handleSubmitUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.nome || !formData.cognome || !formData.email) {
+    const nextErrors: Record<string, boolean> = {};
+    if (!formData.nome) nextErrors.nome = true;
+    if (!formData.cognome) nextErrors.cognome = true;
+    if (!formData.email) nextErrors.email = true;
+    if (!formData.studioId) nextErrors.studioId = true;
+    if (!formData.clientId) nextErrors.clientId = true;
+    if (!formData.sublicenseId) nextErrors.sublicenseId = true;
+    if (!isEditing && !formData.password) nextErrors.password = true;
+    if (Object.keys(nextErrors).length > 0) {
+      setFormErrors(nextErrors);
       toastError('Compila tutti i campi obbligatori');
-      return;
-    }
-    if (!formData.studioId) {
-      toastError('Seleziona lo studio per l\'utente');
-      return;
-    }
-    if (!formData.clientId) {
-      toastError('Seleziona il cliente per l\'utente');
-      return;
-    }
-    if (!formData.sublicenseId) {
-      toastError('Seleziona la sublicenza per l\'utente');
-      return;
-    }
-    if (!formData.macroAreaOwner.length) {
-      toastError('Seleziona la macro area owner');
-      return;
-    }
-    if (!isEditing && !formData.password) {
-      toastError('La password è obbligatoria');
       return;
     }
     if (!isEditing && selectedClientLimitReached) {
       toastError('Limite utenti sublicenza raggiunto');
       return;
     }
+    const userName = `${formData.nome.trim()} ${formData.cognome.trim()}`.trim();
+    const confirmed = await confirm({
+      title: isEditing ? 'Confermare modifica utente?' : 'Confermare creazione utente?',
+      message: isEditing
+        ? `Vuoi salvare le modifiche dell'utente "${userName}"?`
+        : `Vuoi creare l'utente "${userName}"?`,
+      confirmText: isEditing ? 'Salva modifiche' : 'Crea utente',
+      variant: 'info',
+    });
+    if (!confirmed) return;
     try {
       if (isEditing && selectedUser) {
         await checkupAdminApi.updateAdminUser(selectedUser.id, {
@@ -171,7 +192,9 @@ export default function AdminCheckupUsersPage() {
           ruolo: 'cliente',
           azienda: formData.azienda || undefined,
           telefono: formData.telefono || undefined,
+          macroAreaAssignments: assignAllMacroAreas ? [] : formData.macroAreaAssignments,
           macroAreaOwner: formData.macroAreaOwner,
+          superOwner: Boolean(formData.superOwner),
         });
         success('Utente aggiornato');
       } else {
@@ -186,7 +209,9 @@ export default function AdminCheckupUsersPage() {
           ruolo: 'cliente',
           azienda: formData.azienda || undefined,
           telefono: formData.telefono || undefined,
+          macroAreaAssignments: assignAllMacroAreas ? [] : formData.macroAreaAssignments,
           macroAreaOwner: formData.macroAreaOwner,
+          superOwner: Boolean(formData.superOwner),
         });
         success('Utente creato');
       }
@@ -285,14 +310,23 @@ export default function AdminCheckupUsersPage() {
   }, [selectedSublicense?.license?.model?.id, selectedSublicense?.license?.modelId]);
 
   useEffect(() => {
-    if (formData.macroAreaOwner.length === 0) return;
     if (macroAreas.length === 0) return;
     const allowed = new Set(macroAreas.map((m) => m.code));
+    const filteredAssignments = formData.macroAreaAssignments.filter((macro) => allowed.has(macro));
+    const assignmentSet = new Set(assignAllMacroAreas ? macroAreas.map((m) => m.code) : filteredAssignments);
     const filtered = formData.macroAreaOwner.filter((macro) => allowed.has(macro));
-    if (filtered.length !== formData.macroAreaOwner.length) {
-      setFormData((prev) => ({ ...prev, macroAreaOwner: filtered }));
+    const filteredOwners = filtered.filter((macro) => assignmentSet.has(macro));
+    if (
+      filteredAssignments.length !== formData.macroAreaAssignments.length
+      || filteredOwners.length !== formData.macroAreaOwner.length
+    ) {
+      setFormData((prev) => ({
+        ...prev,
+        macroAreaAssignments: filteredAssignments,
+        macroAreaOwner: filteredOwners,
+      }));
     }
-  }, [macroAreas, formData.macroAreaOwner]);
+  }, [assignAllMacroAreas, macroAreas, formData.macroAreaAssignments, formData.macroAreaOwner]);
 
   useEffect(() => {
     if (!formData.clientId) return;
@@ -419,9 +453,14 @@ export default function AdminCheckupUsersPage() {
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${roleBadges[u.ruolo].className}`}>
                         {roleBadges[u.ruolo].label}
                       </span>
+                      {u.ruolo === 'cliente' && u.superOwner && (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-medium text-teal-700">
+                          Super-owner
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-500">
-                      {u.client?.nome || u.azienda || '—'}
+                      {u.client?.ragioneSociale || u.client?.nome || u.azienda || '—'}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-500">
                       <div className="flex items-center gap-2">
@@ -496,91 +535,112 @@ export default function AdminCheckupUsersPage() {
               <form onSubmit={handleSubmitUser} className="space-y-4 p-6">
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Nome</label>
+                    <label className={labelClass('nome')}>Nome <span className="text-rose-600">*</span></label>
                     <input
                       value={formData.nome}
-                      onChange={(e) => setFormData((p) => ({ ...p, nome: e.target.value }))}
-                      className={inputClassName}
+                      onChange={(e) => {
+                        setFormData((p) => ({ ...p, nome: e.target.value }));
+                        setFormErrors((prev) => ({ ...prev, nome: false }));
+                      }}
+                      className={inputClass('nome')}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Cognome</label>
+                    <label className={labelClass('cognome')}>Cognome <span className="text-rose-600">*</span></label>
                     <input
                       value={formData.cognome}
-                      onChange={(e) => setFormData((p) => ({ ...p, cognome: e.target.value }))}
-                      className={inputClassName}
+                      onChange={(e) => {
+                        setFormData((p) => ({ ...p, cognome: e.target.value }));
+                        setFormErrors((prev) => ({ ...prev, cognome: false }));
+                      }}
+                      className={inputClass('cognome')}
                     />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Studio</label>
+                    <label className={labelClass('studioId')}>Studio <span className="text-rose-600">*</span></label>
                     <div className="mt-1">
                       <CustomSelect
                         value={formData.studioId}
-                        onChange={(val) =>
+                        onChange={(val) => {
                           setFormData((p) => ({
                             ...p,
                             studioId: val,
                             clientId: '',
                             sublicenseId: '',
-                          }))
-                        }
+                          }));
+                          setFormErrors((prev) => ({ ...prev, studioId: false }));
+                        }}
                         options={licenziatariStudios.map((s) => ({ value: s.id, label: s.nome }))}
                         placeholder="Seleziona studio"
+                        triggerClassName={selectTriggerClass('studioId')}
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Email</label>
+                    <label className={labelClass('email')}>Email <span className="text-rose-600">*</span></label>
                     <input
                       type="email"
                       value={formData.email}
-                      onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
-                      className={inputClassName}
+                      onChange={(e) => {
+                        setFormData((p) => ({ ...p, email: e.target.value }));
+                        setFormErrors((prev) => ({ ...prev, email: false }));
+                      }}
+                      className={inputClass('email')}
                     />
                   </div>
                   {!isEditing && (
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Password</label>
+                      <label className={labelClass('password')}>Password <span className="text-rose-600">*</span></label>
                       <input
                         type="password"
                         value={formData.password}
-                        onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))}
-                        className={inputClassName}
+                        onChange={(e) => {
+                          setFormData((p) => ({ ...p, password: e.target.value }));
+                          setFormErrors((prev) => ({ ...prev, password: false }));
+                        }}
+                        className={inputClass('password')}
                       />
                     </div>
                   )}
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Cliente</label>
+                    <label className={labelClass('clientId')}>Cliente <span className="text-rose-600">*</span></label>
                     <div className="mt-1">
                       <CustomSelect
                         value={formData.clientId}
-                        onChange={(val) =>
+                        onChange={(val) => {
                           setFormData((p) => ({
                             ...p,
                             clientId: val,
                             sublicenseId: '',
+                            macroAreaAssignments: [],
                             macroAreaOwner: [],
-                          }))
-                        }
-                        options={clientsForStudio.map((c) => ({ value: c.id, label: c.nome }))}
+                          }));
+                          setFormErrors((prev) => ({ ...prev, clientId: false }));
+                        }}
+                        options={clientsForStudio.map((c) => ({ value: c.id, label: c.ragioneSociale || c.nome || 'Cliente senza nome' }))}
                         placeholder="Seleziona cliente"
+                        triggerClassName={selectTriggerClass('clientId')}
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Sublicenza</label>
+                    <label className={labelClass('sublicenseId')}>Sublicenza <span className="text-rose-600">*</span></label>
                     <div className="mt-1">
                       <CustomSelect
                         value={formData.sublicenseId}
-                        onChange={(val) => setFormData((p) => ({ ...p, sublicenseId: val }))}
+                        onChange={(val) => {
+                          setFormData((p) => ({ ...p, sublicenseId: val }));
+                          setFormErrors((prev) => ({ ...prev, sublicenseId: false }));
+                        }}
                         options={sublicensesForClient.map((s) => ({
                           value: s.id,
                           label: s.numeroSublicenza ? `#${s.numeroSublicenza}` : 'Senza numero',
                           sublabel: `Utenze ${s.numeroUtenze} · ${s.dataInizioValidita || '—'} → ${s.dataScadenza || '—'}`,
                         }))}
                         placeholder="Seleziona sublicenza"
+                        triggerClassName={selectTriggerClass('sublicenseId')}
                       />
                     </div>
                     {formData.sublicenseId && selectedSublicense ? (
@@ -617,9 +677,86 @@ export default function AdminCheckupUsersPage() {
                     />
                   </div>
                 </div>
+                <div className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3">
+                  <label className="flex items-start gap-3 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(formData.superOwner)}
+                      onChange={(e) => setFormData((p) => ({ ...p, superOwner: e.target.checked }))}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-600"
+                    />
+                    <span>
+                      <span className="font-medium text-slate-900">Super-owner</span>
+                      <span className="mt-1 block text-xs text-slate-600">
+                        Può visualizzare tutte le macro aree e validare il checkup finale quando tutte le sezioni e le macro aree risultano validate.
+                      </span>
+                    </span>
+                  </label>
+                </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Macro area owner</label>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Macro aree assegnate</label>
                   <div className="mt-1 space-y-2">
+                    <p className="text-xs text-slate-500">Seleziona le macro aree visibili/modificabili da questo utente. Se lasci “tutte”, l’utente potrà lavorare su tutte le macro aree.</p>
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={assignAllMacroAreas}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setAssignAllMacroAreas(checked);
+                          if (checked) {
+                            setFormData((p) => ({ ...p, macroAreaAssignments: [] }));
+                          }
+                        }}
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                        disabled={!selectedSublicense}
+                      />
+                      <span>Tutte le macro aree</span>
+                    </label>
+                    {!assignAllMacroAreas && (
+                      <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                        {macroLoading && (
+                          <div className="py-2 text-xs text-slate-500">Caricamento macro aree...</div>
+                        )}
+                        {!macroLoading && macroAreas.length === 0 && (
+                          <div className="py-2 text-xs text-slate-500">Nessuna macro area disponibile.</div>
+                        )}
+                        {!macroLoading && macroAreas.length > 0 && (
+                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                            {macroAreas.map((macro) => {
+                              const checked = formData.macroAreaAssignments.includes(macro.code);
+                              return (
+                                <label key={macro.code} className="flex items-center gap-2 text-sm text-slate-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      const next = e.target.checked
+                                        ? Array.from(new Set([...formData.macroAreaAssignments, macro.code]))
+                                        : formData.macroAreaAssignments.filter((m) => m !== macro.code);
+                                      setFormData((p) => ({
+                                        ...p,
+                                        macroAreaAssignments: next,
+                                        macroAreaOwner: p.macroAreaOwner.filter((m) => next.includes(m)),
+                                      }));
+                                    }}
+                                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                                    disabled={!selectedSublicense}
+                                  />
+                                  <span>{macro.label}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Macro aree owner</label>
+                  <div className="mt-1 space-y-2">
+                    <p className="text-xs text-slate-500">Opzionale: seleziona solo le macro aree assegnate di cui questo utente è owner. Le validazioni saranno consentite solo su queste aree.</p>
                     <div className="flex flex-wrap gap-2">
                       {formData.macroAreaOwner.length === 0 ? (
                         <span className="text-xs text-slate-500">Nessuna macro area selezionata.</span>
@@ -658,7 +795,9 @@ export default function AdminCheckupUsersPage() {
                       )}
                       {!macroLoading && macroAreas.length > 0 && (
                         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                          {macroAreas.map((macro) => {
+                          {macroAreas
+                            .filter((macro) => assignAllMacroAreas || formData.macroAreaAssignments.includes(macro.code))
+                            .map((macro) => {
                             const checked = formData.macroAreaOwner.includes(macro.code);
                             return (
                               <label key={macro.code} className="flex items-center gap-2 text-sm text-slate-700">

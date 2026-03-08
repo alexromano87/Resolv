@@ -238,17 +238,26 @@ export default function AdminCheckupQuestionsPage() {
   };
 
   const deleteMacro = async (id: number) => {
-    if (!confirm('Eliminare questa macro area? Verranno eliminate anche tutte le sezioni e i campi associati.')) {
-      return;
-    }
-    try {
-      await questionApi.deleteMacroArea(id);
-      if (selectedModelId) {
-        await loadData(selectedModelId);
-      }
-    } catch (err: any) {
-      toastError(err.message || 'Errore nell\'eliminazione');
-    }
+    const macro = macroAreas.find((item) => item.id === id);
+    setConfirmModal({
+      show: true,
+      title: 'Conferma eliminazione',
+      message: macro
+        ? `Vuoi eliminare la macro area "${macro.label}"? Verranno eliminate anche tutte le sezioni e i campi associati.`
+        : 'Vuoi eliminare questa macro area? Verranno eliminate anche tutte le sezioni e i campi associati.',
+      onConfirm: async () => {
+        try {
+          await questionApi.deleteMacroArea(id);
+          if (selectedModelId) {
+            await loadData(selectedModelId);
+          }
+          setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
+        } catch (err: any) {
+          setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
+          toastError(err.message || 'Errore nell\'eliminazione');
+        }
+      },
+    });
   };
 
   // SECTION CRUD
@@ -293,17 +302,26 @@ export default function AdminCheckupQuestionsPage() {
   };
 
   const deleteSection = async (id: number) => {
-    if (!confirm('Eliminare questa sezione? Verranno eliminati anche tutti i campi associati.')) {
-      return;
-    }
-    try {
-      await questionApi.deleteSection(id);
-      if (selectedModelId) {
-        await loadData(selectedModelId);
-      }
-    } catch (err: any) {
-      toastError(err.message || 'Errore nell\'eliminazione');
-    }
+    const section = macroAreas.flatMap((macro) => macro.sections || []).find((item) => item.id === id);
+    setConfirmModal({
+      show: true,
+      title: 'Conferma eliminazione',
+      message: section
+        ? `Vuoi eliminare la sezione "${section.title}"? Verranno eliminati anche tutti i campi associati.`
+        : 'Vuoi eliminare questa sezione? Verranno eliminati anche tutti i campi associati.',
+      onConfirm: async () => {
+        try {
+          await questionApi.deleteSection(id);
+          if (selectedModelId) {
+            await loadData(selectedModelId);
+          }
+          setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
+        } catch (err: any) {
+          setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
+          toastError(err.message || 'Errore nell\'eliminazione');
+        }
+      },
+    });
   };
 
   // FIELD CRUD
@@ -331,6 +349,13 @@ export default function AdminCheckupQuestionsPage() {
   };
 
   const saveField = async () => {
+    if (fieldForm.type === 'select' || fieldForm.type === 'multiselect') {
+      const options = fieldForm.options?.filter((o) => o.trim()) || [];
+      if (options.length === 0) {
+        toastError('Inserisci almeno una opzione per il campo selezionato');
+        return;
+      }
+    }
     setConfirmModal({
       show: true,
       title: editState.isNew ? 'Conferma creazione' : 'Conferma modifica',
@@ -359,17 +384,29 @@ export default function AdminCheckupQuestionsPage() {
   };
 
   const deleteField = async (id: number) => {
-    if (!confirm('Eliminare questo campo?')) {
-      return;
-    }
-    try {
-      await questionApi.deleteField(id);
-      if (selectedModelId) {
-        await loadData(selectedModelId);
-      }
-    } catch (err: any) {
-      toastError(err.message || 'Errore nell\'eliminazione');
-    }
+    const field = macroAreas
+      .flatMap((macro) => macro.sections || [])
+      .flatMap((section) => section.fields || [])
+      .find((item) => item.id === id);
+    setConfirmModal({
+      show: true,
+      title: 'Conferma eliminazione',
+      message: field
+        ? `Vuoi eliminare il campo "${field.label}"?`
+        : 'Vuoi eliminare questo campo?',
+      onConfirm: async () => {
+        try {
+          await questionApi.deleteField(id);
+          if (selectedModelId) {
+            await loadData(selectedModelId);
+          }
+          setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
+        } catch (err: any) {
+          setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
+          toastError(err.message || 'Errore nell\'eliminazione');
+        }
+      },
+    });
   };
 
   const cancelEdit = () => {
@@ -631,10 +668,35 @@ export default function AdminCheckupQuestionsPage() {
                         { value: 'number', label: 'Number' },
                       ]}
                       value={fieldForm.type || 'text'}
-                      onChange={(value) => setFieldForm({ ...fieldForm, type: value })}
+                      onChange={(value) =>
+                        setFieldForm({
+                          ...fieldForm,
+                          type: value,
+                          options: value === 'select' || value === 'multiselect' ? fieldForm.options : [],
+                        })}
                       placeholder="Seleziona tipo"
                     />
                   </div>
+                  {(fieldForm.type === 'select' || fieldForm.type === 'multiselect') && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Opzioni (una per riga)
+                      </label>
+                      <textarea
+                        value={(fieldForm.options || []).join('\n')}
+                        onChange={(e) => {
+                          const nextOptions = e.target.value
+                            .split('\n')
+                            .map((o) => o.trim())
+                            .filter(Boolean);
+                          setFieldForm({ ...fieldForm, options: nextOptions });
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        rows={4}
+                        placeholder="es. Opzione 1"
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Testo di aiuto (tooltip "?")

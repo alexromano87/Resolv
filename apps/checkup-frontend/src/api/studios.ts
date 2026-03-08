@@ -88,7 +88,7 @@ export interface ClientStudioOption {
 
 export interface CheckupClientRecord {
   id: string;
-  nome: string;
+  nome: string | null;
   ragioneSociale?: string | null;
   partitaIva?: string | null;
   codiceFiscale?: string | null;

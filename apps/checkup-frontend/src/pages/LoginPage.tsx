@@ -49,7 +49,7 @@ export default function LoginPage() {
     try {
       const res = await authApi.login(email, password);
       if ('access_token' in res) {
-        setSession(res.access_token, res.refresh_token, res.user);
+        setSession(res.access_token, res.user);
         forceClientDashboard(res.user);
         const isLicenziatario = res.user?.ruolo !== 'cliente';
         const target = isLicenziatario ? '/checkup/dashboard-studio' : '/checkup/';
@@ -72,7 +72,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await authApi.verifyTwoFactorLogin(twoFactorUserId, twoFactorCode.trim());
-      setSession(res.access_token, res.refresh_token, res.user);
+      setSession(res.access_token, res.user);
       forceClientDashboard(res.user);
       const isLicenziatario = res.user?.ruolo !== 'cliente';
       const target = isLicenziatario ? '/checkup/dashboard-studio' : '/checkup/';

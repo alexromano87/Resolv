@@ -1,14 +1,14 @@
 import { Controller, Delete, Get, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
-import { CheckupAdminStudioGuard } from '../auth/checkup-admin-studio.guard';
+import { CheckupStaffGuard } from '../auth/checkup-staff.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupAuditLogService } from './checkup-audit-log.service';
 import type { CheckupAuditAction, CheckupAuditEntity } from './checkup-audit-log.entity';
 
 @Controller('checkup/audit-logs')
-@UseGuards(CheckupJwtAuthGuard, CheckupAdminStudioGuard)
+@UseGuards(CheckupJwtAuthGuard, CheckupStaffGuard)
 export class CheckupAuditController {
   constructor(private readonly auditService: CheckupAuditLogService) {}
 

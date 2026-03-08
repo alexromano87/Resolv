@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 
 export class UpdateCheckupStudioDto {
   @IsOptional()
@@ -57,4 +57,17 @@ export class UpdateCheckupStudioDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  attivo?: boolean;
+
+  @IsOptional()
+  @IsString()
+  licenseId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  keepUserIds?: string[];
 }

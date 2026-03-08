@@ -37,6 +37,12 @@ import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { DateField } from '../components/ui/DateField';
 import { Pagination } from '../components/Pagination';
+import {
+  downloadTextFile,
+  formatDateOnly as formatExportDateOnly,
+  formatDateTime as formatExportDateTime,
+  sanitizeFilename,
+} from '../utils/textExport';
 
 type PriorityFilter = 'tutti' | 'info' | 'warning' | 'urgent';
 type StatoFilter = 'tutti' | 'aperto' | 'chiuso' | 'scaduto';
@@ -197,8 +203,8 @@ export function PreassessmentAlertsPage() {
   // ── Fetch studio colleagues and client users (staff only) ──────────────────
   useEffect(() => {
     if (isCliente) return;
-    // Studio colleagues (admin_studio only)
-    if (user?.ruolo === 'admin_studio') {
+    // Studio colleagues (all staff roles)
+    if (user?.ruolo && user.ruolo !== 'cliente') {
       api.get<StudioMember[]>('/checkup/users')
         .then((members) => setStudioMembers(members.filter((m) => m.id !== user?.id && m.ruolo !== 'cliente')))
         .catch(() => setStudioMembers([]));
@@ -465,88 +471,42 @@ export function PreassessmentAlertsPage() {
   const formatDateOnly = (d: string) =>
     new Date(d).toLocaleDateString('it-IT', { dateStyle: 'medium' });
 
-  const escHtml = (s: string) =>
-    (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
   const handlePrint = () => {
-    const now = new Date().toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric' });
-    const nowTime = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    const lines: string[] = [
+      'ESPORTAZIONE ALERT',
+      `Cliente: ${clientNome || 'Non specificato'}`,
+      `Generato il: ${formatExportDateTime(new Date().toISOString())}`,
+      `Numero alert: ${filteredAlerts.length}`,
+      '',
+    ];
 
-    const priorityColors: Record<PreassessmentAlert['priority'], string> = {
-      info: '#4f46e5', warning: '#d97706', urgent: '#e11d48',
-    };
-    const statoColors: Record<string, string> = {
-      aperto: '#16a34a', chiuso: '#64748b', scaduto: '#dc2626',
-    };
-
-    const priorityBadge = (p: PreassessmentAlert['priority']) =>
-      `<span style="background:${priorityColors[p]}1a;color:${priorityColors[p]};padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;border:1px solid ${priorityColors[p]}40">${PRIORITY_LABELS[p]}</span>`;
-
-    const statoBadge = (stato: string) => {
-      const c = statoColors[stato] || '#64748b';
-      const label = STATO_LABELS[stato as 'aperto' | 'chiuso' | 'scaduto'] || stato;
-      return `<span style="background:${c}1a;color:${c};padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;border:1px solid ${c}40">${label}</span>`;
-    };
-
-    const alertsHtml = filteredAlerts.map((a, i) => {
-      const stato = a.stato ?? 'aperto';
-      const isExpired = a.dataScadenza && stato === 'aperto' && new Date(a.dataScadenza).getTime() < Date.now();
+    filteredAlerts.forEach((alert, index) => {
+      const stato = alert.stato ?? 'aperto';
+      const isExpired = alert.dataScadenza && stato === 'aperto' && new Date(alert.dataScadenza).getTime() < Date.now();
       const statoEffettivo = isExpired ? 'scaduto' : stato;
-      const borderColor = priorityColors[a.priority];
-      return `
-      <div class="alert-card" style="border-left-color:${borderColor}">
-        <div class="alert-header">
-          <span class="alert-num">#${i + 1}</span>
-          <div class="alert-badges">${priorityBadge(a.priority)} ${statoBadge(statoEffettivo)}</div>
-          <span class="alert-date">${new Date(a.createdAt).toLocaleDateString('it-IT')}</span>
-        </div>
-        <div class="alert-msg">${escHtml(a.messaggio)}</div>
-        <div class="alert-meta">
-          <span>Da: <strong>${escHtml(getCreatorLabel(a))}</strong></span>
-          <span>A: <strong>${escHtml(getTargetLabel(a))}</strong></span>
-          ${a.dataScadenza ? `<span>Scadenza: <strong>${formatDateOnly(a.dataScadenza)}</strong>${a.preavvisoGiorni ? ` (preavviso ${a.preavvisoGiorni}gg)` : ''}</span>` : ''}
-        </div>
-        ${a.stato === 'chiuso' ? `<div class="alert-closed">Alert chiuso</div>` : ''}
-      </div>`;
-    }).join('');
+      lines.push(`ALERT #${index + 1}`);
+      lines.push(`Priorita: ${PRIORITY_LABELS[alert.priority]}`);
+      lines.push(`Stato: ${STATO_LABELS[statoEffettivo as 'aperto' | 'chiuso' | 'scaduto'] || statoEffettivo}`);
+      lines.push(`Creato il: ${formatExportDateTime(alert.createdAt)}`);
+      lines.push(`Da: ${getCreatorLabel(alert)}`);
+      lines.push(`A: ${getTargetLabel(alert)}`);
+      if (alert.dataScadenza) {
+        lines.push(`Scadenza: ${formatExportDateOnly(alert.dataScadenza)}${alert.preavvisoGiorni ? ` (preavviso ${alert.preavvisoGiorni} giorni)` : ''}`);
+      }
+      lines.push('Messaggio:');
+      lines.push(alert.messaggio);
+      if (alert.stato === 'chiuso') {
+        lines.push('Esito: Alert chiuso');
+      }
+      lines.push('');
+      lines.push('------------------------------------------------------------');
+      lines.push('');
+    });
 
-    const html = `<!DOCTYPE html>
-<html lang="it"><head>
-<meta charset="utf-8"/>
-<title>Alert</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#1e293b;padding:32px 36px;background:#fff}
-.print-header{border-bottom:2px solid #e2e8f0;padding-bottom:14px;margin-bottom:24px}
-.print-header h1{font-size:20px;font-weight:700;color:#1e293b}
-.print-header .sub{color:#64748b;font-size:11px;margin-top:3px}
-.alert-card{border:1px solid #e2e8f0;border-left:4px solid #6366f1;border-radius:8px;padding:14px 16px;margin-bottom:16px;page-break-inside:avoid}
-.alert-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
-.alert-num{font-size:10px;font-weight:700;color:#94a3b8;min-width:24px}
-.alert-badges{display:flex;gap:6px;flex-wrap:wrap}
-.alert-date{margin-left:auto;font-size:11px;color:#94a3b8}
-.alert-msg{font-size:13px;font-weight:500;color:#1e293b;line-height:1.6;white-space:pre-wrap;margin-bottom:10px;background:#f8fafc;padding:10px 12px;border-radius:6px;border:1px solid #e2e8f0}
-.alert-meta{display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:#64748b;margin-bottom:6px}
-.alert-note{font-size:11px;color:#475569;background:#fefce8;border:1px solid #fde68a;padding:8px 10px;border-radius:6px;margin-top:8px;white-space:pre-wrap}
-.note-label{font-weight:700;color:#92400e}
-.alert-closed{font-size:11px;color:#94a3b8;font-style:italic;margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px}
-@media print{body{padding:16px}@page{margin:20mm}}
-</style></head>
-<body>
-<div class="print-header">
-  <h1>Alert${clientNome ? ` — ${escHtml(clientNome)}` : ''}</h1>
-  <div class="sub">Generato il ${now} alle ${nowTime} &nbsp;·&nbsp; ${filteredAlerts.length} alert</div>
-</div>
-${alertsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Nessun alert da stampare</p>'}
-</body></html>`;
-
-    const win = window.open('', '_blank');
-    if (win) {
-      win.document.write(html);
-      win.document.close();
-      win.focus();
-      setTimeout(() => win.print(), 400);
-    }
+    downloadTextFile(
+      `alert-${sanitizeFilename(clientNome || 'studio')}-${new Date().toISOString().slice(0, 10)}.txt`,
+      lines.join('\n'),
+    );
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -683,8 +643,7 @@ ${alertsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Nessu
             const warning = isInWarningWindow(alert);
             const expired = isExpiredOrClose(alert);
             const canEdit = isMyAlert(alert) && (alert.stato ?? 'aperto') === 'aperto';
-            // Staff can close any open alert; clients can only close their own
-            const canClose = (isMyAlert(alert) || !isCliente) && (alert.stato ?? 'aperto') === 'aperto';
+            const canClose = (isMyAlert(alert) || alert.targetUserId === user?.id) && (alert.stato ?? 'aperto') === 'aperto';
             const canDelete = isMyAlert(alert);
             const canArchive = (alert.stato ?? 'aperto') !== 'aperto' && !alert.archiviato;
             const isPrivate = alert.targetUserId != null && alert.targetUserId === alert.createdById;
@@ -862,7 +821,7 @@ ${alertsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Nessu
               <div className="flex-1 overflow-auto p-4 space-y-4">
                 {/* Destinatario */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Destinatario</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1"><span>Destinatario <span className="text-rose-500">*</span></span></label>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -982,7 +941,7 @@ ${alertsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Nessu
 
                 {/* Priorità */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Priorità</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1"><span>Priorita <span className="text-rose-500">*</span></span></label>
                   <div className="flex gap-2">
                     {(['info', 'warning', 'urgent'] as const).map((p) => (
                       <button
@@ -1003,7 +962,7 @@ ${alertsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Nessu
 
                 {/* Messaggio */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Messaggio *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1"><span>Messaggio <span className="text-rose-500">*</span></span></label>
                   <textarea
                     value={createForm.messaggio}
                     onChange={(e) => setCreateForm({ ...createForm, messaggio: e.target.value })}
@@ -1094,7 +1053,7 @@ ${alertsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Nessu
               <div className="flex-1 overflow-auto p-4 space-y-4">
                 {/* Priorità */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Priorità</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1"><span>Priorita <span className="text-rose-500">*</span></span></label>
                   <div className="flex gap-2">
                     {(['info', 'warning', 'urgent'] as const).map((p) => (
                       <button
@@ -1115,7 +1074,7 @@ ${alertsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Nessu
 
                 {/* Messaggio */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Messaggio *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1"><span>Messaggio <span className="text-rose-500">*</span></span></label>
                   <textarea
                     value={editForm.messaggio}
                     onChange={(e) => setEditForm({ ...editForm, messaggio: e.target.value })}

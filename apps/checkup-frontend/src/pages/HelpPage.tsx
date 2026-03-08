@@ -63,13 +63,13 @@ export default function HelpPage() {
             </p>
             <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
               <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-              <span>La dimensione massima consentita per ogni singolo file è di <strong>15 MB</strong>. File di dimensioni superiori verranno rifiutati dal sistema.</span>
+              <span>La dimensione massima consentita per ogni singolo file è di <strong>30 MB</strong>. File di dimensioni superiori verranno rifiutati dal sistema.</span>
             </div>
             <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
               <li>Controlla il formato richiesto: PDF, documenti Office (Word, Excel, PowerPoint), immagini (JPEG, PNG, GIF, WebP), testo o CSV.</li>
               <li>Evita file duplicati o incompleti.</li>
               <li>Rinomina i file in modo descrittivo (es. "Organigramma_2026.pdf").</li>
-              <li>Se il caricamento fallisce, verifica che il file non superi i <strong>15 MB</strong> e che il formato sia tra quelli supportati.</li>
+              <li>Se il caricamento fallisce, verifica che il file non superi i <strong>30 MB</strong> e che il formato sia tra quelli supportati.</li>
             </ul>
           </section>
 
@@ -140,7 +140,7 @@ export default function HelpPage() {
             </p>
             <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
               <li>Verifica formato, data e pertinenza dei file.</li>
-              <li>Il sistema accetta file fino a <strong>15 MB</strong> per allegato. Formati supportati: PDF, Office, immagini, testo e CSV.</li>
+              <li>Il sistema accetta file fino a <strong>30 MB</strong> per allegato. Formati supportati: PDF, Office, immagini, testo e CSV.</li>
               <li>Se necessario, richiedi un nuovo caricamento tramite chat.</li>
             </ul>
           </section>

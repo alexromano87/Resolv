@@ -18,6 +18,7 @@ import type { Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import { CheckupPreassessmentDocumentsService } from './checkup-preassessment-documents.service';
+import { CheckupPreassessmentExportJobsService } from './checkup-preassessment-export-jobs.service';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
@@ -25,6 +26,7 @@ import { validateMagicBytes } from '../documents/checkup-file-utils';
 import * as fs from 'fs';
 
 const uploadDir = path.join(process.cwd(), 'uploads', 'checkup-preassessment');
+const MAX_UPLOAD_SIZE_BYTES = 30 * 1024 * 1024;
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -50,10 +52,35 @@ const fileFilter = (req: any, file: Express.Multer.File, callback: (err: Error |
   }
 };
 
+const MIME_TYPE_BY_EXT: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.txt': 'text/plain; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8',
+};
+
+const resolveMimeType = (filename: string) => {
+  const ext = path.extname(filename).toLowerCase();
+  return MIME_TYPE_BY_EXT[ext] || 'application/octet-stream';
+};
+
 @Controller('checkup')
 @UseGuards(CheckupJwtAuthGuard)
 export class CheckupPreassessmentDocumentsController {
-  constructor(private readonly documentsService: CheckupPreassessmentDocumentsService) {}
+  constructor(
+    private readonly documentsService: CheckupPreassessmentDocumentsService,
+    private readonly exportJobsService: CheckupPreassessmentExportJobsService,
+  ) {}
 
   @Post('preassessment/:preassessmentId/documents/upload')
   @UseInterceptors(
@@ -69,7 +96,7 @@ export class CheckupPreassessmentDocumentsController {
           cb(null, `${uuidv4()}${ext}`);
         },
       }),
-      limits: { fileSize: 15 * 1024 * 1024 },
+      limits: { fileSize: MAX_UPLOAD_SIZE_BYTES },
       fileFilter,
     }),
   )
@@ -107,10 +134,18 @@ export class CheckupPreassessmentDocumentsController {
   ) {
     const { stream, document } = await this.documentsService.getFileStream(id, user);
     res.set({
-      'Content-Type': 'application/octet-stream',
+      'Content-Type': resolveMimeType(document.nomeOriginale),
       'Content-Disposition': `attachment; filename="${encodeURIComponent(document.nomeOriginale)}"`,
     });
     stream.pipe(res);
+  }
+
+  @Post('preassessment/:preassessmentId/documents/download-zip/jobs')
+  async createZipJob(
+    @Param('preassessmentId') preassessmentId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.exportJobsService.createZipJob(preassessmentId, user);
   }
 
   @Delete('preassessment/documents/:id')

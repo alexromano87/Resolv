@@ -25,6 +25,7 @@ import { validateMagicBytes } from './checkup-file-utils';
 import * as fs from 'fs';
 
 const uploadDir = path.join(process.cwd(), 'uploads', 'checkup');
+const MAX_UPLOAD_SIZE_BYTES = 30 * 1024 * 1024;
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -50,6 +51,28 @@ const fileFilter = (req: any, file: Express.Multer.File, callback: (err: Error |
   }
 };
 
+const MIME_TYPE_BY_EXT: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.txt': 'text/plain; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8',
+};
+
+const resolveMimeType = (filename: string) => {
+  const ext = path.extname(filename).toLowerCase();
+  return MIME_TYPE_BY_EXT[ext] || 'application/octet-stream';
+};
+
 @Controller('checkup')
 @UseGuards(CheckupJwtAuthGuard)
 export class CheckupDocumentsController {
@@ -69,7 +92,7 @@ export class CheckupDocumentsController {
           cb(null, `${uuidv4()}${ext}`);
         },
       }),
-      limits: { fileSize: 15 * 1024 * 1024 },
+      limits: { fileSize: MAX_UPLOAD_SIZE_BYTES },
       fileFilter,
     }),
   )
@@ -107,7 +130,7 @@ export class CheckupDocumentsController {
   ) {
     const { stream, document } = await this.documentsService.getFileStream(id, user);
     res.set({
-      'Content-Type': 'application/octet-stream',
+      'Content-Type': resolveMimeType(document.nomeOriginale),
       'Content-Disposition': `attachment; filename="${encodeURIComponent(document.nomeOriginale)}"`,
     });
     stream.pipe(res);

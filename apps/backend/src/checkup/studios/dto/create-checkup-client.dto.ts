@@ -1,6 +1,7 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
 
 export class CreateCheckupClientDto {
+  @ValidateIf((o) => !o.ragioneSociale)
   @IsString()
   @MinLength(2)
   nome: string;
@@ -8,7 +9,7 @@ export class CreateCheckupClientDto {
   @IsString()
   sublicenseId: string;
 
-  @IsOptional()
+  @ValidateIf((o) => !o.nome)
   @IsString()
   ragioneSociale?: string;
 

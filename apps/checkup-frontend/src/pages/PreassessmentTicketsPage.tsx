@@ -29,6 +29,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { Pagination } from '../components/Pagination';
+import { downloadTextFile, formatDateOnly, formatDateTime, sanitizeFilename } from '../utils/textExport';
 
 type StatusFilter = 'tutti' | 'open' | 'in_progress' | 'pending_close' | 'closed';
 
@@ -290,86 +291,53 @@ export function PreassessmentTicketsPage() {
     setShowThreadModal(true);
   };
 
-  const escHtml = (s: string) =>
-    (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
   const handlePrint = () => {
-    const now = new Date().toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric' });
-    const nowTime = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    const lines: string[] = [
+      'ESPORTAZIONE TICKET',
+      `Cliente: ${clientNome || 'Non specificato'}`,
+      `Generato il: ${formatDateTime(new Date().toISOString())}`,
+      `Numero ticket: ${filteredTickets.length}`,
+      '',
+    ];
 
-    const statusColors: Record<PreassessmentTicket['status'], string> = {
-      open: '#4f46e5', in_progress: '#d97706', pending_close: '#ea580c', closed: '#64748b',
-    };
-    const statusBadge = (s: PreassessmentTicket['status']) =>
-      `<span style="background:${statusColors[s]}1a;color:${statusColors[s]};padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;border:1px solid ${statusColors[s]}40">${STATUS_LABELS[s]}</span>`;
+    filteredTickets.forEach((ticket, index) => {
+      lines.push(`TICKET #${index + 1}`);
+      lines.push(`Oggetto: ${ticket.subject}`);
+      lines.push(`Stato: ${STATUS_LABELS[ticket.status]}`);
+      lines.push(`Creato il: ${formatDateTime(ticket.createdAt)}`);
+      lines.push(`Aperto da: ${`${ticket.createdBy?.nome || ''} ${ticket.createdBy?.cognome || ''}`.trim() || 'Non specificato'}`);
+      if (ticket.assignedTo) {
+        lines.push(`In carico a: ${ticket.assignedTo.nome} ${ticket.assignedTo.cognome}`);
+      }
+      lines.push('Testo iniziale:');
+      lines.push(ticket.body);
+      lines.push('');
+      lines.push('Messaggi:');
+      if (ticket.messages && ticket.messages.length > 0) {
+        ticket.messages.forEach((message, messageIndex) => {
+          const author = `${message.user?.nome || ''} ${message.user?.cognome || ''}`.trim() || 'Utente non disponibile';
+          const scope = message.user?.ruolo === 'cliente' ? (clientNome || 'Cliente') : 'Studio';
+          lines.push(`  ${messageIndex + 1}. ${author} - ${scope} - ${formatDateTime(message.createdAt)}`);
+          lines.push(`     ${message.messaggio}`);
+        });
+      } else {
+        lines.push('  Nessun messaggio');
+      }
+      if (ticket.status === 'closed' && ticket.closedBy) {
+        lines.push(`Chiuso da: ${ticket.closedBy.nome} ${ticket.closedBy.cognome} (${formatDateOnly(ticket.closedAt)})`);
+      }
+      if (ticket.status === 'pending_close' && ticket.closeRequestedBy) {
+        lines.push(`Chiusura richiesta da: ${ticket.closeRequestedBy.nome} ${ticket.closeRequestedBy.cognome} (${formatDateOnly(ticket.closeRequestedAt)})`);
+      }
+      lines.push('');
+      lines.push('------------------------------------------------------------');
+      lines.push('');
+    });
 
-    const ticketsHtml = filteredTickets.map((t, i) => `
-      <div class="ticket">
-        <div class="ticket-header">
-          <span class="ticket-num">#${i + 1}</span>
-          <h3>${escHtml(t.subject)}</h3>
-          ${statusBadge(t.status)}
-        </div>
-        <div class="ticket-meta">
-          Aperto da: <strong>${escHtml(`${t.createdBy?.nome || ''} ${t.createdBy?.cognome || ''}`.trim())}</strong>
-          ${t.assignedTo ? ` &nbsp;·&nbsp; In carico a: <strong>${escHtml(`${t.assignedTo.nome} ${t.assignedTo.cognome}`)}</strong>` : ''}
-          &nbsp;·&nbsp; ${new Date(t.createdAt).toLocaleDateString('it-IT')}
-        </div>
-        <div class="ticket-body">${escHtml(t.body)}</div>
-        ${t.messages && t.messages.length > 0 ? `
-          <div class="messages-title">Messaggi (${t.messages.length})</div>
-          ${t.messages.map((m) => `
-            <div class="message">
-              <div class="message-author">${escHtml(`${m.user?.nome || ''} ${m.user?.cognome || ''}`.trim())} &nbsp;·&nbsp; ${m.user?.ruolo === 'cliente' ? escHtml(clientNome || 'Cliente') : 'Studio'} &nbsp;·&nbsp; ${new Date(m.createdAt).toLocaleString('it-IT')}</div>
-              <div class="message-text">${escHtml(m.messaggio)}</div>
-            </div>
-          `).join('')}
-        ` : '<div class="no-messages">Nessun messaggio</div>'}
-        ${t.status === 'closed' && t.closedBy ? `<div class="ticket-closed">Chiuso da ${escHtml(`${t.closedBy.nome} ${t.closedBy.cognome}`)}${t.closedAt ? ` il ${new Date(t.closedAt).toLocaleDateString('it-IT')}` : ''}</div>` : ''}
-        ${t.status === 'pending_close' && t.closeRequestedBy ? `<div class="ticket-pending">Chiusura richiesta da ${escHtml(`${t.closeRequestedBy.nome} ${t.closeRequestedBy.cognome}`)}${t.closeRequestedAt ? ` il ${new Date(t.closeRequestedAt).toLocaleDateString('it-IT')}` : ''}</div>` : ''}
-      </div>
-    `).join('');
-
-    const html = `<!DOCTYPE html>
-<html lang="it"><head>
-<meta charset="utf-8"/>
-<title>Ticket di supporto</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#1e293b;padding:32px 36px;background:#fff}
-.print-header{border-bottom:2px solid #e2e8f0;padding-bottom:14px;margin-bottom:24px}
-.print-header h1{font-size:20px;font-weight:700;color:#1e293b}
-.print-header .sub{color:#64748b;font-size:11px;margin-top:3px}
-.ticket{border:1px solid #e2e8f0;border-left:4px solid #6366f1;border-radius:8px;padding:14px 16px;margin-bottom:18px;page-break-inside:avoid}
-.ticket-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
-.ticket-num{font-size:10px;font-weight:700;color:#94a3b8;min-width:24px}
-.ticket-header h3{font-size:13px;font-weight:600;color:#1e293b;flex:1;min-width:0}
-.ticket-meta{color:#64748b;font-size:11px;margin-bottom:10px;line-height:1.5}
-.ticket-body{color:#334155;font-size:12px;line-height:1.7;white-space:pre-wrap;background:#f8fafc;padding:10px 12px;border-radius:6px;margin-bottom:12px;border:1px solid #e2e8f0}
-.messages-title{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px}
-.no-messages{font-size:11px;color:#94a3b8;font-style:italic;margin-bottom:4px}
-.message{padding:8px 10px;border-radius:6px;background:#f1f5f9;margin-bottom:6px;border:1px solid #e9eef4}
-.message-author{font-size:10px;font-weight:600;color:#64748b;margin-bottom:4px}
-.message-text{font-size:12px;color:#334155;white-space:pre-wrap;line-height:1.6}
-.ticket-closed{font-size:11px;color:#94a3b8;font-style:italic;margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px}
-.ticket-pending{font-size:11px;color:#ea580c;font-style:italic;margin-top:8px;border-top:1px dashed #fed7aa;padding-top:6px}
-@media print{body{padding:16px}@page{margin:20mm}}
-</style></head>
-<body>
-<div class="print-header">
-  <h1>Ticket di supporto${clientNome ? ` — ${escHtml(clientNome)}` : ''}</h1>
-  <div class="sub">Generato il ${now} alle ${nowTime} &nbsp;·&nbsp; ${filteredTickets.length} ticket</div>
-</div>
-${ticketsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Nessun ticket da stampare</p>'}
-</body></html>`;
-
-    const win = window.open('', '_blank');
-    if (win) {
-      win.document.write(html);
-      win.document.close();
-      win.focus();
-      setTimeout(() => win.print(), 400);
-    }
+    downloadTextFile(
+      `ticket-${sanitizeFilename(clientNome || 'studio')}-${new Date().toISOString().slice(0, 10)}.txt`,
+      lines.join('\n'),
+    );
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -653,7 +621,7 @@ ${ticketsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Ness
               <div className="flex-1 overflow-auto p-4 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Oggetto *
+                    Oggetto <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -673,7 +641,7 @@ ${ticketsHtml || '<p style="color:#94a3b8;text-align:center;padding:40px 0">Ness
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Descrizione *
+                    Descrizione <span className="text-rose-500">*</span>
                   </label>
                   <textarea
                     value={createForm.body}

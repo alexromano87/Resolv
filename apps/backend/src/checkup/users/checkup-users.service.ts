@@ -11,9 +11,24 @@ import { CheckupClient } from '../clients/checkup-client.entity';
 import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CheckupMailService } from '../mail/checkup-mail.service';
+import { CheckupPreassessment } from '../preassessment/checkup-preassessment.entity';
+import { QuestionManagementService } from '../services/question-management.service';
 
 @Injectable()
 export class CheckupUsersService {
+  private static OWNER_FIELDS_BY_MACRO: Record<string, { name: string; role: string; email: string }> = {
+    a: { name: 'owner_a_nome', role: 'owner_a_ruolo', email: 'owner_a_email' },
+    b: { name: 'owner_b_nome', role: 'owner_b_ruolo', email: 'owner_b_email' },
+    c: { name: 'owner_c_nome', role: 'owner_c_ruolo', email: 'owner_c_email' },
+    d: { name: 'owner_d_nome', role: 'owner_d_ruolo', email: 'owner_d_email' },
+    e: { name: 'owner_e_nome', role: 'owner_e_ruolo', email: 'owner_e_email' },
+    f: { name: 'owner_f_nome', role: 'owner_f_ruolo', email: 'owner_f_email' },
+    g: { name: 'owner_g_nome', role: 'owner_g_ruolo', email: 'owner_g_email' },
+    h: { name: 'owner_h_nome', role: 'owner_h_ruolo', email: 'owner_h_email' },
+    i: { name: 'owner_i_nome', role: 'owner_i_ruolo', email: 'owner_i_email' },
+    j: { name: 'owner_j_nome', role: 'owner_j_ruolo', email: 'owner_j_email' },
+  };
+
   constructor(
     @InjectRepository(CheckupUser)
     private userRepository: Repository<CheckupUser>,
@@ -25,11 +40,159 @@ export class CheckupUsersService {
     private licenseRepository: Repository<CheckupLicense>,
     @InjectRepository(CheckupSublicense)
     private sublicenseRepository: Repository<CheckupSublicense>,
+    @InjectRepository(CheckupPreassessment)
+    private preassessmentRepository: Repository<CheckupPreassessment>,
     private readonly mailService: CheckupMailService,
+    private readonly questionManagementService: QuestionManagementService,
   ) {}
 
+  private isStudioStaff(currentUser: CheckupCurrentUserData) {
+    return ['admin_studio', 'segreteria', 'collaboratore'].includes(currentUser.ruolo);
+  }
+
+  private isOwnerMacroArea(code: string, label?: string | null) {
+    if (code === 'k') return true;
+    if (label && label.toLowerCase().includes('owner')) return true;
+    return false;
+  }
+
+  private normalizeMacroList(list?: string[] | null) {
+    if (!list) return [];
+    return Array.from(new Set(list.map((item) => item.trim()).filter(Boolean)));
+  }
+
+  private async ensureUniqueSuperOwner(clientId: string, excludeUserId?: string) {
+    const where: Record<string, any> = { clientId, attivo: true, superOwner: true };
+    if (excludeUserId) where.id = Not(excludeUserId);
+    const existing = await this.userRepository.findOne({ where });
+    if (existing) {
+      const ownerName = `${existing.nome} ${existing.cognome}`.trim() || existing.email;
+      throw new ConflictException(`Esiste gia un Super-owner attivo per questo cliente: ${ownerName}.`);
+    }
+  }
+
+  private async validateMacroAreaSelection(modelId: string | null | undefined, macroIds?: string[] | null) {
+    const normalized = this.normalizeMacroList(macroIds);
+    if (normalized.length === 0) return;
+    if (!modelId) {
+      throw new ConflictException('La sublicenza non ha un modello associato');
+    }
+    const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
+    const allowed = macroAreas.filter((macro) => !this.isOwnerMacroArea(macro.code, macro.label));
+    const allowedSet = new Set(allowed.map((macro) => macro.code));
+    const invalid = normalized.filter((macroId) => !allowedSet.has(macroId));
+    if (invalid.length) {
+      throw new ConflictException('Macro area non valida');
+    }
+  }
+
+  private async getMacroAreaLabelMap(modelId: string | null | undefined) {
+    if (!modelId) {
+      return new Map<string, string>();
+    }
+    const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
+    return new Map(macroAreas.map((macro) => [macro.code, macro.label || macro.code]));
+  }
+
+  private ensureMacroOwnersWithinAssignments(ownerIds?: string[] | null, assignmentIds?: string[] | null) {
+    const owners = this.normalizeMacroList(ownerIds);
+    const assignments = this.normalizeMacroList(assignmentIds);
+    if (owners.length === 0 || assignments.length === 0) return;
+    const assignmentSet = new Set(assignments);
+    const invalid = owners.filter((macroId) => !assignmentSet.has(macroId));
+    if (invalid.length) {
+      throw new ConflictException('Le macro aree owner devono essere incluse tra le macro aree assegnate');
+    }
+  }
+
+  private async ensureUniqueMacroOwners(
+    clientId: string,
+    macroIds: string[],
+    macroAreaLabels?: Map<string, string>,
+    excludeUserId?: string,
+  ) {
+    const normalized = this.normalizeMacroList(macroIds);
+    if (normalized.length === 0) return;
+    const where: Record<string, any> = { clientId, attivo: true };
+    if (excludeUserId) where.id = Not(excludeUserId);
+    const otherUsers = await this.userRepository.find({ where });
+    const alreadyOwned = new Map<string, CheckupUser>();
+    otherUsers.forEach((user) => {
+      (user.macroAreaOwner || []).forEach((macroId) => alreadyOwned.set(macroId, user));
+    });
+    const conflicts = normalized.filter((macroId) => alreadyOwned.has(macroId));
+    if (conflicts.length) {
+      const conflictMacroId = conflicts[0];
+      const assignedUser = alreadyOwned.get(conflictMacroId);
+      const macroLabel = macroAreaLabels?.get(conflictMacroId) || conflictMacroId;
+      const ownerName = assignedUser
+        ? `${assignedUser.nome} ${assignedUser.cognome}`.trim() || assignedUser.email
+        : 'un altro utente';
+      throw new ConflictException(
+        `La macro area "${macroLabel}" risulta gia assegnata come owner a ${ownerName}.`,
+      );
+    }
+  }
+
+  private async getOrCreatePreassessment(clientId: string, ownerUserId: string) {
+    const existing = await this.preassessmentRepository.findOne({ where: { clientId } });
+    if (existing) return existing;
+    const created = this.preassessmentRepository.create({
+      userId: ownerUserId,
+      clientId,
+      data: {},
+      notes: {},
+      fieldNotes: {},
+      userFieldNotes: {},
+      naFields: {},
+      macroValidations: {},
+      sectionValidations: {},
+      studioCanEdit: false,
+      status: 'in_progress',
+      completedAt: null,
+      completedById: null,
+      version: 1,
+      parentId: null,
+      isLatest: true,
+    });
+    return this.preassessmentRepository.save(created);
+  }
+
+  private async updateMacroOwnerData(clientId: string, macroIds: string[], user: CheckupUser | null) {
+    const normalized = this.normalizeMacroList(macroIds);
+    if (!normalized.length || !user) return;
+    const record = await this.getOrCreatePreassessment(clientId, user.id);
+    const data = { ...(record.data || {}) };
+    normalized.forEach((macroId) => {
+      const fields = CheckupUsersService.OWNER_FIELDS_BY_MACRO[macroId];
+      if (!fields) return;
+      data[fields.name] = `${user.nome} ${user.cognome}`.trim();
+      data[fields.role] = 'Cliente';
+      data[fields.email] = user.email;
+    });
+    record.data = data;
+    await this.preassessmentRepository.save(record);
+  }
+
+  private async clearMacroOwnerData(clientId: string, macroIds: string[]) {
+    const normalized = this.normalizeMacroList(macroIds);
+    if (!normalized.length) return;
+    const record = await this.preassessmentRepository.findOne({ where: { clientId } });
+    if (!record) return;
+    const data = { ...(record.data || {}) };
+    normalized.forEach((macroId) => {
+      const fields = CheckupUsersService.OWNER_FIELDS_BY_MACRO[macroId];
+      if (!fields) return;
+      data[fields.name] = '';
+      data[fields.role] = '';
+      data[fields.email] = '';
+    });
+    record.data = data;
+    await this.preassessmentRepository.save(record);
+  }
+
   private async getAccessibleClientIds(currentUser: CheckupCurrentUserData): Promise<string[]> {
-    if (!currentUser.studioId || currentUser.ruolo !== 'admin_studio') return [];
+    if (!currentUser.studioId || !this.isStudioStaff(currentUser)) return [];
     const license = await this.licenseRepository.findOne({ where: { studioId: currentUser.studioId } });
     if (!license) return [];
     const sublicenses = await this.sublicenseRepository.find({
@@ -119,7 +282,9 @@ export class CheckupUsersService {
     let maxUsers: number | null = null;
 
     let resolvedSublicenseId: string | null = null;
+    let resolvedModelId: string | null = null;
     if (isClient) {
+      const nextSuperOwner = Boolean(dto.superOwner);
       if (!clientId) {
         throw new BadRequestException('Seleziona il cliente per l\'utente');
       }
@@ -138,6 +303,16 @@ export class CheckupUsersService {
       }
       if (client && !client.attivo) {
         throw new ForbiddenException('Cliente non attivo');
+      }
+      const license = await this.licenseRepository.findOne({ where: { id: sublicense.licenseId }, relations: ['model'] });
+      resolvedModelId = license?.modelId ?? null;
+      const macroAreaLabels = await this.getMacroAreaLabelMap(resolvedModelId);
+      await this.validateMacroAreaSelection(resolvedModelId, dto.macroAreaAssignments);
+      await this.validateMacroAreaSelection(resolvedModelId, dto.macroAreaOwner);
+      this.ensureMacroOwnersWithinAssignments(dto.macroAreaOwner, dto.macroAreaAssignments);
+      await this.ensureUniqueMacroOwners(clientId, dto.macroAreaOwner || [], macroAreaLabels);
+      if (nextSuperOwner) {
+        await this.ensureUniqueSuperOwner(clientId);
       }
       maxUsers = sublicense.numeroUtenze;
       const activeCount = await this.userRepository.count({
@@ -178,10 +353,16 @@ export class CheckupUsersService {
       clientId: isClient ? clientId : null,
       sublicenseId: isClient ? resolvedSublicenseId : null,
       azienda: dto.azienda || null,
+      macroAreaOwner: isClient ? this.normalizeMacroList(dto.macroAreaOwner) : null,
+      macroAreaAssignments: isClient ? this.normalizeMacroList(dto.macroAreaAssignments) : null,
+      superOwner: isClient ? Boolean(dto.superOwner) : false,
       mustChangePassword: true,
     });
 
     const saved = await this.userRepository.save(user);
+    if (isClient && clientId) {
+      await this.updateMacroOwnerData(clientId, this.normalizeMacroList(dto.macroAreaOwner), saved);
+    }
 
     // Welcome email per i nuovi clienti (fire-and-forget)
     if (isClient) {
@@ -285,9 +466,19 @@ export class CheckupUsersService {
     if (dto.attivo !== undefined) updates.attivo = dto.attivo;
 
     const nextRole = dto.ruolo ?? user.ruolo;
+    const prevClientId = user.clientId;
     const nextClientId = dto.clientId !== undefined ? dto.clientId?.trim() || null : user.clientId;
     const nextStudioId = dto.studioId !== undefined ? dto.studioId?.trim() || null : user.studioId;
     const nextSublicenseId = dto.sublicenseId !== undefined ? dto.sublicenseId?.trim() || null : user.sublicenseId;
+    const prevMacroOwner = this.normalizeMacroList(user.macroAreaOwner);
+    const prevMacroAssignments = this.normalizeMacroList(user.macroAreaAssignments);
+    const nextSuperOwner = dto.superOwner !== undefined ? Boolean(dto.superOwner) : Boolean(user.superOwner);
+    const nextMacroOwner = dto.macroAreaOwner !== undefined
+      ? this.normalizeMacroList(dto.macroAreaOwner)
+      : prevMacroOwner;
+    const nextMacroAssignments = dto.macroAreaAssignments !== undefined
+      ? this.normalizeMacroList(dto.macroAreaAssignments)
+      : prevMacroAssignments;
 
     if (nextRole === 'cliente') {
       if (!nextClientId) {
@@ -302,9 +493,31 @@ export class CheckupUsersService {
         nextClientId,
         nextSublicenseId,
       );
+      const license = await this.licenseRepository.findOne({ where: { id: nextSublicense.licenseId }, relations: ['model'] });
+      const modelId = license?.modelId ?? null;
+      const macroAreaLabels = await this.getMacroAreaLabelMap(modelId);
+      await this.validateMacroAreaSelection(modelId, nextMacroAssignments);
+      await this.validateMacroAreaSelection(modelId, nextMacroOwner);
+      this.ensureMacroOwnersWithinAssignments(nextMacroOwner, nextMacroAssignments);
+      const shouldCheckOwnerConflicts =
+        nextMacroOwner.length > 0
+        && (
+          dto.macroAreaOwner !== undefined
+          || nextClientId !== user.clientId
+          || nextRole !== user.ruolo
+        );
+      if (shouldCheckOwnerConflicts) {
+        await this.ensureUniqueMacroOwners(nextClientId, nextMacroOwner, macroAreaLabels, user.id);
+      }
+      if (nextSuperOwner && (dto.superOwner !== undefined || nextClientId !== user.clientId || !user.superOwner)) {
+        await this.ensureUniqueSuperOwner(nextClientId, user.id);
+      }
       updates.clientId = nextClientId;
       updates.studioId = null;
       updates.sublicenseId = nextSublicense.id;
+      updates.macroAreaOwner = nextMacroOwner;
+      updates.macroAreaAssignments = nextMacroAssignments;
+      updates.superOwner = nextSuperOwner;
 
       const activating = dto.attivo === true && user.attivo === false;
       const movingClient = nextClientId !== user.clientId;
@@ -332,6 +545,9 @@ export class CheckupUsersService {
       updates.studioId = targetStudioId;
       updates.clientId = null;
       updates.sublicenseId = null;
+      updates.macroAreaOwner = null;
+      updates.macroAreaAssignments = null;
+      updates.superOwner = false;
 
       const activating = dto.attivo === true && user.attivo === false;
       const becomingStaff = nextRole !== user.ruolo;
@@ -349,7 +565,55 @@ export class CheckupUsersService {
     }
 
     Object.assign(user, updates);
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+
+    if (nextRole === 'cliente' && nextClientId) {
+      const removed = prevMacroOwner.filter((macro) => !nextMacroOwner.includes(macro));
+      const added = nextMacroOwner.filter((macro) => !prevMacroOwner.includes(macro));
+
+      if (removed.length > 0) {
+        const otherUsers = await this.userRepository.find({
+          where: {
+            id: Not(saved.id),
+            clientId: nextClientId,
+            attivo: true,
+          },
+        });
+        const stillOwned = new Set<string>();
+        otherUsers.forEach((item) => {
+          (item.macroAreaOwner || []).forEach((macro) => stillOwned.add(macro));
+        });
+        const toClear = removed.filter((macro) => !stillOwned.has(macro));
+        if (toClear.length > 0) {
+          await this.clearMacroOwnerData(nextClientId, toClear);
+        }
+      }
+
+      if (added.length > 0) {
+        await this.updateMacroOwnerData(nextClientId, added, saved);
+      }
+    }
+
+    if (prevClientId && prevClientId !== nextClientId && prevMacroOwner.length > 0) {
+      const otherUsers = await this.userRepository.find({
+        where: {
+          clientId: prevClientId,
+          attivo: true,
+        },
+      });
+      const stillOwned = new Set<string>();
+      otherUsers
+        .filter((item) => item.id !== saved.id)
+        .forEach((item) => {
+          (item.macroAreaOwner || []).forEach((macro) => stillOwned.add(macro));
+        });
+      const toClear = prevMacroOwner.filter((macro) => !stillOwned.has(macro));
+      if (toClear.length > 0) {
+        await this.clearMacroOwnerData(prevClientId, toClear);
+      }
+    }
+
+    return saved;
   }
 
   async deactivate(id: string, currentUser: CheckupCurrentUserData): Promise<CheckupUser> {

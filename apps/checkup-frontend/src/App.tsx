@@ -14,6 +14,7 @@ import HelpPage from './pages/HelpPage';
 import { PreassessmentTicketsPage } from './pages/PreassessmentTicketsPage';
 import { PreassessmentAlertsPage } from './pages/PreassessmentAlertsPage';
 import { AuditLogPage } from './pages/AuditLogPage';
+import { SystemNotificationsPage } from './pages/SystemNotificationsPage';
 import { useAuth } from './contexts/AuthContext';
 import { CheckupAppLayout } from './layout/CheckupAppLayout';
 
@@ -203,7 +204,7 @@ export default function App() {
       <Route
         path="/checkup/clienti/:clientId/tickets"
         element={
-          <ProtectedRoute requiredRole="admin_studio">
+          <ProtectedRoute requiredRole={['admin_studio', 'segreteria', 'collaboratore']}>
             <CheckupAppLayout>
               <PreassessmentTicketsPage />
             </CheckupAppLayout>
@@ -227,7 +228,7 @@ export default function App() {
       <Route
         path="/checkup/clienti/:clientId/alerts"
         element={
-          <ProtectedRoute requiredRole="admin_studio">
+          <ProtectedRoute requiredRole={['admin_studio', 'segreteria', 'collaboratore']}>
             <CheckupAppLayout>
               <PreassessmentAlertsPage />
             </CheckupAppLayout>
@@ -237,9 +238,20 @@ export default function App() {
 
       {/* Audit log — admin_studio only */}
       <Route
+        path="/checkup/notifiche-sistema"
+        element={
+          <ProtectedRoute requiredRole={['admin_studio', 'segreteria', 'collaboratore']}>
+            <CheckupAppLayout>
+              <SystemNotificationsPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/checkup/audit"
         element={
-          <ProtectedRoute requiredRole="admin_studio">
+          <ProtectedRoute requiredRole={['admin_studio', 'segreteria', 'collaboratore']}>
             <CheckupAppLayout>
               <AuditLogPage />
             </CheckupAppLayout>

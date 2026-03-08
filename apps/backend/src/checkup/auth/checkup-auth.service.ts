@@ -70,9 +70,20 @@ export class CheckupAuthService {
       studioTipo: user.studio?.tipo ?? null,
       clientId: user.clientId,
       clientNome: user.client?.nome ?? null,
+      client: user.client
+        ? {
+            id: user.client.id,
+            nome: user.client.nome,
+            ragioneSociale: user.client.ragioneSociale ?? null,
+            logoUrl: user.client.logoUrl ?? null,
+          }
+        : null,
       licenziatarioNome,
       azienda: user.azienda,
       telefono: user.telefono,
+      macroAreaOwner: user.macroAreaOwner,
+      macroAreaAssignments: user.macroAreaAssignments,
+      superOwner: user.superOwner,
       mustChangePassword: user.mustChangePassword,
       twoFactorEnabled: user.twoFactorEnabled,
       twoFactorChannel: user.twoFactorChannel,
@@ -480,16 +491,7 @@ export class CheckupAuthService {
   }
 
   async getProfile(userId: string) {
-    const user = await this.userRepository.findOne({
-      where: { id: userId, attivo: true },
-      relations: [
-        'studio',
-        'studio.license',
-        'studio.sublicensesAsCliente',
-        'studio.sublicensesAsCliente.license',
-        'studio.sublicensesAsCliente.license.studio',
-      ],
-    });
+    const user = await this.loadUserForAuth({ id: userId });
 
     if (!user) {
       throw new UnauthorizedException('Utente non trovato');

@@ -1,12 +1,15 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Menu, ChevronLeft, ChevronRight, ChevronDown, X, ArrowLeft, LayoutDashboard, FileText, Shield, Settings, Search, Ticket, Bell, ClipboardList } from 'lucide-react';
+import { LogOut, Menu, ChevronLeft, ChevronRight, ChevronDown, X, ArrowLeft, LayoutDashboard, FileText, Shield, Settings, Search, Ticket, Bell, BellRing, ClipboardList, MessageCircle, CircleHelp } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreassessmentNav } from '../contexts/PreassessmentNavContext';
 import { useStudio } from '../contexts/StudioContext';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
-import { preassessmentApi, threadsUnreadApi, preassessmentAlertApi } from '../api/preassessment';
+import { meApi, type SystemNotificationItem } from '../api/me';
+import { preassessmentApi, threadsUnreadApi, preassessmentAlertApi, type PreassessmentClientEntry } from '../api/preassessment';
 import { ToastNotification, type AlertToast } from '../components/ui/ToastNotification';
+import { ActivityToastNotification, type ActivityToast } from '../components/ui/ActivityToastNotification';
 
 // ── Web Audio beep ────────────────────────────────────────────────────────────
 function playAlertSound() {
@@ -29,8 +32,29 @@ function playAlertSound() {
   } catch { /* AudioContext not available */ }
 }
 
+interface StaffNotificationSnapshot {
+  clientId: string;
+  clientLabel: string;
+  preassessmentId: string;
+  tickets: number;
+  chat: number;
+  status: 'in_progress' | 'concluso';
+  sectionValidationsCount: number;
+  finalValidationAt: string | null;
+}
+
+
 interface CheckupAppLayoutProps {
   children: ReactNode;
+}
+
+function formatNotificationDate(value: string) {
+  return new Intl.DateTimeFormat('it-IT', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
 }
 
 export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
@@ -48,12 +72,24 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { confirm, ConfirmDialog } = useConfirmDialog();
   // Unsaved changes are handled by the Settings page custom modal.
-  const [unread, setUnread] = useState<{ tickets: number; alerts: number }>({ tickets: 0, alerts: 0 });
+  const [unread, setUnread] = useState<{ tickets: number; alerts: number; chat: number }>({ tickets: 0, alerts: 0, chat: 0 });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [alertToasts, setAlertToasts] = useState<AlertToast[]>([]);
+  const [activityToasts, setActivityToasts] = useState<ActivityToast[]>([]);
   const toastIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const staffNotificationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const systemNotificationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // In-memory dismissed set — cleared on logout/remount so toasts reappear on every login
   const dismissedToastIds = useRef<Set<string>>(new Set());
+  const previousStaffNotificationsRef = useRef<Record<string, StaffNotificationSnapshot> | null>(null);
+  const notificationPopoverRef = useRef<HTMLDivElement | null>(null);
+  const notificationBellButtonRef = useRef<HTMLButtonElement | null>(null);
+  const notificationPopoverPanelRef = useRef<HTMLDivElement | null>(null);
+  const [systemNotifications, setSystemNotifications] = useState<SystemNotificationItem[]>([]);
+  const [systemNotificationsLoading, setSystemNotificationsLoading] = useState(false);
+  const [systemNotificationsError, setSystemNotificationsError] = useState('');
+  const [systemNotificationsOpen, setSystemNotificationsOpen] = useState(false);
+  const [systemNotificationsUnread, setSystemNotificationsUnread] = useState(0);
 
   const initials = useMemo(() => {
     const name = `${user?.nome || ''} ${user?.cognome || ''}`.trim();
@@ -85,6 +121,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     if (location.pathname.startsWith('/checkup/impostazioni')) return 'Impostazioni';
     if (location.pathname.startsWith('/checkup/tickets')) return 'Ticket';
     if (location.pathname.startsWith('/checkup/alerts')) return 'Alert';
+    if (location.pathname.startsWith('/checkup/notifiche-sistema')) return 'Notifiche di sistema';
     if (location.pathname.startsWith('/checkup/audit')) return 'Log attività';
     if (location.pathname.startsWith('/checkup/clienti')) {
       if (location.pathname.endsWith('/tickets')) return 'Ticket';
@@ -95,11 +132,79 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   }, [location.pathname, user?.ruolo]);
   const { logoUrl: studioLogoUrl, nome: studioNome } = useStudio();
   const isStaff = user ? user.ruolo !== 'cliente' : false;
-  const dashboardPath = user?.ruolo === 'admin_studio' ? '/checkup/dashboard-studio' : '/checkup';
+  const isClientChatRoute = !isStaff && (location.pathname === '/checkup' || location.pathname === '/checkup/') && new URLSearchParams(location.search).get('panel') === 'chat';
+  const dashboardPath = isStaff ? '/checkup/dashboard-studio' : '/checkup';
+  const lastSeenNotificationsKey = useMemo(
+    () => (user?.id ? `checkup_system_notifications_seen:${user.id}` : ''),
+    [user?.id],
+  );
+  const latestSystemNotifications = useMemo(() => systemNotifications.slice(0, 6), [systemNotifications]);
 
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!systemNotificationsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (notificationPopoverRef.current?.contains(target)) return;
+      if (notificationPopoverPanelRef.current?.contains(target)) return;
+      setSystemNotificationsOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [systemNotificationsOpen]);
+
+  const loadSystemNotifications = useCallback(async (silent = false): Promise<SystemNotificationItem[]> => {
+    if (!isStaff) return [];
+    if (!silent) {
+      setSystemNotificationsLoading(true);
+      setSystemNotificationsError('');
+    }
+    try {
+      const response = await meApi.getSystemNotifications({ limit: 6, page: 1 });
+      const data = response.items;
+      setSystemNotifications(data);
+      const lastSeen = lastSeenNotificationsKey ? sessionStorage.getItem(lastSeenNotificationsKey) : null;
+      const unread = lastSeen
+        ? data.filter((item) => new Date(item.createdAt).getTime() > new Date(lastSeen).getTime()).length
+        : Math.min(data.length, 6);
+      setSystemNotificationsUnread(unread);
+      return data;
+    } catch (err) {
+      if (!silent) {
+        setSystemNotificationsError(err instanceof Error ? err.message : 'Errore nel caricamento delle notifiche');
+      }
+      return [];
+    } finally {
+      if (!silent) {
+        setSystemNotificationsLoading(false);
+      }
+    }
+  }, [isStaff, lastSeenNotificationsKey]);
+
+  const markSystemNotificationsSeen = useCallback((items: SystemNotificationItem[]) => {
+    if (!lastSeenNotificationsKey || items.length === 0) return;
+    sessionStorage.setItem(lastSeenNotificationsKey, items[0].createdAt);
+    setSystemNotificationsUnread(0);
+  }, [lastSeenNotificationsKey]);
+
+  useEffect(() => {
+    if (!isStaff) {
+      setSystemNotifications([]);
+      setSystemNotificationsUnread(0);
+      setSystemNotificationsOpen(false);
+      return;
+    }
+    loadSystemNotifications();
+    systemNotificationIntervalRef.current = setInterval(() => {
+      loadSystemNotifications(true);
+    }, 60_000);
+    return () => {
+      if (systemNotificationIntervalRef.current) clearInterval(systemNotificationIntervalRef.current);
+    };
+  }, [isStaff, loadSystemNotifications]);
 
   // ── Azzera navState quando l'utente torna alla dashboard (nessun cliente attivo) ──
   useEffect(() => {
@@ -111,7 +216,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   // ── Unread badge polling (cliente only) ────────────────────────────────────
   useEffect(() => {
     if (!user || user.ruolo !== 'cliente') {
-      setUnread({ tickets: 0, alerts: 0 });
+      setUnread({ tickets: 0, alerts: 0, chat: 0 });
       return;
     }
     const fetchUnread = async () => {
@@ -133,12 +238,19 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   // ── Instant badge clear when a page calls markSeen ─────────────────────────
   useEffect(() => {
     const handler = (e: Event) => {
-      const type = (e as CustomEvent<'tickets' | 'alerts'>).detail;
+      const type = (e as CustomEvent<'tickets' | 'alerts' | 'chat'>).detail;
       setUnread((prev) => ({ ...prev, [type]: 0 }));
+      setNavState((prev) => {
+        if (!prev) return prev;
+        if (type === 'tickets') return { ...prev, ticketCount: 0 };
+        if (type === 'alerts') return { ...prev, alertCount: 0 };
+        if (type === 'chat') return { ...prev, chatCount: 0 };
+        return prev;
+      });
     };
     window.addEventListener('checkup:mark-seen', handler);
     return () => window.removeEventListener('checkup:mark-seen', handler);
-  }, []);
+  }, [setNavState]);
 
   // ── Expiring alerts toast polling ───────────────────────────────────────────
   const dismissToast = useCallback((id: string) => {
@@ -146,10 +258,157 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     setAlertToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const dismissActivityToast = useCallback((id: string) => {
+    setActivityToasts((prev) => prev.filter((toast) => toast.id !== id));
+  }, []);
+
   const alertsPagePath = useMemo(() => {
     if (!user) return '/checkup/alerts';
     return user.ruolo === 'cliente' ? '/checkup/alerts' : '/checkup/dashboard-studio';
   }, [user?.ruolo]);
+
+  useEffect(() => {
+    if (!user || user.ruolo === 'cliente') {
+      previousStaffNotificationsRef.current = null;
+      setActivityToasts([]);
+      return;
+    }
+
+    const enqueueActivityToast = (toast: ActivityToast) => {
+      setActivityToasts((prev) => {
+        if (prev.some((item) => item.id === toast.id)) return prev;
+        return [...prev, toast].slice(-6);
+      });
+    };
+
+    const buildSnapshot = async (entries: PreassessmentClientEntry[]): Promise<Record<string, StaffNotificationSnapshot>> => {
+      const withPre = entries.filter((entry) => entry.preassessment?.id);
+      const counts = await Promise.allSettled(
+        withPre.map(async (entry) => ({
+          preassessmentId: entry.preassessment!.id,
+          counts: await threadsUnreadApi.getCounts(entry.preassessment!.id),
+        })),
+      );
+
+      const countsByPreId = new Map<string, { tickets: number; alerts: number; chat: number }>();
+      counts.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          countsByPreId.set(result.value.preassessmentId, result.value.counts);
+        }
+      });
+
+      return withPre.reduce<Record<string, StaffNotificationSnapshot>>((acc, entry) => {
+        const pre = entry.preassessment!;
+        const count = countsByPreId.get(pre.id) || { tickets: 0, alerts: 0, chat: 0 };
+        const clientLabel = entry.client.ragioneSociale || entry.client.azienda || entry.client.nome || 'Cliente';
+        acc[pre.id] = {
+          clientId: entry.client.id,
+          clientLabel,
+          preassessmentId: pre.id,
+          tickets: count.tickets,
+          chat: count.chat,
+          status: pre.status,
+          sectionValidationsCount: pre.sectionValidationsCount || 0,
+          finalValidationAt: pre.finalValidationAt || null,
+        };
+        return acc;
+      }, {});
+    };
+
+    const pollStaffNotifications = async () => {
+      try {
+        const entries = await preassessmentApi.listClients();
+        const next = await buildSnapshot(entries);
+        const previous = previousStaffNotificationsRef.current;
+
+        if (!previous) {
+          previousStaffNotificationsRef.current = next;
+          return;
+        }
+
+        Object.values(next).forEach((current) => {
+          const prev = previous[current.preassessmentId];
+          if (!prev) return;
+
+          if (current.chat > prev.chat) {
+            const delta = current.chat - prev.chat;
+            enqueueActivityToast({
+              id: `chat:${current.preassessmentId}:${current.chat}`,
+              kind: 'chat',
+              titolo: delta > 1 ? 'Nuovi messaggi in chat' : 'Nuovo messaggio in chat',
+              messaggio: `${current.clientLabel}: ${delta > 1 ? `hai ${delta} nuovi messaggi` : 'hai ricevuto un nuovo messaggio'}.`,
+              ctaLabel: 'Apri pre-assessment',
+            });
+          }
+
+          if (current.tickets > prev.tickets) {
+            const delta = current.tickets - prev.tickets;
+            enqueueActivityToast({
+              id: `ticket:${current.preassessmentId}:${current.tickets}`,
+              kind: 'ticket',
+              titolo: delta > 1 ? 'Nuove attività sui ticket' : 'Nuova attività su ticket',
+              messaggio: `${current.clientLabel}: ${delta > 1 ? `ci sono ${delta} nuove attività sui ticket` : "c'è un nuovo ticket o una nuova risposta"}.`,
+              ctaLabel: 'Apri ticket',
+            });
+          }
+
+          if (prev.status !== 'concluso' && current.status === 'concluso') {
+            enqueueActivityToast({
+              id: `completed:${current.preassessmentId}:${current.status}`,
+              kind: 'completed',
+              titolo: 'Checkup completato',
+              messaggio: `Il checkup di ${current.clientLabel} risulta completato.`,
+              ctaLabel: 'Apri pre-assessment',
+            });
+          }
+
+          if (current.sectionValidationsCount > prev.sectionValidationsCount) {
+            const delta = current.sectionValidationsCount - prev.sectionValidationsCount;
+            enqueueActivityToast({
+              id: `validation:${current.preassessmentId}:${current.sectionValidationsCount}`,
+              kind: 'validation',
+              titolo: delta > 1 ? 'Nuove sezioni validate' : 'Nuova sezione validata',
+              messaggio: `${current.clientLabel}: ${delta > 1 ? `sono state validate ${delta} nuove sezioni` : 'è stata validata una nuova sezione'}.`,
+              ctaLabel: 'Apri pre-assessment',
+            });
+          }
+
+          if (!prev.finalValidationAt && current.finalValidationAt) {
+            enqueueActivityToast({
+              id: `approved:${current.preassessmentId}:${current.finalValidationAt}`,
+              kind: 'approved',
+              titolo: 'Checkup validato dal Super-owner',
+              messaggio: `Il checkup di ${current.clientLabel} è stato validato definitivamente.`,
+              ctaLabel: 'Apri pre-assessment',
+            });
+          }
+        });
+
+        if (Object.values(next).some((current) => {
+          const prev = previous[current.preassessmentId];
+          return prev && (
+            current.chat > prev.chat
+            || current.tickets > prev.tickets
+            || (prev.status !== 'concluso' && current.status === 'concluso')
+            || current.sectionValidationsCount > prev.sectionValidationsCount
+            || (!prev.finalValidationAt && !!current.finalValidationAt)
+          );
+        })) {
+          playAlertSound();
+        }
+
+        previousStaffNotificationsRef.current = next;
+      } catch {
+        // silently ignore
+      }
+    };
+
+    pollStaffNotifications();
+    staffNotificationIntervalRef.current = setInterval(pollStaffNotifications, 30_000);
+    return () => {
+      if (staffNotificationIntervalRef.current) clearInterval(staffNotificationIntervalRef.current);
+    };
+  }, [user?.id, user?.ruolo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!user) return;
@@ -260,9 +519,10 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
           </div>
 
           <nav className="flex-1 space-y-6 px-4 py-5 overflow-y-auto overflow-x-hidden">
-            <div className={`${sidebarCollapsed ? 'hidden' : ''} space-y-1`}>
+            <div className="space-y-1">
               <NavLink
                 to={dashboardPath}
+                end
                 onClick={() => {
                   if (dashboardPath !== '/checkup') return;
                   if (location.pathname === '/checkup' || location.pathname === '/checkup/') {
@@ -274,7 +534,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                     'group flex items-center rounded-2xl transition-colors',
                     sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
                     'text-sm font-medium',
-                    isActive
+                    (isActive && !isClientChatRoute)
                       ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
                       : 'text-slate-300 hover:bg-white/5 hover:text-white',
                   ].join(' ')
@@ -286,7 +546,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                       <span
                         className={[
                           'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                          isActive
+                          (isActive && !isClientChatRoute)
                             ? 'opacity-100 translate-x-0'
                             : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
                         ].join(' ')}
@@ -302,7 +562,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                   </>
                 )}
               </NavLink>
-              {user?.ruolo === 'admin_studio' && (
+              {isStaff && (
                 <NavLink
                   to="/checkup/ricerca-clienti"
                   className={({ isActive }) =>
@@ -339,8 +599,178 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                   )}
                 </NavLink>
               )}
+              {isStaff && navState?.hasAssessment && navState.clientId && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/checkup/clienti/${navState.clientId}`)}
+                    className={[
+                      'group flex w-full items-center rounded-2xl transition-colors',
+                      sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                      'text-sm font-medium',
+                      location.pathname === `/checkup/clienti/${navState.clientId}` && new URLSearchParams(location.search).get('panel') !== 'chat'
+                        ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                        : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                    ].join(' ')}
+                    title="Panoramica Checkup"
+                  >
+                    {!sidebarCollapsed && (
+                      <span
+                        className={[
+                          'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                          location.pathname === `/checkup/clienti/${navState.clientId}` && new URLSearchParams(location.search).get('panel') !== 'chat'
+                            ? 'opacity-100 translate-x-0'
+                            : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                        ].join(' ')}
+                      />
+                    )}
+                    <ClipboardList size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
+                    <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                      Panoramica Checkup
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/checkup/clienti/${navState.clientId}?panel=chat`)}
+                    className={[
+                      'group flex w-full items-center rounded-2xl transition-colors',
+                      sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                      'text-sm font-medium',
+                      location.pathname === `/checkup/clienti/${navState.clientId}` && new URLSearchParams(location.search).get('panel') === 'chat'
+                        ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                        : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                    ].join(' ')}
+                    title="Chat"
+                  >
+                    {!sidebarCollapsed && <span className="h-7 w-1 rounded-full bg-indigo-400 opacity-0 -translate-x-1 transition-all duration-300 group-hover:opacity-80 group-hover:translate-x-0" />}
+                    <MessageCircle size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
+                    <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                      Chat
+                    </span>
+                    {!sidebarCollapsed && navState.chatCount > 0 && (
+                      <span className="ml-auto rounded-full bg-indigo-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
+                        {navState.chatCount > 99 ? '99+' : navState.chatCount}
+                      </span>
+                    )}
+                  </button>
+                  <NavLink
+                    to={`/checkup/clienti/${navState.clientId}/tickets`}
+                    className={({ isActive }) =>
+                      [
+                        'group flex items-center rounded-2xl transition-colors',
+                        sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                        'text-sm font-medium',
+                        isActive
+                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                          : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                      ].join(' ')
+                    }
+                    title="Ticket"
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {!sidebarCollapsed && (
+                          <span
+                            className={[
+                              'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                              isActive
+                                ? 'opacity-100 translate-x-0'
+                                : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                            ].join(' ')}
+                          />
+                        )}
+                        <Ticket size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
+                        <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                          Ticket
+                        </span>
+                        {!sidebarCollapsed && navState.ticketCount > 0 && (
+                          <span className="ml-auto rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
+                            {navState.ticketCount > 99 ? '99+' : navState.ticketCount}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                  <NavLink
+                    to={`/checkup/clienti/${navState.clientId}/alerts`}
+                    className={({ isActive }) =>
+                      [
+                        'group flex items-center rounded-2xl transition-colors',
+                        sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                        'text-sm font-medium',
+                        isActive
+                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                          : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                      ].join(' ')
+                    }
+                    title="Alert"
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {!sidebarCollapsed && (
+                          <span
+                            className={[
+                              'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                              isActive
+                                ? 'opacity-100 translate-x-0'
+                                : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                            ].join(' ')}
+                          />
+                        )}
+                        <Bell size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
+                        <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                          Alert
+                        </span>
+                        {!sidebarCollapsed && navState.alertCount > 0 && (
+                          <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
+                            {navState.alertCount > 99 ? '99+' : navState.alertCount}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                </>
+              )}
               {!isStaff && (
                 <>
+                  {navState?.hasAssessment && (
+                    <button
+                      type="button"
+                      onClick={() => navigate('/checkup?panel=chat')}
+                      className={[
+                        'group flex w-full items-center rounded-2xl transition-colors',
+                        sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                        'text-sm font-medium',
+                        isClientChatRoute
+                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                          : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                      ].join(' ')}
+                      title="Chat"
+                    >
+                      {!sidebarCollapsed && (
+                        <span
+                          className={[
+                            'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                            isClientChatRoute
+                              ? 'opacity-100 translate-x-0'
+                              : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                          ].join(' ')}
+                        />
+                      )}
+                      <MessageCircle
+                        size={18}
+                        className="text-slate-400 group-hover:text-white transition-all duration-200"
+                      />
+                      <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                        Chat
+                      </span>
+                      {!sidebarCollapsed && unread.chat > 0 && (
+                        <span className="ml-auto rounded-full bg-indigo-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
+                          {unread.chat > 99 ? '99+' : unread.chat}
+                        </span>
+                      )}
+                    </button>
+                  )}
                   <NavLink
                     to="/checkup/tickets"
                     className={({ isActive }) =>
@@ -515,10 +945,12 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
             </div>
 
             {isStaff && (
-              <div className={`${sidebarCollapsed ? 'hidden' : ''} space-y-1 border-t border-blue-800/30 pt-4`}>
-                <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
-                  Report
-                </p>
+              <div className="space-y-1 border-t border-blue-800/30 pt-4">
+                {!sidebarCollapsed && (
+                  <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
+                    Report
+                  </p>
+                )}
                 <NavLink
                   to="/checkup/report-salvati"
                   className={({ isActive }) =>
@@ -556,13 +988,126 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                 </NavLink>
               </div>
             )}
-            {user?.ruolo === 'admin_studio' && (
-              <div className={`${sidebarCollapsed ? 'hidden' : ''} space-y-1 border-t border-blue-800/30 pt-4`}>
-                <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
-                  Gestione
-                </p>
+            {isStaff && (
+              <div className="space-y-1 border-t border-blue-800/30 pt-4">
+                {!sidebarCollapsed && (
+                  <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
+                    Attivita
+                  </p>
+                )}
+                {user?.ruolo === 'admin_studio' && (
+                  <>
+                    <NavLink
+                      to="/checkup/amministrazione"
+                      className={({ isActive }) =>
+                        [
+                          'group flex items-center rounded-2xl transition-colors',
+                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                          'text-sm font-medium',
+                          isActive
+                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                        ].join(' ')
+                      }
+                    >
+                      {({ isActive }) => (
+                        <>
+                          {!sidebarCollapsed && (
+                            <span
+                              className={[
+                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                                isActive
+                                  ? 'opacity-100 translate-x-0'
+                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                              ].join(' ')}
+                            />
+                          )}
+                          <Shield
+                            size={18}
+                            className="text-slate-400 group-hover:text-white transition-all duration-200"
+                          />
+                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                            Amministrazione
+                          </span>
+                        </>
+                      )}
+                    </NavLink>
+                    <NavLink
+                      to="/checkup/impostazioni"
+                      className={({ isActive }) =>
+                        [
+                          'group flex items-center rounded-2xl transition-colors',
+                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                          'text-sm font-medium',
+                          isActive
+                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                        ].join(' ')
+                      }
+                    >
+                      {({ isActive }) => (
+                        <>
+                          {!sidebarCollapsed && (
+                            <span
+                              className={[
+                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                                isActive
+                                  ? 'opacity-100 translate-x-0'
+                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                              ].join(' ')}
+                            />
+                          )}
+                          <Settings
+                            size={18}
+                            className="text-slate-400 group-hover:text-white transition-all duration-200"
+                          />
+                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                            Impostazioni
+                          </span>
+                        </>
+                      )}
+                    </NavLink>
+                  </>
+                )}
+                {user?.ruolo !== 'admin_studio' && (
+                  <NavLink
+                    to="/checkup/impostazioni"
+                    className={({ isActive }) =>
+                      [
+                        'group flex items-center rounded-2xl transition-colors',
+                        sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                        'text-sm font-medium',
+                        isActive
+                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                          : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                      ].join(' ')
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {!sidebarCollapsed && (
+                          <span
+                            className={[
+                              'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                              isActive
+                                ? 'opacity-100 translate-x-0'
+                                : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                            ].join(' ')}
+                          />
+                        )}
+                        <Settings
+                          size={18}
+                          className="text-slate-400 group-hover:text-white transition-all duration-200"
+                        />
+                        <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                          Impostazioni
+                        </span>
+                      </>
+                    )}
+                  </NavLink>
+                )}
                 <NavLink
-                  to="/checkup/amministrazione"
+                  to="/checkup/notifiche-sistema"
                   className={({ isActive }) =>
                     [
                       'group flex items-center rounded-2xl transition-colors',
@@ -586,18 +1131,18 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                           ].join(' ')}
                         />
                       )}
-                      <Shield
+                      <BellRing
                         size={18}
                         className="text-slate-400 group-hover:text-white transition-all duration-200"
                       />
                       <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                        Amministrazione
+                        Notifiche di sistema
                       </span>
                     </>
                   )}
                 </NavLink>
                 <NavLink
-                  to="/checkup/impostazioni"
+                  to="/checkup/help"
                   className={({ isActive }) =>
                     [
                       'group flex items-center rounded-2xl transition-colors',
@@ -621,12 +1166,12 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                           ].join(' ')}
                         />
                       )}
-                      <Settings
+                      <CircleHelp
                         size={18}
                         className="text-slate-400 group-hover:text-white transition-all duration-200"
                       />
                       <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                        Impostazioni
+                        Help
                       </span>
                     </>
                   )}
@@ -662,6 +1207,79 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                       />
                       <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
                         Log attività
+                      </span>
+                    </>
+                  )}
+                </NavLink>
+              </div>
+            )}
+            {!isStaff && (
+              <div className="space-y-1 border-t border-blue-800/30 pt-4">
+                {!sidebarCollapsed && (
+                  <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400">
+                    Supporto
+                  </p>
+                )}
+                <NavLink
+                  to="/checkup/help"
+                  className={({ isActive }) =>
+                    [
+                      'group flex items-center rounded-2xl transition-colors',
+                      sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                      'text-sm font-medium',
+                      isActive
+                        ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                        : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                    ].join(' ')
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      {!sidebarCollapsed && (
+                        <span
+                          className={[
+                            'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                            isActive
+                              ? 'opacity-100 translate-x-0'
+                              : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                          ].join(' ')}
+                        />
+                      )}
+                      <BellRing size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
+                      <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                        Help
+                      </span>
+                    </>
+                  )}
+                </NavLink>
+                <NavLink
+                  to="/checkup/impostazioni"
+                  className={({ isActive }) =>
+                    [
+                      'group flex items-center rounded-2xl transition-colors',
+                      sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                      'text-sm font-medium',
+                      isActive
+                        ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                        : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                    ].join(' ')
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      {!sidebarCollapsed && (
+                        <span
+                          className={[
+                            'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                            isActive
+                              ? 'opacity-100 translate-x-0'
+                              : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                          ].join(' ')}
+                        />
+                      )}
+                      <Settings size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
+                      <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                        Impostazioni
                       </span>
                     </>
                   )}
@@ -752,23 +1370,94 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                   Torna al checkup
                 </button>
               )}
-              {!location.pathname.startsWith('/checkup/help') && (
-                <button
-                  type="button"
-                  onClick={() => navigate('/checkup/help')}
-                  className="hidden md:inline-flex items-center gap-2 rounded-full border border-indigo-200/60 bg-white/85 px-3 py-2 text-[11px] font-semibold text-slate-700 shadow-[0_12px_30px_rgba(10,16,32,0.16)] transition hover:border-indigo-300 hover:text-indigo-700"
-                >
-                  Help
-                </button>
-              )}
-              {!location.pathname.startsWith('/checkup/impostazioni') && (
-                <button
-                  type="button"
-                  onClick={() => navigate('/checkup/impostazioni')}
-                  className="hidden md:inline-flex items-center gap-2 rounded-full border border-indigo-200/60 bg-white/85 px-3 py-2 text-[11px] font-semibold text-slate-700 shadow-[0_12px_30px_rgba(10,16,32,0.16)] transition hover:border-indigo-300 hover:text-indigo-700"
-                >
-                  Impostazioni
-                </button>
+              {isStaff && (
+                <div ref={notificationPopoverRef} className="relative z-[120]">
+                  <button
+                    ref={notificationBellButtonRef}
+                    type="button"
+                    onClick={async () => {
+                      const nextOpen = !systemNotificationsOpen;
+                      setSystemNotificationsOpen(nextOpen);
+                      if (nextOpen) {
+                        const latest = await loadSystemNotifications();
+                        markSystemNotificationsSeen(latest);
+                      }
+                    }}
+                    className="relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-indigo-200/60 bg-white/85 text-slate-700 shadow-[0_16px_46px_rgba(10,16,32,0.16)] transition hover:border-indigo-300 hover:text-indigo-700"
+                    aria-label="Notifiche di sistema"
+                    title="Notifiche di sistema"
+                  >
+                    <BellRing size={18} />
+                    {systemNotificationsUnread > 0 && (
+                      <span className="absolute right-2 top-2 inline-flex h-2.5 w-2.5 rounded-full bg-rose-500" />
+                    )}
+                  </button>
+                  {systemNotificationsOpen && typeof document !== 'undefined' && createPortal(
+                    <div
+                      ref={notificationPopoverPanelRef}
+                      className="fixed z-[9999] w-[380px] overflow-hidden rounded-2xl border border-indigo-100/60 bg-white/95 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-800/90"
+                      style={{
+                        top: ((notificationBellButtonRef.current?.getBoundingClientRect().bottom ?? 96) + 12),
+                        right: Math.max(window.innerWidth - (notificationBellButtonRef.current?.getBoundingClientRect().right ?? window.innerWidth - 24), 24),
+                      }}
+                    >
+                      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">Notifiche di sistema</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">Ultimi aggiornamenti del pre-assessment</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => navigate('/checkup/notifiche-sistema')}
+                          className="text-xs font-semibold text-indigo-600 hover:underline"
+                        >
+                          Vedi tutte
+                        </button>
+                      </div>
+                      <div className="max-h-[420px] overflow-y-auto">
+                        {systemNotificationsLoading ? (
+                          <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
+                            Caricamento notifiche...
+                          </div>
+                        ) : systemNotificationsError ? (
+                          <div className="px-4 py-6 text-sm text-rose-700 dark:text-rose-300">
+                            {systemNotificationsError}
+                          </div>
+                        ) : latestSystemNotifications.length === 0 ? (
+                          <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
+                            Nessuna notifica disponibile.
+                          </div>
+                        ) : (
+                          latestSystemNotifications.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                const params = new URLSearchParams();
+                                params.set('notificationId', item.id);
+                                params.set('type', item.type);
+                                params.set('query', `${item.title} ${item.clientName || ''}`.trim());
+                                navigate(`/checkup/notifiche-sistema?${params.toString()}`);
+                                setSystemNotificationsOpen(false);
+                              }}
+                              className="flex w-full flex-col gap-1 border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">{item.title}</p>
+                                <span className="shrink-0 text-[11px] text-slate-400">{formatNotificationDate(item.createdAt)}</span>
+                              </div>
+                              <p className="line-clamp-2 text-xs text-slate-600 dark:text-slate-300">{item.message}</p>
+                              {item.clientName && (
+                                <span className="text-[11px] font-medium text-indigo-600 dark:text-indigo-300">{item.clientName}</span>
+                              )}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>,
+                    document.body,
+                  )}
+                </div>
               )}
               <div className="flex items-center gap-3 rounded-2xl border border-indigo-200/60 bg-white/85 px-3 py-2 text-xs shadow-[0_16px_46px_rgba(10,16,32,0.16)]">
                 <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-800 via-indigo-600 to-blue-500 text-[11px] font-semibold text-white">
@@ -799,6 +1488,22 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
       </div>
 
       <ConfirmDialog />
+
+      <ActivityToastNotification
+        toasts={activityToasts}
+        onDismiss={dismissActivityToast}
+        onNavigate={(toast) => {
+          const match = toast.id.match(/^[^:]+:([^:]+)/);
+          const preassessmentId = match?.[1];
+          const snapshot = preassessmentId ? previousStaffNotificationsRef.current?.[preassessmentId] : null;
+          if (!snapshot) return;
+          if (toast.kind === 'ticket') {
+            navigate(`/checkup/clienti/${snapshot.clientId}/tickets`);
+            return;
+          }
+          navigate(`/checkup/clienti/${snapshot.clientId}`);
+        }}
+      />
 
       {/* ── Expiring alert toasts ─────────────────────────────────────────── */}
       <ToastNotification

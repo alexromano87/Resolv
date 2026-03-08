@@ -22,6 +22,7 @@ import { CheckupPreassessmentTicketMessage } from './preassessment/checkup-preas
 import { CheckupPreassessmentAlert } from './preassessment/checkup-preassessment-alert.entity';
 import { CheckupPreassessmentDocument } from './preassessment/checkup-preassessment-document.entity';
 import { CheckupPreassessmentReport } from './preassessment/checkup-preassessment-report.entity';
+import { CheckupPreassessmentExportJob } from './preassessment/checkup-preassessment-export-job.entity';
 import { CheckupStudio } from './studios/checkup-studio.entity';
 import { CheckupLicense } from './licenses/checkup-license.entity';
 import { CheckupSublicense } from './licenses/checkup-sublicense.entity';
@@ -60,9 +61,13 @@ import { CheckupPreassessmentChatService } from './preassessment/checkup-preasse
 import { CheckupPreassessmentChatController } from './preassessment/checkup-preassessment-chat.controller';
 import { CheckupPreassessmentThreadsService } from './preassessment/checkup-preassessment-threads.service';
 import { CheckupPreassessmentThreadsController } from './preassessment/checkup-preassessment-threads.controller';
+import { CheckupPreassessmentNotificationsService } from './preassessment/checkup-preassessment-notifications.service';
+import { CheckupPreassessmentRenderService } from './preassessment/checkup-preassessment-render.service';
 import { CheckupPreassessmentDocumentsService } from './preassessment/checkup-preassessment-documents.service';
 import { CheckupPreassessmentDocumentsController } from './preassessment/checkup-preassessment-documents.controller';
 import { CheckupPreassessmentReportsService } from './preassessment/checkup-preassessment-reports.service';
+import { CheckupPreassessmentRetentionService } from './preassessment/checkup-preassessment-retention.service';
+import { CheckupPreassessmentExportJobsService } from './preassessment/checkup-preassessment-export-jobs.service';
 import { CheckupStudiosService } from './studios/checkup-studios.service';
 import { CheckupStudiosController } from './studios/checkup-studios.controller';
 import { CheckupClient } from './clients/checkup-client.entity';
@@ -78,6 +83,10 @@ import { QuestionSeedService } from './services/question-seed.service';
 
 // Mail
 import { CheckupMailService } from './mail/checkup-mail.service';
+
+// Me (self-service export / deletion request)
+import { CheckupMeService } from './me/checkup-me.service';
+import { CheckupMeController } from './me/checkup-me.controller';
 
 // Audit
 import { CheckupAuditLogService } from './audit/checkup-audit-log.service';
@@ -102,6 +111,7 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
       CheckupPreassessmentAlert,
       CheckupPreassessmentDocument,
       CheckupPreassessmentReport,
+      CheckupPreassessmentExportJob,
       CheckupStudio,
       CheckupClient,
       CheckupLicense,
@@ -144,6 +154,7 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
     CheckupStudiosController,
     QuestionManagementController,
     CheckupAuditController,
+    CheckupMeController,
   ],
   providers: [
     {
@@ -171,14 +182,19 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
     CheckupDocumentsService,
     CheckupChatService,
     CheckupPreassessmentService,
+    CheckupPreassessmentNotificationsService,
+    CheckupPreassessmentRenderService,
     CheckupPreassessmentChatService,
     CheckupPreassessmentThreadsService,
     CheckupPreassessmentDocumentsService,
     CheckupPreassessmentReportsService,
+    CheckupPreassessmentRetentionService,
+    CheckupPreassessmentExportJobsService,
     CheckupStudiosService,
     QuestionManagementService,
     QuestionSeedService,
     CheckupMailService,
+    CheckupMeService,
     CheckupAuditLogService,
   ],
 })

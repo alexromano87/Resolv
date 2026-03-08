@@ -12,6 +12,9 @@ export interface PreassessmentNavState {
   sectionStats: Record<string, SectionStat>;
   macroValidations: Record<string, MacroValidationEntry>;
   chatCount: number;
+  ticketCount: number;
+  alertCount: number;
+  clientId: string | null;
   hasAssessment: boolean;
   isClient: boolean;
 }

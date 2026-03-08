@@ -35,6 +35,8 @@ export interface CheckupAdminUser {
   sublicense?: CheckupSublicense | null;
   azienda?: string | null;
   macroAreaOwner?: string[] | null;
+  macroAreaAssignments?: string[] | null;
+  superOwner?: boolean;
   attivo: boolean;
   createdAt: string;
 }
@@ -84,7 +86,7 @@ export interface CheckupSublicense {
 
 export interface CheckupClient {
   id: string;
-  nome: string;
+  nome: string | null;
   ragioneSociale?: string | null;
   partitaIva?: string | null;
   codiceFiscale?: string | null;
@@ -104,6 +106,7 @@ export interface CheckupClient {
 export interface CreateCheckupStudioDto {
   nome: string;
   tipo?: 'licenziatario' | 'cliente';
+  licenseId?: string;
   ragioneSociale?: string;
   partitaIva?: string;
   codiceFiscale?: string;
@@ -122,6 +125,7 @@ export interface CreateCheckupStudioDto {
 export interface UpdateCheckupStudioDto extends Partial<CreateCheckupStudioDto> {
   attivo?: boolean;
   licenseId?: string;
+  keepUserIds?: string[];
 }
 
 export interface CreateCheckupClientDto {
@@ -158,6 +162,8 @@ export interface CreateCheckupAdminUserDto {
   ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   telefono?: string;
   macroAreaOwner?: string[];
+  macroAreaAssignments?: string[];
+  superOwner?: boolean;
 }
 
 export interface UpdateCheckupAdminUserDto {
@@ -172,6 +178,8 @@ export interface UpdateCheckupAdminUserDto {
   ruolo?: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   attivo?: boolean;
   macroAreaOwner?: string[];
+  macroAreaAssignments?: string[];
+  superOwner?: boolean;
 }
 
 export interface UpsertCheckupLicenseDto {

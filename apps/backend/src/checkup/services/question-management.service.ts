@@ -141,7 +141,7 @@ export class QuestionManagementService {
   async getModelById(id: string) {
     const model = await this.modelRepo.findOne({ where: { id } });
     if (!model) {
-      throw new NotFoundException(`Model with ID ${id} not found`);
+      throw new NotFoundException(`Modello con ID ${id} non trovato`);
     }
     return model;
   }
@@ -149,7 +149,7 @@ export class QuestionManagementService {
   async createModel(dto: CreateQuestionModelDto) {
     const existing = await this.modelRepo.findOne({ where: { code: dto.code } });
     if (existing) {
-      throw new ConflictException(`Model with code "${dto.code}" already exists`);
+      throw new ConflictException(`Esiste gia un modello con codice "${dto.code}"`);
     }
     const template = dto.importFromModelId
       ? await this.modelRepo.findOne({
@@ -158,7 +158,7 @@ export class QuestionManagementService {
         })
       : null;
     if (dto.importFromModelId && !template) {
-      throw new NotFoundException(`Model with ID ${dto.importFromModelId} not found`);
+      throw new NotFoundException(`Modello con ID ${dto.importFromModelId} non trovato`);
     }
 
     const model = this.modelRepo.create({
@@ -231,7 +231,7 @@ export class QuestionManagementService {
     if (dto.code && dto.code !== model.code) {
       const existing = await this.modelRepo.findOne({ where: { code: dto.code } });
       if (existing) {
-        throw new ConflictException(`Model with code "${dto.code}" already exists`);
+        throw new ConflictException(`Esiste gia un modello con codice "${dto.code}"`);
       }
     }
     Object.assign(model, dto);
@@ -267,7 +267,7 @@ export class QuestionManagementService {
       where: { id },
       relations: ['macroAreas', 'macroAreas.sections', 'macroAreas.sections.fields'],
     });
-    if (!parent) throw new NotFoundException(`Model with ID ${id} not found`);
+    if (!parent) throw new NotFoundException(`Modello con ID ${id} non trovato`);
     if (parent.status !== 'published') {
       throw new ConflictException('Solo i modelli pubblicati possono generare una nuova versione');
     }
@@ -353,7 +353,7 @@ export class QuestionManagementService {
       relations: ['sections'],
     });
     if (!macroArea) {
-      throw new NotFoundException(`Macro area with ID ${id} not found`);
+      throw new NotFoundException(`Macro area con ID ${id} non trovata`);
     }
     return macroArea;
   }
@@ -365,7 +365,7 @@ export class QuestionManagementService {
       where: { code: dto.code, modelId: dto.modelId },
     });
     if (existing) {
-      throw new ConflictException(`Macro area with code "${dto.code}" already exists`);
+      throw new ConflictException(`Esiste gia una macro area con codice "${dto.code}"`);
     }
 
     const macroArea = this.macroAreaRepo.create(dto);
@@ -385,7 +385,7 @@ export class QuestionManagementService {
         where: { code: dto.code, modelId: dto.modelId ?? macroArea.modelId },
       });
       if (existing) {
-        throw new ConflictException(`Macro area with code "${dto.code}" already exists`);
+        throw new ConflictException(`Esiste gia una macro area con codice "${dto.code}"`);
       }
     }
 
@@ -396,7 +396,7 @@ export class QuestionManagementService {
   async deleteMacroArea(id: number) {
     const macroArea = await this.getMacroAreaById(id);
     await this.macroAreaRepo.remove(macroArea);
-    return { message: 'Macro area deleted successfully' };
+    return { message: 'Macro area eliminata correttamente' };
   }
 
   // ==================== SECTIONS ====================
@@ -414,7 +414,7 @@ export class QuestionManagementService {
       relations: ['macroArea', 'fields'],
     });
     if (!section) {
-      throw new NotFoundException(`Section with ID ${id} not found`);
+      throw new NotFoundException(`Sezione con ID ${id} non trovata`);
     }
     return section;
   }
@@ -436,7 +436,7 @@ export class QuestionManagementService {
       where: { code: dto.code },
     });
     if (existing) {
-      throw new ConflictException(`Section with code "${dto.code}" already exists`);
+      throw new ConflictException(`Esiste gia una sezione con codice "${dto.code}"`);
     }
 
     const section = this.sectionRepo.create(dto);
@@ -457,7 +457,7 @@ export class QuestionManagementService {
         where: { code: dto.code },
       });
       if (existing) {
-        throw new ConflictException(`Section with code "${dto.code}" already exists`);
+        throw new ConflictException(`Esiste gia una sezione con codice "${dto.code}"`);
       }
     }
 
@@ -486,7 +486,7 @@ export class QuestionManagementService {
       relations: ['section'],
     });
     if (!field) {
-      throw new NotFoundException(`Field with ID ${id} not found`);
+      throw new NotFoundException(`Campo con ID ${id} non trovato`);
     }
     return field;
   }

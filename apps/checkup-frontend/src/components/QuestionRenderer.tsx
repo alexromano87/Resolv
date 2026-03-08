@@ -56,9 +56,9 @@ export function QuestionRenderer({
     const file = e.target.files?.[0];
     if (!file || !answer) return;
 
-    const MAX_SIZE = 15 * 1024 * 1024;
+    const MAX_SIZE = 30 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
-      setUploadError('Il file supera la dimensione massima consentita di 15 MB.');
+      setUploadError('Il file supera la dimensione massima consentita di 30 MB.');
       if (fileRef.current) fileRef.current.value = '';
       return;
     }
@@ -276,7 +276,7 @@ export function QuestionRenderer({
                   <Upload className="h-3.5 w-3.5" />
                   {uploading ? 'Caricamento...' : 'Carica documento'}
                 </button>
-                <span className="text-[11px] text-gray-400">Max 15 MB</span>
+                <span className="text-[11px] text-gray-400">Max 30 MB</span>
               </div>
               {uploadError && (
                 <p className="mt-1 text-[11px] text-danger-600">{uploadError}</p>

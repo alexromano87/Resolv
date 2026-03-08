@@ -20,6 +20,7 @@ import { preassessmentApi, threadsUnreadApi, PreassessmentClientEntry } from '..
 import { usersApi } from '../api/users';
 import { studiosApi, CheckupSublicenseOption, CheckupStudioProfile } from '../api/studios';
 import type { CheckupUser } from '../api/auth';
+import { useAuth } from '../contexts/AuthContext';
 import { SECTIONS } from '../data/preassessment';
 
 const requiredFields = SECTIONS.flatMap((s) => s.fields.filter((f) => f.required).map((f) => f.id));
@@ -28,6 +29,7 @@ const formatPercent = (value: number) => `${Math.round(value)}%`;
 
 export default function StudioDashboardPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [clients, setClients] = useState<PreassessmentClientEntry[]>([]);
   const [users, setUsers] = useState<CheckupUser[]>([]);
   const [profile, setProfile] = useState<CheckupStudioProfile | null>(null);
@@ -241,24 +243,26 @@ export default function StudioDashboardPage() {
               Monitoraggio operativo in tempo reale di clienti, utenti, licenze e stato di avanzamento dei checkup.
             </p>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => navigate('/checkup/utenti')}
-              className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
-            >
-              <Users className="h-4 w-4" />
-              Gestione utenti
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/checkup/impostazioni')}
-              className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
-            >
-              <BadgeCheck className="h-4 w-4" />
-              Impostazioni studio
-            </button>
-          </div>
+          {user?.ruolo === 'admin_studio' && (
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => navigate('/checkup/utenti')}
+                className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
+              >
+                <Users className="h-4 w-4" />
+                Gestione utenti
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/checkup/impostazioni')}
+                className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
+              >
+                <BadgeCheck className="h-4 w-4" />
+                Impostazioni studio
+              </button>
+            </div>
+          )}
         </div>
         <div className="relative mt-8 grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-white/10 p-4">

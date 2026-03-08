@@ -42,9 +42,14 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         })
         .catch(() => {});
     } else {
-      setBranding((p) => ({ ...p, logoUrl: null, nome: user.licenziatarioNome ?? null, refresh }));
+      setBranding((p) => ({
+        ...p,
+        logoUrl: user.client?.logoUrl ?? null,
+        nome: user.client?.ragioneSociale ?? user.azienda ?? user.clientNome ?? user.client?.nome ?? null,
+        refresh,
+      }));
     }
-  }, [user?.id, user?.ruolo, refreshKey, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user, refreshKey, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Attach refresh to context value (stable ref)
   const value: StudioBranding = { logoUrl: branding.logoUrl, nome: branding.nome, refresh };

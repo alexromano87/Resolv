@@ -4,16 +4,23 @@ import { ForbiddenException } from '@nestjs/common';
 import { CheckupPreassessmentDocumentsService } from './checkup-preassessment-documents.service';
 import { CheckupPreassessmentDocument } from './checkup-preassessment-document.entity';
 import { CheckupPreassessmentService } from './checkup-preassessment.service';
+import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
+import { CheckupLicense } from '../licenses/checkup-license.entity';
+import { QuestionManagementService } from '../services/question-management.service';
 
 const mockRepository = () => ({
   create: jest.fn((entity) => entity),
   save: jest.fn(async (entity) => ({ id: 'doc-1', ...entity })),
+  findOne: jest.fn(),
 });
 
 describe('CheckupPreassessmentDocumentsService', () => {
   let service: CheckupPreassessmentDocumentsService;
   let documentRepo: ReturnType<typeof mockRepository>;
+  let sublicenseRepo: ReturnType<typeof mockRepository>;
+  let licenseRepo: ReturnType<typeof mockRepository>;
   let preassessmentService: { getPreassessmentForDocuments: jest.Mock };
+  let questionManagementService: { getCompleteStructure: jest.Mock };
 
   const baseUser = {
     id: 'u-1',
@@ -37,15 +44,23 @@ describe('CheckupPreassessmentDocumentsService', () => {
 
   beforeEach(async () => {
     documentRepo = mockRepository();
+    sublicenseRepo = mockRepository();
+    licenseRepo = mockRepository();
     preassessmentService = {
       getPreassessmentForDocuments: jest.fn(),
+    };
+    questionManagementService = {
+      getCompleteStructure: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CheckupPreassessmentDocumentsService,
         { provide: getRepositoryToken(CheckupPreassessmentDocument), useValue: documentRepo },
+        { provide: getRepositoryToken(CheckupSublicense), useValue: sublicenseRepo },
+        { provide: getRepositoryToken(CheckupLicense), useValue: licenseRepo },
         { provide: CheckupPreassessmentService, useValue: preassessmentService },
+        { provide: QuestionManagementService, useValue: questionManagementService },
       ],
     }).compile();
 

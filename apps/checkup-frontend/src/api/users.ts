@@ -10,6 +10,9 @@ export interface CreateCheckupUserPayload {
   ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   clientId?: string;
   azienda?: string;
+  macroAreaOwner?: string[];
+  macroAreaAssignments?: string[];
+  superOwner?: boolean;
 }
 
 export interface UpdateCheckupUserPayload {
@@ -21,6 +24,9 @@ export interface UpdateCheckupUserPayload {
   ruolo?: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   clientId?: string | null;
   attivo?: boolean;
+  macroAreaOwner?: string[];
+  macroAreaAssignments?: string[];
+  superOwner?: boolean;
 }
 
 export const usersApi = {

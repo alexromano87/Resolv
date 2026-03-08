@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X, Edit2, Power, PowerOff, Eye, EyeOff, UserPlus, Key } from 'lucide-react';
 import { checkupAdminApi, type CheckupStudio, type CheckupLicense, type CheckupAdminUser } from '../api/checkupAdmin';
 import { CustomSelect } from '../components/ui/CustomSelect';
@@ -28,6 +28,7 @@ export default function AdminCheckupStudiosPage() {
   const [filterTipo, setFilterTipo] = useState<'all' | 'licenziatario' | 'cliente'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     nome: '',
@@ -43,11 +44,14 @@ export default function AdminCheckupStudiosPage() {
     email: '',
     telefono: '',
     sitoWeb: '',
+    logoUrl: '',
     note: '',
     licenseId: '',
   });
+  const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
 
   const [showStaffForm, setShowStaffForm] = useState(false);
+  const [keepUserIds, setKeepUserIds] = useState<string[]>([]);
   const [staffForm, setStaffForm] = useState({
     nome: '',
     cognome: '',
@@ -62,6 +66,9 @@ export default function AdminCheckupStudiosPage() {
 
   const inputClassName =
     'mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200';
+  const inputClass = (field: string) =>
+    `${inputClassName} ${formErrors[field] ? '!border-rose-300 !ring-2 !ring-rose-200 focus:!border-rose-400 focus:!ring-rose-200' : ''}`;
+  const labelClass = (_field?: string) => 'block text-sm font-medium text-slate-700';
 
   const loadData = async () => {
     setLoading(true);
@@ -89,6 +96,7 @@ export default function AdminCheckupStudiosPage() {
   const handleOpenCreate = () => {
     setIsEditing(false);
     setSelectedStudio(null);
+    setFormErrors({});
     setFormData({
       nome: '',
       tipo: 'licenziatario',
@@ -103,9 +111,11 @@ export default function AdminCheckupStudiosPage() {
       email: '',
       telefono: '',
       sitoWeb: '',
+      logoUrl: '',
       note: '',
       licenseId: '',
     });
+    setKeepUserIds([]);
     setShowStaffForm(false);
     setShowModal(true);
   };
@@ -113,6 +123,7 @@ export default function AdminCheckupStudiosPage() {
   const handleOpenEdit = (studio: CheckupStudio) => {
     setIsEditing(true);
     setSelectedStudio(studio);
+    setFormErrors({});
     setFormData({
       nome: studio.nome,
       tipo: studio.tipo,
@@ -127,9 +138,11 @@ export default function AdminCheckupStudiosPage() {
       email: studio.email || '',
       telefono: studio.telefono || '',
       sitoWeb: studio.sitoWeb || '',
+      logoUrl: studio.logoUrl || '',
       note: studio.note || '',
       licenseId: licenses.find((l) => l.studioId === studio.id)?.id || '',
     });
+    setKeepUserIds([]);
 
     setShowStaffForm(false);
     setShowModal(true);
@@ -139,14 +152,158 @@ export default function AdminCheckupStudiosPage() {
     setShowModal(false);
     setSelectedStudio(null);
     setShowStaffForm(false);
+    setFormErrors({});
+    setKeepUserIds([]);
+  };
+
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const maxWidth = 400;
+        const maxHeight = 150;
+        const ratio = Math.min(maxWidth / img.naturalWidth, maxHeight / img.naturalHeight, 1);
+        const width = Math.round(img.naturalWidth * ratio);
+        const height = Math.round(img.naturalHeight * ratio);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+        const threshold = 30;
+        const corners: [number, number][] = [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]];
+        const visited = new Uint8Array(width * height);
+
+        for (const [cx, cy] of corners) {
+          const startIndex = (cy * width + cx) * 4;
+          if (data[startIndex + 3] < 128) continue;
+          const refR = data[startIndex];
+          const refG = data[startIndex + 1];
+          const refB = data[startIndex + 2];
+          const queue: [number, number][] = [[cx, cy]];
+          visited[cy * width + cx] = 1;
+          let queueIndex = 0;
+
+          while (queueIndex < queue.length) {
+            const [qx, qy] = queue[queueIndex++];
+            const pixelIndex = (qy * width + qx) * 4;
+            data[pixelIndex + 3] = 0;
+
+            for (const [nx, ny] of [[qx - 1, qy], [qx + 1, qy], [qx, qy - 1], [qx, qy + 1]] as [number, number][]) {
+              if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+              const nextIndex = ny * width + nx;
+              if (visited[nextIndex]) continue;
+              visited[nextIndex] = 1;
+              const nextPixelIndex = nextIndex * 4;
+              if (data[nextPixelIndex + 3] < 128) continue;
+              const deltaR = Math.abs(data[nextPixelIndex] - refR);
+              const deltaG = Math.abs(data[nextPixelIndex + 1] - refG);
+              const deltaB = Math.abs(data[nextPixelIndex + 2] - refB);
+              if (deltaR <= threshold && deltaG <= threshold && deltaB <= threshold) {
+                queue.push([nx, ny]);
+              }
+            }
+          }
+
+          break;
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+
+        const trimmedSource = ctx.getImageData(0, 0, width, height).data;
+        let minX = width;
+        let maxX = 0;
+        let minY = height;
+        let maxY = 0;
+
+        for (let y = 0; y < height; y += 1) {
+          for (let x = 0; x < width; x += 1) {
+            if (trimmedSource[(y * width + x) * 4 + 3] > 0) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+
+        if (minX > maxX || minY > maxY) {
+          setFormData((prev) => ({ ...prev, logoUrl: canvas.toDataURL('image/png') }));
+          return;
+        }
+
+        const padding = 6;
+        const trimmedCanvas = document.createElement('canvas');
+        trimmedCanvas.width = maxX - minX + 1 + padding * 2;
+        trimmedCanvas.height = maxY - minY + 1 + padding * 2;
+        const trimmedCtx = trimmedCanvas.getContext('2d');
+        if (!trimmedCtx) return;
+        trimmedCtx.clearRect(0, 0, trimmedCanvas.width, trimmedCanvas.height);
+        trimmedCtx.drawImage(
+          canvas,
+          minX,
+          minY,
+          maxX - minX + 1,
+          maxY - minY + 1,
+          padding,
+          padding,
+          maxX - minX + 1,
+          maxY - minY + 1,
+        );
+        setFormData((prev) => ({ ...prev, logoUrl: trimmedCanvas.toDataURL('image/png') }));
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.nome.trim()) {
+      setFormErrors({ nome: true });
       toastError('Il nome dello studio è obbligatorio');
       return;
     }
+    if (isEditing && nextLicense && currentLicense?.id === nextLicense.id && activeUsersExcess > 0) {
+      toastError(`La licenza consente massimo ${nextLicense.numeroUtenze} utenti attivi, ma questo licenziatario ne ha ${activeStaffUsersForStudio.length}. Devi disattivarne o eliminarne almeno ${activeUsersExcess}.`);
+      return;
+    }
+    if (isEditing && currentLicense && !formData.licenseId && activeStaffUsersForStudio.length > 0) {
+      toastError('Non puoi rimuovere la licenza finché sono presenti utenze attive. Disattiva prima le utenze da non conteggiare.');
+      return;
+    }
+    if (isReducingLicenseCapacity && nextLicense) {
+      if (keepUserIds.length === 0) {
+        toastError('Seleziona le utenze attive da mantenere con la nuova licenza');
+        return;
+      }
+      if (keepUserIds.length > nextLicense.numeroUtenze) {
+        toastError('Hai selezionato più utenze di quelle consentite dalla nuova licenza');
+        return;
+      }
+    }
+
+    const confirmed = await confirm({
+      title: isEditing ? 'Confermare modifica studio?' : 'Confermare creazione studio?',
+      message: isEditing
+        ? `Vuoi salvare le modifiche dello studio "${formData.nome.trim()}"?`
+        : `Vuoi creare lo studio "${formData.nome.trim()}"?`,
+      confirmText: isEditing ? 'Salva modifiche' : 'Crea studio',
+      variant: 'info',
+    });
+
+    if (!confirmed) return;
 
     try {
       if (isEditing && selectedStudio) {
@@ -164,8 +321,10 @@ export default function AdminCheckupStudiosPage() {
           email: formData.email.trim(),
           telefono: formData.telefono.trim(),
           sitoWeb: formData.sitoWeb.trim(),
+          logoUrl: formData.logoUrl.trim(),
           note: formData.note.trim(),
           licenseId: formData.tipo === 'licenziatario' ? formData.licenseId || '' : '',
+          keepUserIds: isReducingLicenseCapacity ? keepUserIds : undefined,
         });
         success('Studio aggiornato');
       } else {
@@ -183,7 +342,9 @@ export default function AdminCheckupStudiosPage() {
           email: formData.email.trim(),
           telefono: formData.telefono.trim(),
           sitoWeb: formData.sitoWeb.trim(),
+          logoUrl: formData.logoUrl.trim(),
           note: formData.note.trim(),
+          licenseId: formData.tipo === 'licenziatario' ? formData.licenseId || '' : undefined,
         });
         success('Studio creato');
       }
@@ -222,10 +383,21 @@ export default function AdminCheckupStudiosPage() {
   const handleCreateStaffUser = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!selectedStudio) return;
+    if (!formData.licenseId) {
+      toastError('Seleziona prima una licenza per poter creare utenti dello studio');
+      return;
+    }
     if (!staffForm.nome.trim() || !staffForm.cognome.trim() || !staffForm.email.trim() || !staffForm.password) {
       toastError('Compila tutti i campi obbligatori');
       return;
     }
+    const confirmed = await confirm({
+      title: 'Confermare creazione utente?',
+      message: `Vuoi creare l'utente "${staffForm.nome.trim()} ${staffForm.cognome.trim()}" per questo studio?`,
+      confirmText: 'Crea utente',
+      variant: 'info',
+    });
+    if (!confirmed) return;
     try {
       await checkupAdminApi.createAdminUser({
         nome: staffForm.nome.trim(),
@@ -311,6 +483,22 @@ export default function AdminCheckupStudiosPage() {
   const staffUsersForStudio = selectedStudio
     ? users.filter((u) => u.studioId === selectedStudio.id && u.ruolo !== 'cliente')
     : [];
+  const activeStaffUsersForStudio = staffUsersForStudio.filter((u) => u.attivo);
+  const currentLicense = selectedStudio ? licenses.find((l) => l.studioId === selectedStudio.id) || null : null;
+  const nextLicense = formData.licenseId
+    ? licenses.find((l) => l.id === formData.licenseId) || null
+    : null;
+  const isChangingLicense = isEditing && currentLicense && nextLicense && currentLicense.id !== nextLicense.id;
+  const activeUsersExcess = nextLicense
+    ? Math.max(0, activeStaffUsersForStudio.length - nextLicense.numeroUtenze)
+    : 0;
+  const isOverLicenseCapacity = Boolean(nextLicense && activeUsersExcess > 0);
+  const isReducingLicenseCapacity = Boolean(
+    isChangingLicense
+      && nextLicense
+      && activeStaffUsersForStudio.length > nextLicense.numeroUtenze,
+  );
+  const canCreateStaffUsers = Boolean(selectedStudio && formData.licenseId);
 
   const filteredStudios = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -470,11 +658,14 @@ export default function AdminCheckupStudiosPage() {
               <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto p-6">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700">Nome studio</label>
+                    <label className={labelClass('nome')}>Nome studio <span className="text-rose-600">*</span></label>
                     <input
                       value={formData.nome}
-                      onChange={(e) => setFormData((p) => ({ ...p, nome: e.target.value }))}
-                      className={inputClassName}
+                      onChange={(e) => {
+                        setFormData((p) => ({ ...p, nome: e.target.value }));
+                        setFormErrors((prev) => ({ ...prev, nome: false }));
+                      }}
+                      className={inputClass('nome')}
                     />
                   </div>
                   <div>
@@ -504,20 +695,29 @@ export default function AdminCheckupStudiosPage() {
                     <div className="mt-1">
                       <CustomSelect
                         value={formData.licenseId}
-                        onChange={(val) => setFormData((p) => ({ ...p, licenseId: val }))}
-                        options={availableLicenses.map((license) => ({
-                          value: license.id,
-                          label: license.numeroLicenza
-                            ? `Licenza #${license.numeroLicenza} · ${license.intestatario}`
-                            : `Licenza senza numero · ${license.intestatario}`,
-                          sublabel: [
-                            license.studio?.nome || 'Non assegnata',
-                            license.tipo || 'Tipo n.d.',
-                            license.model?.label ? `Modello: ${license.model.label}` : 'Modello: —',
-                            `${license.numeroUtenze} utenze`,
-                            `${formatDate(license.dataInizioValidita)} → ${formatDate(license.dataScadenza)}`,
-                          ].join(' · '),
-                        }))}
+                        onChange={(val) => {
+                          setFormData((p) => ({ ...p, licenseId: val }));
+                          setKeepUserIds([]);
+                          if (!val) {
+                            setShowStaffForm(false);
+                          }
+                        }}
+                        options={[
+                          ...(isEditing ? [{ value: '', label: 'Nessuna licenza assegnata' }] : []),
+                          ...availableLicenses.map((license) => ({
+                            value: license.id,
+                            label: license.numeroLicenza
+                              ? `Licenza #${license.numeroLicenza} · ${license.intestatario}`
+                              : `Licenza senza numero · ${license.intestatario}`,
+                            sublabel: [
+                              license.studio?.nome || 'Non assegnata',
+                              license.tipo || 'Tipo n.d.',
+                              license.model?.label ? `Modello: ${license.model.label}` : 'Modello: —',
+                              `${license.numeroUtenze} utenze`,
+                              `${formatDate(license.dataInizioValidita)} → ${formatDate(license.dataScadenza)}`,
+                            ].join(' · '),
+                          })),
+                        ]}
                         placeholder="Seleziona licenza disponibile"
                         searchable
                         searchPlaceholder="Cerca licenza..."
@@ -526,12 +726,64 @@ export default function AdminCheckupStudiosPage() {
                     <p className="mt-2 text-xs text-slate-500">
                       Sono disponibili solo le licenze non assegnate o già associate a questo studio.
                     </p>
+                    {isEditing && currentLicense && !formData.licenseId && activeStaffUsersForStudio.length > 0 && (
+                      <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                        Non puoi rimuovere la licenza finché sono presenti {activeStaffUsersForStudio.length} utenze attive. Le utenze disattivate non vengono conteggiate.
+                      </div>
+                    )}
+                    {isOverLicenseCapacity && nextLicense && currentLicense?.id === nextLicense.id && (
+                      <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                        La licenza consente massimo {nextLicense.numeroUtenze} utenti attivi, ma questo licenziatario ne ha {activeStaffUsersForStudio.length}. Devi disattivarne o eliminarne almeno {activeUsersExcess}. Le utenze disattivate non vengono conteggiate.
+                      </div>
+                    )}
+                    {isReducingLicenseCapacity && nextLicense && (
+                      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        <p className="font-semibold">
+                          La nuova licenza consente {nextLicense.numeroUtenze} utenti attivi, ma lo studio ne ha {activeStaffUsersForStudio.length}.
+                        </p>
+                        <p className="mt-1 text-xs text-amber-800">
+                          Seleziona le utenze da mantenere attive. Le altre verranno disattivate automaticamente al salvataggio.
+                        </p>
+                        <div className="mt-3 space-y-2">
+                          {activeStaffUsersForStudio.map((user) => {
+                            const checked = keepUserIds.includes(user.id);
+                            const disabled = !checked && keepUserIds.length >= nextLicense.numeroUtenze;
+                            return (
+                              <label
+                                key={user.id}
+                                className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${checked ? 'border-amber-300 bg-white' : 'border-amber-100 bg-white/70'} ${disabled ? 'opacity-50' : ''}`}
+                              >
+                                <span>
+                                  <span className="font-medium text-slate-900">{user.nome} {user.cognome}</span>
+                                  <span className="ml-2 text-xs text-slate-500">{user.email}</span>
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={disabled}
+                                  onChange={(e) => {
+                                    setKeepUserIds((prev) => (
+                                      e.target.checked
+                                        ? [...prev, user.id]
+                                        : prev.filter((id) => id !== user.id)
+                                    ));
+                                  }}
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                        <p className="mt-2 text-xs text-amber-800">
+                          Selezionati {keepUserIds.length}/{nextLicense.numeroUtenze}.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700">Ragione sociale</label>
+                    <label className="block text-sm font-medium text-slate-700">Ragione sociale/Denominazione</label>
                     <input
                       value={formData.ragioneSociale}
                       onChange={(e) => setFormData((p) => ({ ...p, ragioneSociale: e.target.value }))}
@@ -632,6 +884,47 @@ export default function AdminCheckupStudiosPage() {
                   />
                 </div>
 
+                {formData.tipo === 'licenziatario' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Logo aziendale</label>
+                    <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                      {formData.logoUrl ? (
+                        <div className="flex items-start gap-3">
+                          <img
+                            src={formData.logoUrl}
+                            alt="Logo studio"
+                            className="h-14 w-auto max-w-[220px] rounded-lg border border-slate-200 bg-white object-contain p-2"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setFormData((prev) => ({ ...prev, logoUrl: '' }))}
+                            className="text-xs font-medium text-rose-600 hover:text-rose-700"
+                          >
+                            Rimuovi logo
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-slate-500">Nessun logo caricato</p>
+                      )}
+                      <input
+                        ref={logoFileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={handleLogoFileChange}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => logoFileInputRef.current?.click()}
+                        className="mt-3 wow-button-ghost text-xs"
+                      >
+                        {formData.logoUrl ? 'Sostituisci logo' : 'Carica logo'}
+                      </button>
+                      <p className="mt-2 text-[11px] text-slate-400">PNG, JPEG o WebP · max 400×150 px</p>
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-slate-700">Note</label>
                   <textarea
@@ -651,7 +944,13 @@ export default function AdminCheckupStudiosPage() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setShowStaffForm((prev) => !prev)}
+                        onClick={() => {
+                          if (!canCreateStaffUsers) {
+                            toastError('Seleziona e salva prima una licenza per poter creare utenti dello studio');
+                            return;
+                          }
+                          setShowStaffForm((prev) => !prev);
+                        }}
                         className="wow-button-ghost"
                       >
                         <UserPlus className="h-4 w-4" />
@@ -660,6 +959,11 @@ export default function AdminCheckupStudiosPage() {
                     </div>
 
                     <div className="mt-4 space-y-2">
+                      {!canCreateStaffUsers && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                          Per creare utenti dello studio devi prima selezionare una licenza e salvare il licenziatario.
+                        </div>
+                      )}
                       {staffUsersForStudio.length === 0 ? (
                         <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500">
                           Nessun utente staff associato.

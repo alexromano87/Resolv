@@ -27,7 +27,8 @@ RUN apk add --no-cache \
     freetype \
     harfbuzz \
     ca-certificates \
-    ttf-freefont
+    ttf-freefont \
+    su-exec
 
 # Tell Puppeteer to use the installed Chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
@@ -48,11 +49,11 @@ RUN chmod +x ./start-with-migrations.sh
 # Create non-root user for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Ensure appuser owns the work directory and backup/log dirs
-RUN mkdir -p /usr/src/app/logs /usr/src/app/backups && \
+# Ensure appuser owns the work directory and writable dirs present in the image
+RUN mkdir -p /usr/src/app/logs /usr/src/app/backups /usr/src/app/uploads && \
     chown -R appuser:appgroup /usr/src/app
 
-USER appuser
+USER root
 
 EXPOSE 3000
 CMD ["./start-with-migrations.sh"]

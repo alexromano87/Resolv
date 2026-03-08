@@ -84,10 +84,15 @@ export class CheckupAdminController {
     return Array.from(new Set(list.map((item) => item.trim()).filter(Boolean)));
   }
 
-  private async validateMacroOwnerSelection(modelId: string | null | undefined, macroIds?: string[] | null) {
-    const normalized = this.normalizeMacroOwnerList(macroIds);
+  private normalizeMacroAssignmentList(list?: string[] | null) {
+    if (!list) return [];
+    return Array.from(new Set(list.map((item) => item.trim()).filter(Boolean)));
+  }
+
+  private async validateMacroAreaSelection(modelId: string | null | undefined, macroIds?: string[] | null) {
+    const normalized = this.normalizeMacroAssignmentList(macroIds);
     if (normalized.length === 0) {
-      throw new ConflictException('Seleziona la macro area owner');
+      return;
     }
     if (!modelId) {
       throw new ConflictException('La licenza non ha un modello associato');
@@ -97,7 +102,72 @@ export class CheckupAdminController {
     const allowedSet = new Set(allowed.map((m) => m.code));
     const invalid = normalized.filter((macroId) => !allowedSet.has(macroId));
     if (invalid.length) {
-      throw new ConflictException('Macro area owner non valida');
+      throw new ConflictException('Macro area non valida');
+    }
+  }
+
+  private async getMacroAreaLabelMap(modelId: string | null | undefined) {
+    if (!modelId) {
+      return new Map<string, string>();
+    }
+    const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
+    return new Map(macroAreas.map((macro) => [macro.code, macro.label || macro.code]));
+  }
+
+  private ensureMacroOwnersWithinAssignments(ownerIds?: string[] | null, assignmentIds?: string[] | null) {
+    const owners = this.normalizeMacroOwnerList(ownerIds);
+    const assignments = this.normalizeMacroAssignmentList(assignmentIds);
+    if (owners.length === 0 || assignments.length === 0) {
+      return;
+    }
+    const allowedAssignments = new Set(assignments);
+    const invalid = owners.filter((macroId) => !allowedAssignments.has(macroId));
+    if (invalid.length) {
+      throw new ConflictException('Le macro aree owner devono essere incluse tra le macro aree assegnate');
+    }
+  }
+
+  private async ensureUniqueMacroOwners(
+    clientId: string,
+    macroIds: string[],
+    macroAreaLabels?: Map<string, string>,
+    excludeUserId?: string,
+  ) {
+    const normalized = this.normalizeMacroOwnerList(macroIds);
+    if (normalized.length === 0) return;
+
+    const where: Record<string, any> = { clientId, attivo: true };
+    if (excludeUserId) {
+      where.id = Not(excludeUserId);
+    }
+    const otherUsers = await this.userRepository.find({ where });
+    const alreadyOwned = new Map<string, CheckupUser>();
+    otherUsers.forEach((u) => {
+      (u.macroAreaOwner || []).forEach((macro) => alreadyOwned.set(macro, u));
+    });
+    const conflicts = normalized.filter((macro) => alreadyOwned.has(macro));
+    if (conflicts.length) {
+      const conflictMacroId = conflicts[0];
+      const assignedUser = alreadyOwned.get(conflictMacroId);
+      const macroLabel = macroAreaLabels?.get(conflictMacroId) || conflictMacroId;
+      const ownerName = assignedUser
+        ? `${assignedUser.nome} ${assignedUser.cognome}`.trim() || assignedUser.email
+        : 'un altro utente';
+      throw new ConflictException(
+        `La macro area "${macroLabel}" risulta gia assegnata come owner a ${ownerName}.`,
+      );
+    }
+  }
+
+  private async ensureUniqueSuperOwner(clientId: string, excludeUserId?: string) {
+    const where: Record<string, any> = { clientId, attivo: true, superOwner: true };
+    if (excludeUserId) {
+      where.id = Not(excludeUserId);
+    }
+    const existing = await this.userRepository.findOne({ where });
+    if (existing) {
+      const ownerName = `${existing.nome} ${existing.cognome}`.trim() || existing.email;
+      throw new ConflictException(`Esiste gia un Super-owner attivo per questo cliente: ${ownerName}.`);
     }
   }
 
@@ -433,6 +503,19 @@ export class CheckupAdminController {
     if (existing) {
       throw new ConflictException('Studio già esistente');
     }
+    let pendingLicense: CheckupLicense | null = null;
+    if (dto.licenseId?.trim()) {
+      if ((dto.tipo ?? 'licenziatario') !== 'licenziatario') {
+        throw new ConflictException('Solo gli studi licenziatari possono avere una licenza principale');
+      }
+      pendingLicense = await this.licenseRepository.findOne({ where: { id: dto.licenseId.trim() } });
+      if (!pendingLicense) {
+        throw new NotFoundException('Licenza non trovata');
+      }
+      if (pendingLicense.studioId) {
+        throw new ConflictException('La licenza selezionata è già assegnata ad un altro studio');
+      }
+    }
     const studio = this.studioRepository.create({
       nome,
       tipo: dto.tipo ?? 'licenziatario',
@@ -451,7 +534,17 @@ export class CheckupAdminController {
       note: dto.note?.trim() || null,
       attivo: true,
     });
-    return this.studioRepository.save(studio);
+    const savedStudio = await this.studioRepository.save(studio);
+
+    if (pendingLicense) {
+      pendingLicense.studioId = savedStudio.id;
+      if (!pendingLicense.intestatario) {
+        pendingLicense.intestatario = savedStudio.ragioneSociale?.trim() || savedStudio.nome;
+      }
+      await this.licenseRepository.save(pendingLicense);
+    }
+
+    return savedStudio;
   }
 
   @Put('studios/:id')
@@ -487,14 +580,25 @@ export class CheckupAdminController {
     if (dto.email !== undefined) studio.email = dto.email?.trim() || null;
     if (dto.telefono !== undefined) studio.telefono = dto.telefono?.trim() || null;
     if (dto.sitoWeb !== undefined) studio.sitoWeb = dto.sitoWeb?.trim() || null;
+    if (dto.logoUrl !== undefined) studio.logoUrl = dto.logoUrl?.trim() || null;
     if (dto.note !== undefined) studio.note = dto.note?.trim() || null;
     if (dto.attivo !== undefined) studio.attivo = Boolean(dto.attivo);
 
     if (dto.licenseId !== undefined) {
       const currentLicense = await this.licenseRepository.findOne({ where: { studioId: studio.id } });
       const nextLicenseId = dto.licenseId?.trim() || null;
+      const activeStudioUsers = await this.userRepository.find({
+        where: { studioId: studio.id, attivo: true },
+        order: { createdAt: 'ASC' },
+      });
+      const normalizedKeepUserIds: string[] = Array.from(
+        new Set((dto.keepUserIds || []).map((userId) => userId.trim()).filter(Boolean)),
+      );
 
       if (!nextLicenseId) {
+        if (activeStudioUsers.length > 0) {
+          throw new ConflictException('Non puoi rimuovere la licenza finché sono presenti utenze attive. Disattiva prima le utenze.');
+        }
         if (currentLicense) {
           currentLicense.studioId = null;
           await this.licenseRepository.save(currentLicense);
@@ -509,6 +613,29 @@ export class CheckupAdminController {
         }
         if (nextLicense.studioId && nextLicense.studioId !== studio.id) {
           throw new ConflictException('La licenza selezionata è già assegnata ad un altro studio');
+        }
+        if (currentLicense && currentLicense.id === nextLicense.id && activeStudioUsers.length > nextLicense.numeroUtenze) {
+          const excess = activeStudioUsers.length - nextLicense.numeroUtenze;
+          throw new ConflictException(
+            `La licenza consente massimo ${nextLicense.numeroUtenze} utenti attivi, ma questo licenziatario ne ha ${activeStudioUsers.length}. Devi disattivarne o eliminarne almeno ${excess}.`,
+          );
+        }
+        if (currentLicense && currentLicense.id !== nextLicense.id && activeStudioUsers.length > nextLicense.numeroUtenze) {
+          const activeUserIds = new Set(activeStudioUsers.map((user) => user.id));
+          const keepUserIds = normalizedKeepUserIds.filter((userId) => activeUserIds.has(userId));
+          if (keepUserIds.length === 0) {
+            throw new ConflictException('La nuova licenza prevede meno utenti attivi. Seleziona le utenze da mantenere.');
+          }
+          if (keepUserIds.length > nextLicense.numeroUtenze) {
+            throw new ConflictException('Hai selezionato più utenze di quelle consentite dalla nuova licenza.');
+          }
+          const usersToDeactivate = activeStudioUsers.filter((user) => !keepUserIds.includes(user.id));
+          for (const user of usersToDeactivate) {
+            user.attivo = false;
+          }
+          if (usersToDeactivate.length > 0) {
+            await this.userRepository.save(usersToDeactivate);
+          }
         }
         if (currentLicense && currentLicense.id !== nextLicense.id) {
           currentLicense.studioId = null;
@@ -629,7 +756,14 @@ export class CheckupAdminController {
       resolvedSublicenseId = clientSublicense.id;
       const license = await this.licenseRepository.findOne({ where: { id: clientSublicense.licenseId }, relations: ['model'] });
       resolvedModelId = license?.modelId ?? null;
-      await this.validateMacroOwnerSelection(resolvedModelId, dto.macroAreaOwner);
+      const macroAreaLabels = await this.getMacroAreaLabelMap(resolvedModelId);
+      await this.validateMacroAreaSelection(resolvedModelId, dto.macroAreaAssignments);
+      await this.validateMacroAreaSelection(resolvedModelId, dto.macroAreaOwner);
+      this.ensureMacroOwnersWithinAssignments(dto.macroAreaOwner, dto.macroAreaAssignments);
+      await this.ensureUniqueMacroOwners(dto.clientId, dto.macroAreaOwner || [], macroAreaLabels);
+      if (dto.superOwner) {
+        await this.ensureUniqueSuperOwner(dto.clientId);
+      }
       await this.ensureClientCapacity(dto.clientId, clientSublicense.id);
     } else {
       if (!dto.studioId) {
@@ -659,6 +793,8 @@ export class CheckupAdminController {
       sublicenseId: dto.ruolo === 'cliente' ? resolvedSublicenseId : null,
       azienda: dto.azienda?.trim() || null,
       macroAreaOwner: dto.ruolo === 'cliente' ? this.normalizeMacroOwnerList(dto.macroAreaOwner) : null,
+      macroAreaAssignments: dto.ruolo === 'cliente' ? this.normalizeMacroAssignmentList(dto.macroAreaAssignments) : null,
+      superOwner: dto.ruolo === 'cliente' ? Boolean(dto.superOwner) : false,
       mustChangePassword: true,
       attivo: true,
     });
@@ -702,9 +838,14 @@ export class CheckupAdminController {
     const nextStudioId = dto.studioId !== undefined ? dto.studioId || null : user.studioId;
     const nextSublicenseId = dto.sublicenseId !== undefined ? dto.sublicenseId || null : user.sublicenseId;
     const prevMacroOwner = this.normalizeMacroOwnerList(user.macroAreaOwner || undefined);
+    const prevMacroAssignments = this.normalizeMacroAssignmentList(user.macroAreaAssignments || undefined);
+    const nextSuperOwner = dto.superOwner !== undefined ? Boolean(dto.superOwner) : Boolean(user.superOwner);
     const nextMacroOwner = dto.macroAreaOwner !== undefined
       ? this.normalizeMacroOwnerList(dto.macroAreaOwner)
       : prevMacroOwner;
+    const nextMacroAssignments = dto.macroAreaAssignments !== undefined
+      ? this.normalizeMacroAssignmentList(dto.macroAreaAssignments)
+      : prevMacroAssignments;
     const prevClientId = user.clientId;
 
     if (nextRole === 'cliente') {
@@ -721,7 +862,19 @@ export class CheckupAdminController {
       const clientSublicense = await this.resolveClientSublicense(nextClientId, nextSublicenseId);
       const license = await this.licenseRepository.findOne({ where: { id: clientSublicense.licenseId }, relations: ['model'] });
       const modelId = license?.modelId ?? null;
-      await this.validateMacroOwnerSelection(modelId, nextMacroOwner);
+      const macroAreaLabels = await this.getMacroAreaLabelMap(modelId);
+      await this.validateMacroAreaSelection(modelId, nextMacroAssignments);
+      await this.validateMacroAreaSelection(modelId, nextMacroOwner);
+      this.ensureMacroOwnersWithinAssignments(nextMacroOwner, nextMacroAssignments);
+      const shouldCheckOwnerConflicts =
+        nextMacroOwner.length > 0
+        && (dto.macroAreaOwner !== undefined || nextClientId !== prevClientId || nextRole !== user.ruolo);
+      if (shouldCheckOwnerConflicts) {
+        await this.ensureUniqueMacroOwners(nextClientId, nextMacroOwner, macroAreaLabels, user.id);
+      }
+      if (nextSuperOwner && (dto.superOwner !== undefined || nextClientId !== prevClientId || !user.superOwner)) {
+        await this.ensureUniqueSuperOwner(nextClientId, user.id);
+      }
       const activating = dto.attivo === true && !user.attivo;
       const movingClient = nextClientId !== user.clientId;
       const becomingClient = nextRole !== user.ruolo;
@@ -736,6 +889,8 @@ export class CheckupAdminController {
       user.studioId = null;
       user.sublicenseId = clientSublicense.id;
       user.macroAreaOwner = nextMacroOwner;
+      user.macroAreaAssignments = nextMacroAssignments;
+      user.superOwner = nextSuperOwner;
     } else {
       if (!nextStudioId) {
         throw new ConflictException('Seleziona lo studio per l\'utente');
@@ -757,6 +912,8 @@ export class CheckupAdminController {
       user.clientId = null;
       user.sublicenseId = null;
       user.macroAreaOwner = null;
+      user.macroAreaAssignments = null;
+      user.superOwner = false;
     }
 
     if (dto.ruolo !== undefined) user.ruolo = dto.ruolo;
@@ -861,9 +1018,14 @@ export class CheckupAdminController {
       throw new ConflictException('La sublicenza è scaduta');
     }
 
+    const nome = dto.nome?.trim() || null;
+    const ragioneSociale = dto.ragioneSociale?.trim() || null;
+    if (!nome && !ragioneSociale) {
+      throw new ConflictException('Compila almeno nome cliente o ragione sociale/denominazione');
+    }
     const client = this.clientRepository.create({
-      nome: dto.nome.trim(),
-      ragioneSociale: dto.ragioneSociale?.trim() || null,
+      nome,
+      ragioneSociale,
       partitaIva: dto.partitaIva?.trim() || null,
       codiceFiscale: dto.codiceFiscale?.trim() || null,
       indirizzo: dto.indirizzo?.trim() || null,
@@ -893,9 +1055,15 @@ export class CheckupAdminController {
       throw new NotFoundException('Cliente non trovato');
     }
 
+    const nextNome = dto.nome !== undefined ? (dto.nome.trim() || null) : client.nome;
+    const nextRagioneSociale = dto.ragioneSociale !== undefined ? (dto.ragioneSociale.trim() || null) : client.ragioneSociale;
+    if (!nextNome && !nextRagioneSociale) {
+      throw new ConflictException('Compila almeno nome cliente o ragione sociale/denominazione');
+    }
+
     Object.assign(client, {
-      nome: dto.nome?.trim() ?? client.nome,
-      ragioneSociale: dto.ragioneSociale?.trim() ?? client.ragioneSociale,
+      nome: nextNome,
+      ragioneSociale: nextRagioneSociale,
       partitaIva: dto.partitaIva?.trim() ?? client.partitaIva,
       codiceFiscale: dto.codiceFiscale?.trim() ?? client.codiceFiscale,
       indirizzo: dto.indirizzo?.trim() ?? client.indirizzo,

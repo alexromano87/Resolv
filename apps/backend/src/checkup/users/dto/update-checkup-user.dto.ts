@@ -44,6 +44,15 @@ export class UpdateCheckupUserDto {
   macroAreaOwner?: string[];
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  macroAreaAssignments?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  superOwner?: boolean;
+
+  @IsOptional()
   @IsBoolean()
   attivo?: boolean;
 }

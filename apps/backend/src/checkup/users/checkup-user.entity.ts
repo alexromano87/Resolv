@@ -56,6 +56,12 @@ export class CheckupUser {
   @Column({ type: 'json', nullable: true })
   macroAreaOwner: string[] | null;
 
+  @Column({ type: 'json', nullable: true })
+  macroAreaAssignments: string[] | null;
+
+  @Column({ type: 'boolean', default: false })
+  superOwner: boolean;
+
   @Column({ default: true })
   attivo: boolean;
 

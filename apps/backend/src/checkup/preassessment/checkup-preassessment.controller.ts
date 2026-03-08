@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import { Controller, Get, Put, Post, Body, UseGuards, Param, BadRequestException, Res } from '@nestjs/common';
 import { RateLimit } from '../../common/rate-limit.decorator';
 import type { Response } from 'express';
@@ -8,6 +9,7 @@ import { CheckupPreassessmentService } from './checkup-preassessment.service';
 import { UpdatePreassessmentDto } from './dto/update-preassessment.dto';
 import { CheckupStaffGuard } from '../auth/checkup-staff.guard';
 import { CheckupPreassessmentReportsService } from './checkup-preassessment-reports.service';
+import { CheckupPreassessmentExportJobsService } from './checkup-preassessment-export-jobs.service';
 
 @Controller('checkup/preassessment')
 @UseGuards(CheckupJwtAuthGuard)
@@ -15,6 +17,7 @@ export class CheckupPreassessmentController {
   constructor(
     private readonly preassessmentService: CheckupPreassessmentService,
     private readonly reportsService: CheckupPreassessmentReportsService,
+    private readonly exportJobsService: CheckupPreassessmentExportJobsService,
   ) {}
 
   @Get()
@@ -33,6 +36,11 @@ export class CheckupPreassessmentController {
   @Post('complete')
   complete(@CheckupCurrentUser() user: CheckupCurrentUserData) {
     return this.preassessmentService.complete(user);
+  }
+
+  @Post('final-validate')
+  finalValidate(@CheckupCurrentUser() user: CheckupCurrentUserData) {
+    return this.preassessmentService.finalValidate(user);
   }
 
   @UseGuards(CheckupStaffGuard)
@@ -78,16 +86,33 @@ export class CheckupPreassessmentController {
     return this.preassessmentService.getHistory(clientId, user);
   }
 
-  @Post('pdf')
+  @Post('pdf/jobs')
   @RateLimit({ limit: 3, windowMs: 60 * 1000 })
-  async generatePdf(@Body('html') html: string, @Res() res: Response) {
-    if (!html || typeof html !== 'string') {
-      throw new BadRequestException('HTML mancante');
-    }
-    const pdf = await this.preassessmentService.renderHtmlToPdf(html);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename="pre_assessment.pdf"');
-    res.send(pdf);
+  createPdfJob(
+    @Body('html') html: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.exportJobsService.createPdfJob(html, user);
+  }
+
+  @Get('export-jobs/:jobId')
+  getExportJob(
+    @Param('jobId') jobId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.exportJobsService.getJob(jobId, user);
+  }
+
+  @Get('export-jobs/:jobId/download')
+  async downloadExportJob(
+    @Param('jobId') jobId: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+    @Res() res: Response,
+  ) {
+    const file = await this.exportJobsService.getJobFile(jobId, user);
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.filename)}"`);
+    fs.createReadStream(file.path).pipe(res);
   }
 
   @UseGuards(CheckupStaffGuard)

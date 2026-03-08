@@ -264,12 +264,12 @@ export class CheckupBackupService {
 
   async getBackup(filename: string): Promise<{ stream: fs.ReadStream; size: number }> {
     if (!filename.endsWith('.sql') && !filename.endsWith('.sql.enc')) {
-      throw new Error('Backup file not found');
+      throw new Error('File di backup non trovato');
     }
 
     const filepath = path.join(this.backupDir, filename);
     if (!fs.existsSync(filepath)) {
-      throw new Error('Backup file not found');
+      throw new Error('File di backup non trovato');
     }
 
     if (filename.endsWith('.sql.enc')) {
@@ -291,12 +291,12 @@ export class CheckupBackupService {
 
   async deleteBackup(filename: string): Promise<void> {
     if (!filename.endsWith('.sql') && !filename.endsWith('.sql.enc')) {
-      throw new Error('Backup file not found');
+      throw new Error('File di backup non trovato');
     }
 
     const filepath = path.join(this.backupDir, filename);
     if (!fs.existsSync(filepath)) {
-      throw new Error('Backup file not found');
+      throw new Error('File di backup non trovato');
     }
 
     try {
@@ -310,12 +310,12 @@ export class CheckupBackupService {
 
   async restoreBackup(filename: string): Promise<void> {
     if (!filename.endsWith('.sql') && !filename.endsWith('.sql.enc')) {
-      throw new Error('Backup file not found');
+      throw new Error('File di backup non trovato');
     }
 
     const filepath = path.join(this.backupDir, filename);
     if (!fs.existsSync(filepath)) {
-      throw new Error('Backup file not found');
+      throw new Error('File di backup non trovato');
     }
 
     let restorePath = filepath;

@@ -1,8 +1,9 @@
 import { useNavigate } from 'react-router-dom';
-import { KeyRound, ShieldCheck } from 'lucide-react';
+import { KeyRound, ShieldCheck, Download, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { authApi } from '../api/auth';
+import { meApi } from '../api/me';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -16,6 +17,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [gdprLoading, setGdprLoading] = useState(false);
+  const [gdprMessage, setGdprMessage] = useState('');
+  const [showDeletionConfirm, setShowDeletionConfirm] = useState(false);
 
   useEffect(() => {
     setTwoFactorEnabled(!!user?.twoFactorEnabled);
@@ -87,6 +91,32 @@ export default function SettingsPage() {
       setError(err.message || 'Codice 2FA non valido');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setGdprLoading(true);
+    setGdprMessage('');
+    try {
+      await meApi.exportMyData();
+    } catch (err: any) {
+      setGdprMessage(err.message || "Errore durante l'esportazione");
+    } finally {
+      setGdprLoading(false);
+    }
+  };
+
+  const handleDeletionRequest = async () => {
+    setGdprLoading(true);
+    setGdprMessage('');
+    try {
+      const res = await meApi.requestDeletion();
+      setGdprMessage(res.message);
+      setShowDeletionConfirm(false);
+    } catch (err: any) {
+      setGdprMessage(err.message || "Errore durante l'invio della richiesta");
+    } finally {
+      setGdprLoading(false);
     }
   };
 
@@ -228,6 +258,70 @@ export default function SettingsPage() {
             >
               Cambia password
             </button>
+          </div>
+        </div>
+      </div>
+      <div className="wow-panel p-6">
+        <h2 className="text-lg font-semibold text-slate-900">Privacy e dati personali</h2>
+        <p className="text-sm text-slate-500 mt-1">
+          Gestisci i tuoi dati personali ai sensi del GDPR.
+        </p>
+
+        {gdprMessage && (
+          <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+            {gdprMessage}
+          </div>
+        )}
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                <Download className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Esporta i miei dati</h3>
+                <p className="text-xs text-slate-500">Art. 20 GDPR — Portabilità dei dati</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Scarica una copia dei tuoi dati personali in formato JSON.
+            </p>
+            <button onClick={handleExport} className="wow-button" disabled={gdprLoading}>
+              {gdprLoading ? 'Elaborazione...' : 'Scarica i miei dati'}
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-rose-100 bg-rose-50/40 p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-rose-600">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Richiesta cancellazione</h3>
+                <p className="text-xs text-slate-500">Art. 17 GDPR — Diritto all'oblio</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Invia una richiesta di cancellazione dei tuoi dati. Sarai contattato entro 30 giorni.
+            </p>
+            {!showDeletionConfirm ? (
+              <button onClick={() => setShowDeletionConfirm(true)} className="wow-button-ghost border-rose-200 text-rose-600 hover:bg-rose-50">
+                Richiedi cancellazione
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-rose-700 font-medium">Confermi l'invio della richiesta di cancellazione?</p>
+                <div className="flex gap-2">
+                  <button onClick={handleDeletionRequest} className="wow-button bg-rose-600 hover:bg-rose-700" disabled={gdprLoading}>
+                    {gdprLoading ? 'Invio...' : 'Conferma'}
+                  </button>
+                  <button onClick={() => setShowDeletionConfirm(false)} className="wow-button-ghost" disabled={gdprLoading}>
+                    Annulla
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

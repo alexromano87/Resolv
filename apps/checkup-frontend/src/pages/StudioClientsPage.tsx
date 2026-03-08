@@ -9,9 +9,11 @@ import {
 import { CustomSelect } from '../components/CustomSelect';
 import { Pagination } from '../components/Pagination';
 import { ModalPortal } from '../components/ModalPortal';
+import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 
 export default function StudioClientsPage({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate();
+  const { confirm, ConfirmDialog } = useConfirmDialog();
   const [clients, setClients] = useState<CheckupClientRecord[]>([]);
   const [sublicenses, setSublicenses] = useState<CheckupSublicenseOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -21,11 +23,16 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
   const [isEditing, setIsEditing] = useState(false);
   const [selectedClient, setSelectedClient] = useState<CheckupClientRecord | null>(null);
   const [selectedSublicenseId, setSelectedSublicenseId] = useState('');
+  const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
   const [hideInactive, setHideInactive] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
+
+
+  const getClientDisplayName = (client: Pick<CheckupClientRecord, 'nome' | 'ragioneSociale'>) =>
+    client.ragioneSociale || client.nome || 'Cliente senza nome';
 
   const [formData, setFormData] = useState({
     nome: '',
@@ -111,6 +118,7 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
     setIsEditing(false);
     setSelectedClient(null);
     setSelectedSublicenseId('');
+    setFormErrors({});
     setFormData({
       nome: '',
       ragioneSociale: '',
@@ -133,8 +141,9 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
     setIsEditing(true);
     setSelectedClient(client);
     setSelectedSublicenseId(client.sublicense?.id || '');
+    setFormErrors({});
     setFormData({
-      nome: client.nome,
+      nome: client.nome || '',
       ragioneSociale: client.ragioneSociale || '',
       partitaIva: client.partitaIva || '',
       codiceFiscale: client.codiceFiscale || '',
@@ -154,26 +163,46 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
   const handleCloseModal = () => {
     setShowModal(false);
     setSelectedClient(null);
+    setFormErrors({});
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
-    if (!formData.nome.trim()) {
-      setError('Il nome del cliente è obbligatorio');
-      return;
+    const nome = formData.nome.trim();
+    const ragioneSociale = formData.ragioneSociale.trim();
+    const nextErrors: Record<string, boolean> = {};
+    if (!nome && !ragioneSociale) {
+      nextErrors.nome = true;
+      nextErrors.ragioneSociale = true;
     }
     if (!selectedSublicenseId) {
-      setError('Seleziona una sublicenza');
+      nextErrors.sublicenseId = true;
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setFormErrors(nextErrors);
+      setError('Compila nome cliente o ragione sociale/denominazione');
       return;
     }
+
+    const clientDisplayName = nome || ragioneSociale;
+    const confirmed = await confirm({
+      title: isEditing ? 'Confermare modifica cliente?' : 'Confermare creazione cliente?',
+      message: isEditing
+        ? `Vuoi salvare le modifiche del cliente "${clientDisplayName}"?`
+        : `Vuoi creare il cliente "${clientDisplayName}"?`,
+      confirmText: isEditing ? 'Salva modifiche' : 'Crea cliente',
+      variant: 'info',
+    });
+
+    if (!confirmed) return;
 
     try {
       if (isEditing && selectedClient) {
         await studiosApi.updateClient(selectedClient.id, {
-          nome: formData.nome.trim(),
-          ragioneSociale: formData.ragioneSociale.trim(),
+          nome,
+          ragioneSociale,
           partitaIva: formData.partitaIva.trim(),
           codiceFiscale: formData.codiceFiscale.trim(),
           indirizzo: formData.indirizzo.trim(),
@@ -190,8 +219,8 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
         setSuccess('Cliente aggiornato');
       } else {
         await studiosApi.createClient({
-          nome: formData.nome.trim(),
-          ragioneSociale: formData.ragioneSociale.trim(),
+          nome,
+          ragioneSociale,
           partitaIva: formData.partitaIva.trim(),
           codiceFiscale: formData.codiceFiscale.trim(),
           indirizzo: formData.indirizzo.trim(),
@@ -210,9 +239,18 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
       handleCloseModal();
       loadData();
     } catch (err: any) {
-      setError(err.message || 'Errore durante il salvataggio');
+      setError(err.message || 'Errore durante il salvataggio del cliente');
     }
   };
+  const inputClass = (field: string) =>
+    `mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 ${
+      formErrors[field]
+        ? '!border-rose-300 !ring-2 !ring-rose-200 focus:!border-rose-400 focus:!ring-rose-200'
+        : 'border-slate-200 focus:ring-primary-500'
+    }`;
+  const labelClass = (_field?: string) => 'text-sm font-medium text-slate-700';
+  const selectTriggerClass = (field: string) =>
+    `${formErrors[field] ? 'rounded-xl !border-rose-300 !ring-2 !ring-rose-200 focus:!border-rose-400 focus:!ring-rose-200' : 'rounded-xl border-slate-200'} bg-white px-3 py-2 text-sm`;
 
   const handleToggleActive = async (client: CheckupClientRecord) => {
     setError('');
@@ -240,7 +278,7 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
     if (hideInactive && !client.attivo) return false;
     if (!searchTerm) return true;
     const haystack = [
-      client.nome,
+      client.nome || '',
       client.ragioneSociale,
       client.partitaIva,
       client.codiceFiscale,
@@ -323,7 +361,7 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
               <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
                 <tr>
                   <th className="px-4 py-3 text-left">Cliente</th>
-                  <th className="px-4 py-3 text-left">Ragione sociale</th>
+                  <th className="px-4 py-3 text-left">Ragione sociale/Denominazione</th>
                   <th className="px-4 py-3 text-left">Sublicenza</th>
                   <th className="px-4 py-3 text-left">Stato</th>
                   <th className="px-4 py-3 text-right">Azioni</th>
@@ -335,7 +373,7 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
                   const expired = sublicense ? isExpired(sublicense.dataScadenza) : false;
                   return (
                     <tr key={client.id} className={`hover:bg-slate-50/70 ${client.attivo ? '' : 'opacity-60'}`}>
-                      <td className="px-4 py-3 text-sm font-medium text-slate-900">{client.nome}</td>
+                      <td className="px-4 py-3 text-sm font-medium text-slate-900">{getClientDisplayName(client)}</td>
                       <td className="px-4 py-3 text-sm text-slate-500">{client.ragioneSociale || '—'}</td>
                       <td className="px-4 py-3 text-sm text-slate-500">
                         {sublicense ? (
@@ -422,19 +460,25 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className="text-sm font-medium text-slate-700">Nome cliente</label>
+                  <label className={labelClass('nome')}>Nome cliente <span className="text-rose-600">*</span></label>
                   <input
                     value={formData.nome}
-                    onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                    onChange={(e) => {
+                      setFormData({ ...formData, nome: e.target.value });
+                      setFormErrors((prev) => ({ ...prev, nome: false }));
+                    }}
+                    className={inputClass('nome')}
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-slate-700">Ragione sociale</label>
+                  <label className={labelClass('ragioneSociale')}>Ragione sociale/Denominazione <span className="text-rose-600">*</span></label>
                   <input
                     value={formData.ragioneSociale}
-                    onChange={(e) => setFormData({ ...formData, ragioneSociale: e.target.value })}
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                    onChange={(e) => {
+                      setFormData({ ...formData, ragioneSociale: e.target.value });
+                      setFormErrors((prev) => ({ ...prev, ragioneSociale: false }));
+                    }}
+                    className={inputClass('ragioneSociale')}
                   />
                 </div>
               </div>
@@ -465,17 +509,20 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-slate-700">Licenza associata</label>
+                <label className={labelClass('sublicenseId')}>Licenza associata <span className="text-rose-600">*</span></label>
                 <div className="mt-1">
                   <CustomSelect
                     value={selectedSublicenseId}
-                    onChange={(value) => setSelectedSublicenseId(value)}
+                    onChange={(value) => {
+                      setSelectedSublicenseId(value);
+                      setFormErrors((prev) => ({ ...prev, sublicenseId: false }));
+                    }}
                     options={sublicenseOptions}
                     placeholder="Seleziona sublicenza"
                     searchable
                     searchPlaceholder="Filtra sublicenze..."
                     noOptionsText="Nessuna sublicenza disponibile"
-                    triggerClassName="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm"
+                    triggerClassName={selectTriggerClass('sublicenseId')}
                   />
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
@@ -495,6 +542,7 @@ export default function StudioClientsPage({ embedded = false }: { embedded?: boo
         </div>
         </ModalPortal>
       )}
+      <ConfirmDialog />
     </div>
   );
 }

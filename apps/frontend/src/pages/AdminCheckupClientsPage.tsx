@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X, Edit2, Power, PowerOff, Eye, EyeOff, Link2 } from 'lucide-react';
 import { checkupAdminApi, type CheckupClient, type CheckupSublicense, type CheckupStudio } from '../api/checkupAdmin';
 import { CustomSelect } from '../components/ui/CustomSelect';
@@ -22,9 +22,11 @@ export default function AdminCheckupClientsPage() {
   const [filterStudioId, setFilterStudioId] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
 
   const [selectedSublicenseId, setSelectedSublicenseId] = useState('');
   const [selectedStudioId, setSelectedStudioId] = useState('');
+  const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
   const [formData, setFormData] = useState({
     nome: '',
     ragioneSociale: '',
@@ -38,11 +40,20 @@ export default function AdminCheckupClientsPage() {
     email: '',
     telefono: '',
     sitoWeb: '',
+    logoUrl: '',
     note: '',
   });
 
   const inputClassName =
     'mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200';
+  const inputClass = (field: string) =>
+    `${inputClassName} ${formErrors[field] ? '!border-rose-300 !ring-2 !ring-rose-200 focus:!border-rose-400 focus:!ring-rose-200' : ''}`;
+  const selectTriggerClass = (field: string) =>
+    formErrors[field] ? '!border-rose-300 !ring-2 !ring-rose-200 focus:!border-rose-400 focus:!ring-rose-200' : '';
+  const labelClass = (_field?: string) => 'block text-sm font-medium text-slate-700';
+
+  const getClientDisplayName = (client: Pick<CheckupClient, 'nome' | 'ragioneSociale'>) =>
+    client.ragioneSociale || client.nome || 'Cliente senza nome';
 
   const loadData = async () => {
     setLoading(true);
@@ -119,6 +130,7 @@ export default function AdminCheckupClientsPage() {
     setSelectedClient(null);
     setSelectedStudioId('');
     setSelectedSublicenseId('');
+    setFormErrors({});
     setFormData({
       nome: '',
       ragioneSociale: '',
@@ -132,6 +144,7 @@ export default function AdminCheckupClientsPage() {
       email: '',
       telefono: '',
       sitoWeb: '',
+      logoUrl: '',
       note: '',
     });
     setShowModal(true);
@@ -140,11 +153,12 @@ export default function AdminCheckupClientsPage() {
   const handleOpenEdit = (client: CheckupClient) => {
     setIsEditing(true);
     setSelectedClient(client);
+    setFormErrors({});
     const currentSublicense = sublicensesByClient.get(client.id);
     setSelectedSublicenseId(currentSublicense?.id || '');
     setSelectedStudioId(currentSublicense?.license?.studioId || '');
     setFormData({
-      nome: client.nome,
+      nome: client.nome || '',
       ragioneSociale: client.ragioneSociale || '',
       partitaIva: client.partitaIva || '',
       codiceFiscale: client.codiceFiscale || '',
@@ -156,6 +170,7 @@ export default function AdminCheckupClientsPage() {
       email: client.email || '',
       telefono: client.telefono || '',
       sitoWeb: client.sitoWeb || '',
+      logoUrl: client.logoUrl || '',
       note: client.note || '',
     });
     setShowModal(true);
@@ -165,6 +180,119 @@ export default function AdminCheckupClientsPage() {
     setShowModal(false);
     setSelectedClient(null);
     setSelectedStudioId('');
+    setFormErrors({});
+  };
+
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const maxWidth = 400;
+        const maxHeight = 150;
+        const ratio = Math.min(maxWidth / img.naturalWidth, maxHeight / img.naturalHeight, 1);
+        const width = Math.round(img.naturalWidth * ratio);
+        const height = Math.round(img.naturalHeight * ratio);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+        const threshold = 30;
+        const corners: [number, number][] = [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]];
+        const visited = new Uint8Array(width * height);
+
+        for (const [cx, cy] of corners) {
+          const startIndex = (cy * width + cx) * 4;
+          if (data[startIndex + 3] < 128) continue;
+          const refR = data[startIndex];
+          const refG = data[startIndex + 1];
+          const refB = data[startIndex + 2];
+          const queue: [number, number][] = [[cx, cy]];
+          visited[cy * width + cx] = 1;
+          let queueIndex = 0;
+
+          while (queueIndex < queue.length) {
+            const [qx, qy] = queue[queueIndex++];
+            const pixelIndex = (qy * width + qx) * 4;
+            data[pixelIndex + 3] = 0;
+
+            for (const [nx, ny] of [[qx - 1, qy], [qx + 1, qy], [qx, qy - 1], [qx, qy + 1]] as [number, number][]) {
+              if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+              const nextIndex = ny * width + nx;
+              if (visited[nextIndex]) continue;
+              visited[nextIndex] = 1;
+              const nextPixelIndex = nextIndex * 4;
+              if (data[nextPixelIndex + 3] < 128) continue;
+              const deltaR = Math.abs(data[nextPixelIndex] - refR);
+              const deltaG = Math.abs(data[nextPixelIndex + 1] - refG);
+              const deltaB = Math.abs(data[nextPixelIndex + 2] - refB);
+              if (deltaR <= threshold && deltaG <= threshold && deltaB <= threshold) {
+                queue.push([nx, ny]);
+              }
+            }
+          }
+
+          break;
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+
+        const trimmedSource = ctx.getImageData(0, 0, width, height).data;
+        let minX = width;
+        let maxX = 0;
+        let minY = height;
+        let maxY = 0;
+
+        for (let y = 0; y < height; y += 1) {
+          for (let x = 0; x < width; x += 1) {
+            if (trimmedSource[(y * width + x) * 4 + 3] > 0) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+
+        if (minX > maxX || minY > maxY) {
+          setFormData((prev) => ({ ...prev, logoUrl: canvas.toDataURL('image/png') }));
+          return;
+        }
+
+        const padding = 6;
+        const trimmedCanvas = document.createElement('canvas');
+        trimmedCanvas.width = maxX - minX + 1 + padding * 2;
+        trimmedCanvas.height = maxY - minY + 1 + padding * 2;
+        const trimmedCtx = trimmedCanvas.getContext('2d');
+        if (!trimmedCtx) return;
+        trimmedCtx.clearRect(0, 0, trimmedCanvas.width, trimmedCanvas.height);
+        trimmedCtx.drawImage(
+          canvas,
+          minX,
+          minY,
+          maxX - minX + 1,
+          maxY - minY + 1,
+          padding,
+          padding,
+          maxX - minX + 1,
+          maxY - minY + 1,
+        );
+        setFormData((prev) => ({ ...prev, logoUrl: trimmedCanvas.toDataURL('image/png') }));
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const ensureSublicenseAssignable = (sublicense: CheckupSublicense) => {
@@ -220,25 +348,43 @@ export default function AdminCheckupClientsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.nome.trim()) {
-      toastError('Il nome del cliente è obbligatorio');
-      return;
+    const nome = formData.nome.trim();
+    const ragioneSociale = formData.ragioneSociale.trim();
+    const nextErrors: Record<string, boolean> = {};
+    if (!nome && !ragioneSociale) {
+      nextErrors.nome = true;
+      nextErrors.ragioneSociale = true;
     }
     if (!selectedStudioId) {
-      toastError('Seleziona lo studio da associare');
-      return;
+      nextErrors.studioId = true;
     }
     if (!selectedSublicenseId) {
-      toastError('Seleziona una sublicenza');
+      nextErrors.sublicenseId = true;
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setFormErrors(nextErrors);
+      toastError('Compila i campi obbligatori');
       return;
     }
+
+    const clientDisplayName = nome || ragioneSociale;
+    const confirmed = await confirm({
+      title: isEditing ? 'Confermare modifica cliente?' : 'Confermare creazione cliente?',
+      message: isEditing
+        ? `Vuoi salvare le modifiche del cliente "${clientDisplayName}"?`
+        : `Vuoi creare il cliente "${clientDisplayName}"?`,
+      confirmText: isEditing ? 'Salva modifiche' : 'Crea cliente',
+      variant: 'info',
+    });
+
+    if (!confirmed) return;
 
     try {
       let client: CheckupClient;
       if (isEditing && selectedClient) {
         client = await checkupAdminApi.updateClient(selectedClient.id, {
-          nome: formData.nome.trim(),
-          ragioneSociale: formData.ragioneSociale.trim(),
+          nome,
+          ragioneSociale,
           partitaIva: formData.partitaIva.trim(),
           codiceFiscale: formData.codiceFiscale.trim(),
           indirizzo: formData.indirizzo.trim(),
@@ -249,14 +395,15 @@ export default function AdminCheckupClientsPage() {
           email: formData.email.trim(),
           telefono: formData.telefono.trim(),
           sitoWeb: formData.sitoWeb.trim(),
+          logoUrl: formData.logoUrl.trim(),
           note: formData.note.trim(),
         });
         success('Cliente aggiornato');
       } else {
         client = await checkupAdminApi.createClient({
-          nome: formData.nome.trim(),
+          nome,
           sublicenseId: selectedSublicenseId,
-          ragioneSociale: formData.ragioneSociale.trim(),
+          ragioneSociale,
           partitaIva: formData.partitaIva.trim(),
           codiceFiscale: formData.codiceFiscale.trim(),
           indirizzo: formData.indirizzo.trim(),
@@ -267,6 +414,7 @@ export default function AdminCheckupClientsPage() {
           email: formData.email.trim(),
           telefono: formData.telefono.trim(),
           sitoWeb: formData.sitoWeb.trim(),
+          logoUrl: formData.logoUrl.trim(),
           note: formData.note.trim(),
         });
         success('Cliente creato');
@@ -277,14 +425,14 @@ export default function AdminCheckupClientsPage() {
       handleCloseModal();
       loadData();
     } catch (err: any) {
-      toastError(err.message || 'Errore durante il salvataggio');
+      toastError(err.message || 'Errore durante il salvataggio del cliente');
     }
   };
 
   const handleToggleActive = async (client: CheckupClient) => {
     const confirmed = await confirm({
       title: client.attivo ? 'Disattivare cliente?' : 'Attivare cliente?',
-      message: `Sei sicuro di voler ${client.attivo ? 'disattivare' : 'attivare'} ${client.nome}?`,
+      message: `Sei sicuro di voler ${client.attivo ? 'disattivare' : 'attivare'} ${getClientDisplayName(client)}?`,
       confirmText: client.attivo ? 'Disattiva' : 'Attiva',
       variant: 'warning',
     });
@@ -309,7 +457,7 @@ export default function AdminCheckupClientsPage() {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return true;
     return (
-      client.nome.toLowerCase().includes(term) ||
+      (client.nome || '').toLowerCase().includes(term) ||
       (client.ragioneSociale || '').toLowerCase().includes(term) ||
       (client.email || '').toLowerCase().includes(term) ||
       (client.codiceFiscale || '').toLowerCase().includes(term) ||
@@ -389,6 +537,7 @@ export default function AdminCheckupClientsPage() {
               <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
                 <tr>
                   <th className="px-4 py-3 text-left">Cliente</th>
+                  <th className="px-4 py-3 text-left">Studio</th>
                   <th className="px-4 py-3 text-left">Email</th>
                   <th className="px-4 py-3 text-left">Sublicenza</th>
                   <th className="px-4 py-3 text-left">Stato</th>
@@ -399,9 +548,11 @@ export default function AdminCheckupClientsPage() {
                 {paginatedClients.map((client) => {
                   const sublicense = sublicensesByClient.get(client.id);
                   const expired = sublicense ? isExpired(sublicense.dataScadenza) : false;
+                  const studioName = sublicense?.license?.studio?.nome || '—';
                   return (
                     <tr key={client.id} className={`hover:bg-slate-50/70 ${client.attivo ? '' : 'opacity-60'}`}>
-                      <td className="px-4 py-3 text-sm font-medium text-slate-900">{client.nome}</td>
+                      <td className="px-4 py-3 text-sm font-medium text-slate-900">{getClientDisplayName(client)}</td>
+                      <td className="px-4 py-3 text-sm text-slate-600">{studioName}</td>
                       <td className="px-4 py-3 text-sm text-slate-600">{client.email || '—'}</td>
                       <td className="px-4 py-3 text-sm text-slate-600">
                         {sublicense ? (
@@ -477,18 +628,20 @@ export default function AdminCheckupClientsPage() {
               </div>
               <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto p-6">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <h3 className="text-sm font-semibold text-slate-800">Studio associato</h3>
+                  <h3 className="text-sm font-semibold text-slate-800">Studio associato <span className="text-rose-600">*</span></h3>
                   <div className="mt-3">
                     <CustomSelect
                       value={selectedStudioId}
                       onChange={(val) => {
                         setSelectedStudioId(val);
                         setSelectedSublicenseId('');
+                        setFormErrors((prev) => ({ ...prev, studioId: false }));
                       }}
                       options={licenziatariStudios.map((s) => ({ value: s.id, label: s.nome }))}
                       placeholder="Seleziona studio"
                       searchable
                       searchPlaceholder="Cerca studio..."
+                      triggerClassName={selectTriggerClass('studioId')}
                     />
                     <p className="mt-2 text-xs text-slate-500">
                       Seleziona lo studio licenziatario a cui collegare il cliente.
@@ -496,15 +649,19 @@ export default function AdminCheckupClientsPage() {
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <h3 className="text-sm font-semibold text-slate-800">Sublicenza associata</h3>
+                  <h3 className="text-sm font-semibold text-slate-800">Sublicenza associata <span className="text-rose-600">*</span></h3>
                   <div className="mt-3">
                     <CustomSelect
                       value={selectedSublicenseId}
-                      onChange={setSelectedSublicenseId}
+                      onChange={(val) => {
+                        setSelectedSublicenseId(val);
+                        setFormErrors((prev) => ({ ...prev, sublicenseId: false }));
+                      }}
                       options={sublicenseOptions}
                       placeholder="Seleziona sublicenza"
                       searchable
                       searchPlaceholder="Cerca sublicenza..."
+                      triggerClassName={selectTriggerClass('sublicenseId')}
                     />
                     <p className="mt-2 text-xs text-slate-500">
                       Sono selezionabili solo sublicenze attive e non scadute.
@@ -514,22 +671,29 @@ export default function AdminCheckupClientsPage() {
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700">Nome cliente</label>
+                    <label className={labelClass('nome')}>Nome cliente <span className="text-rose-600">*</span></label>
                     <input
                       value={formData.nome}
-                      onChange={(e) => setFormData((p) => ({ ...p, nome: e.target.value }))}
-                      className={inputClassName}
+                      onChange={(e) => {
+                        setFormData((p) => ({ ...p, nome: e.target.value }));
+                        setFormErrors((prev) => ({ ...prev, nome: false }));
+                      }}
+                      className={inputClass('nome')}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700">Ragione sociale</label>
+                    <label className={labelClass('ragioneSociale')}>Ragione sociale/Denominazione <span className="text-rose-600">*</span></label>
                     <input
                       value={formData.ragioneSociale}
-                      onChange={(e) => setFormData((p) => ({ ...p, ragioneSociale: e.target.value }))}
-                      className={inputClassName}
+                      onChange={(e) => {
+                        setFormData((p) => ({ ...p, ragioneSociale: e.target.value }));
+                        setFormErrors((prev) => ({ ...prev, ragioneSociale: false }));
+                      }}
+                      className={inputClass('ragioneSociale')}
                     />
                   </div>
                 </div>
+                <p className="text-xs text-slate-500">Compila almeno uno tra `Nome cliente` e `Ragione sociale/Denominazione`.</p>
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
@@ -612,6 +776,45 @@ export default function AdminCheckupClientsPage() {
                     onChange={(e) => setFormData((p) => ({ ...p, paese: e.target.value }))}
                     className={inputClassName}
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Logo aziendale</label>
+                  <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    {formData.logoUrl ? (
+                      <div className="flex items-start gap-3">
+                        <img
+                          src={formData.logoUrl}
+                          alt="Logo cliente"
+                          className="h-14 w-auto max-w-[220px] rounded-lg border border-slate-200 bg-white object-contain p-2"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setFormData((prev) => ({ ...prev, logoUrl: '' }))}
+                          className="text-xs font-medium text-rose-600 hover:text-rose-700"
+                        >
+                          Rimuovi logo
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500">Nessun logo caricato</p>
+                    )}
+                    <input
+                      ref={logoFileInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={handleLogoFileChange}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => logoFileInputRef.current?.click()}
+                      className="mt-3 wow-button-ghost text-xs"
+                    >
+                      {formData.logoUrl ? 'Sostituisci logo' : 'Carica logo'}
+                    </button>
+                    <p className="mt-2 text-[11px] text-slate-400">PNG, JPEG o WebP · max 400×150 px</p>
+                  </div>
                 </div>
 
                 <div>

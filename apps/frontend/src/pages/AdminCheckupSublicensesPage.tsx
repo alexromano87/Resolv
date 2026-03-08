@@ -6,6 +6,7 @@ import { CustomSelect } from '../components/ui/CustomSelect';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
 import { DateField } from '../components/ui/DateField';
+import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 
 export default function AdminCheckupSublicensesPage() {
   const sublicenseTypeOptions = [
@@ -14,6 +15,7 @@ export default function AdminCheckupSublicensesPage() {
     { value: 'Enterprise', label: 'Enterprise (preset)' },
   ];
   const { success, error: toastError } = useToast();
+  const { confirm, ConfirmDialog } = useConfirmDialog();
   const [sublicenses, setSublicenses] = useState<CheckupSublicense[]>([]);
   const [licenses, setLicenses] = useState<CheckupLicense[]>([]);
   const [models, setModels] = useState<questionApi.QuestionModel[]>([]);
@@ -110,6 +112,15 @@ export default function AdminCheckupSublicensesPage() {
       toastError('Compila tutti i campi obbligatori');
       return;
     }
+    const confirmed = await confirm({
+      title: editingId ? 'Confermare modifica sublicenza?' : 'Confermare creazione sublicenza?',
+      message: editingId
+        ? `Vuoi salvare le modifiche della sublicenza "${formData.tipo.trim()}"?`
+        : `Vuoi creare una nuova sublicenza "${formData.tipo.trim()}"?`,
+      confirmText: editingId ? 'Salva modifiche' : 'Crea sublicenza',
+      variant: 'info',
+    });
+    if (!confirmed) return;
     try {
       await checkupAdminApi.upsertSublicense({
         id: editingId ?? undefined,
@@ -430,6 +441,7 @@ export default function AdminCheckupSublicensesPage() {
           </div>
         </BodyPortal>
       )}
+      <ConfirmDialog />
     </div>
   );
 }

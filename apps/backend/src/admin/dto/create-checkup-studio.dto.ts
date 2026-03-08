@@ -60,4 +60,8 @@ export class CreateCheckupStudioDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  licenseId?: string;
 }

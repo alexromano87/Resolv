@@ -12,10 +12,13 @@ export interface CheckupUser {
   studioTipo?: 'licenziatario' | 'cliente' | null;
   clientId?: string | null;
   clientNome?: string | null;
-  client?: { id: string; nome: string; ragioneSociale?: string | null } | null;
+  client?: { id: string; nome: string; ragioneSociale?: string | null; logoUrl?: string | null } | null;
   licenziatarioNome?: string | null;
   studio?: { id: string; nome: string } | null;
   azienda: string | null;
+  macroAreaOwner?: string[] | null;
+  macroAreaAssignments?: string[] | null;
+  superOwner?: boolean;
   attivo?: boolean;
   mustChangePassword: boolean;
   twoFactorEnabled?: boolean;
@@ -43,13 +46,11 @@ export interface CheckupUser {
 
 export interface LoginResponse {
   access_token: string;
-  refresh_token: string;
   user: CheckupUser;
 }
 
 export interface RefreshResponse {
   access_token: string;
-  refresh_token: string;
 }
 
 export interface TwoFactorRequiredResponse {
@@ -72,10 +73,10 @@ export interface PasswordResetConfirmDto {
 
 export const authApi = {
   login: (email: string, password: string) =>
-    api.post<LoginResult>('/checkup/auth/login', { email, password }, { skipAuthRedirect: true }),
+    api.post<LoginResult>('/checkup/auth/login', { email, password }, { skipAuthRedirect: true, credentials: 'include' }),
 
   verifyTwoFactorLogin: (userId: string, code: string) =>
-    api.post<LoginResponse>('/checkup/auth/login/2fa', { userId, code }, { skipAuthRedirect: true }),
+    api.post<LoginResponse>('/checkup/auth/login/2fa', { userId, code }, { skipAuthRedirect: true, credentials: 'include' }),
 
   requestTwoFactorEnable: (channel: 'email' | 'sms', telefono?: string) =>
     api.post('/checkup/auth/2fa/enable/request', { channel, telefono }),
@@ -90,7 +91,7 @@ export const authApi = {
     api.post('/checkup/auth/2fa/disable/verify', { code }),
 
   changePassword: (currentPassword: string, newPassword: string) =>
-    api.post<LoginResponse>('/checkup/auth/change-password', { currentPassword, newPassword }),
+    api.post<LoginResponse>('/checkup/auth/change-password', { currentPassword, newPassword }, { credentials: 'include' }),
 
   getProfile: () =>
     api.get<CheckupUser>('/checkup/auth/profile'),
@@ -101,11 +102,11 @@ export const authApi = {
   confirmPasswordReset: (dto: PasswordResetConfirmDto) =>
     api.post('/checkup/auth/password-reset/confirm', dto, { skipAuthRedirect: true }),
 
-  /** Exchange a refresh token for a new access + refresh token pair. */
-  refresh: (refreshToken: string) =>
-    api.post<RefreshResponse>('/checkup/auth/refresh', { refresh_token: refreshToken }, { skipAuthRedirect: true }),
+  /** Exchange the httpOnly refresh cookie for a new access token. */
+  refresh: () =>
+    api.post<RefreshResponse>('/checkup/auth/refresh', undefined, { skipAuthRedirect: true, credentials: 'include' }),
 
-  /** Server-side logout: invalidates the refresh token in Redis. */
-  logout: (refreshToken: string) =>
-    api.post('/checkup/auth/logout', { refresh_token: refreshToken }).catch(() => undefined),
+  /** Server-side logout: invalidates the refresh token cookie. */
+  logout: () =>
+    api.post('/checkup/auth/logout', undefined, { credentials: 'include' }).catch(() => undefined),
 };

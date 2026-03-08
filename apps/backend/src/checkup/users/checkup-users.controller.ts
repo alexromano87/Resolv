@@ -3,7 +3,7 @@ import { CheckupUsersService } from './checkup-users.service';
 import { CreateCheckupUserDto } from './dto/create-checkup-user.dto';
 import { UpdateCheckupUserDto } from './dto/update-checkup-user.dto';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
-import { CheckupAdminStudioGuard } from '../auth/checkup-admin-studio.guard';
+import { CheckupStaffGuard } from '../auth/checkup-staff.guard';
 import { CheckupSuperadminGuard } from '../auth/checkup-superadmin.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
@@ -20,7 +20,7 @@ export class CheckupUsersController {
   }
 
   @Get()
-  @UseGuards(CheckupAdminStudioGuard)
+  @UseGuards(CheckupStaffGuard)
   findAll(
     @CheckupCurrentUser() user: CheckupCurrentUserData,
     @Query('search') search?: string,
@@ -31,13 +31,13 @@ export class CheckupUsersController {
   }
 
   @Get('usage')
-  @UseGuards(CheckupAdminStudioGuard)
+  @UseGuards(CheckupStaffGuard)
   getUsage(@CheckupCurrentUser() user: CheckupCurrentUserData) {
     return this.usersService.getUsage(user);
   }
 
   @Get(':id')
-  @UseGuards(CheckupAdminStudioGuard)
+  @UseGuards(CheckupStaffGuard)
   findOne(@Param('id') id: string, @CheckupCurrentUser() user: CheckupCurrentUserData) {
     return this.usersService.findOne(id, user);
   }

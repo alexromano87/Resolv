@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { auditApi, type AuditLogEntry, type AuditLogResponse } from '../api/preassessment';
+import { CustomSelect } from '../components/CustomSelect';
 import { Pagination } from '../components/Pagination';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { DateField } from '../components/ui/DateField';
@@ -183,70 +184,72 @@ export function AuditLogPage() {
   const hasFilters = !!(searchEmail || action || entityType || dateFrom || dateTo);
 
   return (
-    <div className="space-y-6 wow-stagger">
+    <div className="mx-auto max-w-7xl space-y-6 p-6 wow-stagger">
       {/* Header */}
-      <div className="flex flex-col gap-4 p-1 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-1.5">
+      <section className="wow-card p-6 md:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-3">
           <span className="wow-chip">Sicurezza</span>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50 display-font">
+          <h1 className="display-font text-3xl font-semibold text-slate-900 dark:text-slate-50">
             Log attività
           </h1>
-          <p className="max-w-xl text-sm text-slate-500 dark:text-slate-400">
+          <p className="max-w-xl text-sm text-slate-600 dark:text-slate-300">
             Storico completo delle azioni eseguite sulla piattaforma.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={load}
             disabled={loading}
-            className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 bg-white/80 rounded-full border border-slate-200 hover:bg-white transition-colors"
+            className="wow-button-ghost"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Aggiorna
           </button>
           <button
             onClick={() => { setDeleteResult(null); setShowDeleteModal(true); }}
-            className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-700 bg-rose-50 rounded-full border border-rose-200 hover:bg-rose-100 transition-colors"
+            className="wow-button-ghost border-rose-200 text-rose-700 hover:bg-rose-50"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <Trash2 className="h-4 w-4" />
             Elimina log
           </button>
           <button
             onClick={handleExportCsv}
             disabled={exporting || loading}
-            className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-white bg-indigo-600 rounded-full hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+            className="wow-button"
           >
             {exporting ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              <RefreshCw className="h-4 w-4 animate-spin" />
             ) : (
-              <Download className="h-3.5 w-3.5" />
+              <Download className="h-4 w-4" />
             )}
             Esporta CSV
           </button>
         </div>
-      </div>
+        </div>
+      </section>
 
       {deleteResult && (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-800">
-          <CheckCircle className="h-3.5 w-3.5 flex-shrink-0" />
+        <div className="wow-panel flex items-center gap-3 border-emerald-200 bg-emerald-50/80 px-5 py-4 text-sm text-emerald-800">
+          <CheckCircle className="h-4 w-4 flex-shrink-0" />
           {deleteResult}
           <button onClick={() => setDeleteResult(null)} className="ml-auto text-emerald-600 hover:text-emerald-800">
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
       )}
 
       {showDeleteModal && (
         <BodyPortal>
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900">
             <div className="flex items-start gap-3 mb-4">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 flex-shrink-0">
                 <Trash2 className="h-5 w-5 text-rose-600" />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-slate-900">Elimina log attività</h3>
-                <p className="text-sm text-slate-500 mt-0.5">Seleziona il periodo da eliminare. L'operazione è irreversibile.</p>
+                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-50">Elimina log attività</h3>
+                <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Seleziona il periodo da eliminare. L'operazione è irreversibile.</p>
               </div>
             </div>
             <div className="flex flex-col gap-2 mb-6">
@@ -257,7 +260,7 @@ export function AuditLogPage() {
                 ['365d', 'Ultimo anno'],
                 ['all', 'Tutti i log'],
               ] as const).map(([value, label]) => (
-                <label key={value} className="flex items-center gap-3 cursor-pointer rounded-xl border border-slate-200 px-4 py-3 hover:bg-slate-50 has-[:checked]:border-rose-400 has-[:checked]:bg-rose-50">
+                <label key={value} className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 hover:bg-slate-50 has-[:checked]:border-rose-400 has-[:checked]:bg-rose-50 dark:border-slate-700 dark:hover:bg-slate-800/60">
                   <input
                     type="radio"
                     name="deletePresetAudit"
@@ -266,19 +269,19 @@ export function AuditLogPage() {
                     onChange={() => setDeletePreset(value)}
                     className="accent-rose-600"
                   />
-                  <span className={`text-sm font-medium ${value === 'all' ? 'text-rose-700' : 'text-slate-700'}`}>{label}</span>
+                  <span className={`text-sm font-medium ${value === 'all' ? 'text-rose-700' : 'text-slate-700 dark:text-slate-200'}`}>{label}</span>
                   {value === 'all' && <span className="ml-auto text-xs font-semibold text-rose-500">ATTENZIONE</span>}
                 </label>
               ))}
             </div>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setShowDeleteModal(false)} disabled={deleting} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
+              <button onClick={() => setShowDeleteModal(false)} disabled={deleting} className="wow-button-ghost">
                 Annulla
               </button>
               <button
                 onClick={handleDeleteLogs}
                 disabled={deleting}
-                className="flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50 transition-colors"
+                className="wow-button inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" />
                 {deleting ? 'Eliminazione...' : 'Elimina'}
@@ -291,97 +294,93 @@ export function AuditLogPage() {
 
       {/* Error */}
       {error && (
-        <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-xs text-rose-700">
+        <div className="wow-panel border-rose-200 bg-rose-50/80 px-5 py-4 text-sm text-rose-700">
           {error}
         </div>
       )}
 
       {/* Filters */}
-      <div className="wow-panel p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="h-3.5 w-3.5 text-slate-400" />
-          <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Filtri</span>
+      <section className="wow-panel p-5 space-y-4 md:p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Filter className="h-4 w-4 text-slate-400" />
+          <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Filtri</span>
           {hasFilters && (
             <button
               onClick={resetFilters}
-              className="ml-auto text-[11px] text-indigo-600 hover:underline"
+              className="ml-auto text-sm font-medium text-indigo-600 hover:underline"
             >
               Azzera filtri
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           {/* Email search */}
-          <div className="relative lg:col-span-2">
-            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+          <div className="relative md:col-span-2 xl:col-span-2">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <input
               type="text"
               value={searchEmail}
               onChange={(e) => setSearchEmail(e.target.value)}
               placeholder="Cerca per email utente..."
-              className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 py-2 text-xs outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-50"
             />
           </div>
 
           {/* Action */}
-          <select
+          <CustomSelect
+            options={ACTION_OPTIONS}
             value={action}
-            onChange={(e) => setAction(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-          >
-            {ACTION_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
+            onChange={setAction}
+            className="w-full"
+            triggerClassName="rounded-xl border-slate-200 bg-white py-3 text-sm dark:border-slate-700 dark:bg-slate-950"
+          />
 
           {/* Entity type */}
-          <select
+          <CustomSelect
+            options={ENTITY_OPTIONS}
             value={entityType}
-            onChange={(e) => setEntityType(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-          >
-            {ENTITY_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
+            onChange={setEntityType}
+            className="w-full"
+            triggerClassName="rounded-xl border-slate-200 bg-white py-3 text-sm dark:border-slate-700 dark:bg-slate-950"
+          />
 
           {/* Date range */}
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-1 gap-4 md:col-span-2 xl:col-span-2 xl:grid-cols-[1fr_auto_1fr]">
             <DateField
               value={dateFrom}
               onChange={setDateFrom}
               placeholder="Data da"
-              className="flex-1"
+              className="min-w-0"
             />
-            <span className="text-slate-400 text-xs">→</span>
+            <div className="hidden items-center justify-center text-sm text-slate-400 xl:flex">→</div>
             <DateField
               value={dateTo}
               onChange={setDateTo}
               placeholder="Data a"
-              className="flex-1"
+              className="min-w-0"
             />
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Table */}
-      <div className="wow-panel overflow-hidden">
+      <section className="wow-panel overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-slate-500">
+          <div className="flex items-center justify-center py-20 text-slate-500">
             <RefreshCw className="h-5 w-5 animate-spin mr-2" />
-            <span className="text-xs">Caricamento log...</span>
+            <span className="text-sm">Caricamento log...</span>
           </div>
         ) : !data || data.logs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-            <ClipboardList className="h-10 w-10 mb-3 opacity-40" />
-            <p className="text-xs">Nessun log trovato con i filtri selezionati</p>
+          <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+            <ClipboardList className="mb-4 h-12 w-12 opacity-40" />
+            <p className="text-sm">Nessun log trovato con i filtri selezionati</p>
           </div>
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+              <table className="w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                <thead className="bg-slate-50 dark:bg-slate-800/50">
+                  <tr>
                     <th className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">Data / Ora</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">Utente</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">Ruolo</th>
@@ -395,7 +394,7 @@ export function AuditLogPage() {
                   {data.logs.map((log: AuditLogEntry, idx) => (
                     <tr
                       key={log.id}
-                      className={`border-b border-slate-50 dark:border-slate-800 transition-colors hover:bg-indigo-50/30 dark:hover:bg-slate-800/40 ${
+                      className={`transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-800/40 ${
                         idx % 2 === 0 ? '' : 'bg-slate-50/30 dark:bg-slate-800/20'
                       }`}
                     >
@@ -457,7 +456,7 @@ export function AuditLogPage() {
             </div>
           </>
         )}
-      </div>
+      </section>
     </div>
   );
 }

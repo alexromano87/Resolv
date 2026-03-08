@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, memo, Fragment } from 'react';
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -6,13 +6,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  StickyNote,
-  HelpCircle,
   Download,
   Printer,
-  Upload,
-  FileText,
-  Trash2,
+  ArrowDown,
   MessageCircle,
   Ticket,
   Bell,
@@ -22,9 +18,8 @@ import {
   Loader2,
   Ban,
   RefreshCw,
-  Lock,
+  ShieldCheck,
 } from 'lucide-react';
-import { CustomSelect } from '../components/CustomSelect';
 import {
   MACRO_AREAS as DEFAULT_MACRO_AREAS,
   SECTIONS as DEFAULT_SECTIONS,
@@ -52,180 +47,16 @@ import { useAuth } from '../contexts/AuthContext';
 import { usePreassessmentNav } from '../contexts/PreassessmentNavContext';
 import { useStudio } from '../contexts/StudioContext';
 import { DocumentPreviewModal } from '../components/DocumentPreviewModal';
-
-const DOC_ICON_FIELDS = new Set([
-  'd_accordi_partnership',
-  'd_anticorruzione',
-  'd_bilanci_infrannuali',
-  'd_bilancio',
-  'd_budget',
-  'd_budget_odv',
-  'd_business_plan',
-  'd_certificazioni',
-  'd_codice_etico',
-  'd_contratti_appalti',
-  'd_contratti_clienti',
-  'd_contratti_fornitori',
-  'd_contratti_outsourcing',
-  'd_dashboard_kpi',
-  'd_deleghe',
-  'd_doc_backup',
-  'd_dpia',
-  'd_dr_it',
-  'd_dvr',
-  'd_mansionari',
-  'd_matrice_poteri',
-  'd_modello_231',
-  'd_organigramma',
-  'd_patti_parasociali',
-  'd_piani_operativi',
-  'd_piano_emergenza',
-  'd_piano_industriale',
-  'd_piano_marketing',
-  'd_piano_tesoreria',
-  'd_policy_nda',
-  'd_policy_omaggi',
-  'd_policy_smartworking',
-  'd_policy_social',
-  'd_polizze',
-  'd_privacy',
-  'd_procedura_breach',
-  'd_procedure_operative',
-  'd_procure',
-  'd_registro_breach',
-  'd_registro_whistleblowing',
-  'd_sistema_disciplinare',
-  'd_sostenibilita',
-  'd_statuto',
-  'd_verbali_assemblea',
-  'd_verbali_cda',
-  'd_verbali_odv',
-  'd_visura',
-  'd_whistleblowing',
-]);
-
-const ASSETTI_ICON_FIELDS = new Set([
-  'aa_cda',
-  'aa_poteri_formalizzati',
-  'aa_corrispondenza_delega',
-  'aa_internal_audit',
-  'aa_organo_controllo_srl',
-  'aa_revisore_srl',
-  'aa_piano_industriale',
-  'aa_piani_operativi',
-  'aa_funzioni_esterne',
-  'aa_parti_correlate',
-  'ac_sistema_integrato',
-  'ac_esternalizzazione',
-  'ac_esternalizzazione_tipo',
-  'ac_trasferimento_dati',
-  'ac_cadenza_aggiornamento',
-  'ac_bilanci_infrannuali',
-  'ac_bilanci_gestionali',
-  'ac_analisi_bilancio',
-  'ac_analisi_crisi',
-  'ac_controllo_gestione',
-  'ac_contabilita_analitica',
-  'ac_kpi',
-  'ac_budget_reporting',
-  'ac_cadenza_reporting',
-  'ac_aspetti_finanziari',
-]);
-
-function getOptionLabel(field: FieldSpec, value: string) {
-  if (!DOC_ICON_FIELDS.has(field.id)) return value;
-  const lower = value.toLowerCase();
-  if (lower.startsWith('disponibile')) return `✅ ${value}`;
-  if (lower.startsWith('da reperire')) return `📋 ${value}`;
-  if (lower.startsWith('non')) return `❌ ${value}`;
-  return value;
-}
-
-function getAssettiOptionLabel(field: FieldSpec, value: string) {
-  if (!ASSETTI_ICON_FIELDS.has(field.id)) return value;
-  switch (value) {
-    case 'Sì':
-      return `✔︎ ${value}`;
-    case 'No':
-      return `✖︎ ${value}`;
-    case 'Non applicabile':
-      return `— ${value}`;
-    case 'Totale':
-      return `■ ${value}`;
-    case 'Parziale':
-      return `▢ ${value}`;
-    case 'Fax':
-      return `📠 ${value}`;
-    case 'Email':
-      return `✉️ ${value}`;
-    case 'Condivisione di un sistema informativo':
-      return `🔗 ${value}`;
-    case 'Altro':
-      return `⋯ ${value}`;
-    case 'Mensile':
-    case 'Trimestrale':
-    case 'Quadrimestrale':
-    case 'Semestrale':
-    case 'Annuale':
-      return `🗓 ${value}`;
-    default:
-      return value;
-  }
-}
-
-function getOptions(field: FieldSpec) {
-  if (field.type !== 'select') return [];
-  return [...(field.options || [])];
-}
-
-function getInitialData(sectionsData: SectionSpec[]) {
-  const init: Record<string, string> = {};
-  sectionsData.forEach((s) => s.fields.forEach((f) => { init[f.id] = ''; }));
-  return init;
-}
-
-function getInitialNaFields(sectionsData: SectionSpec[]) {
-  const init: Record<string, boolean> = {};
-  sectionsData.forEach((s) => s.fields.forEach((f) => { init[f.id] = false; }));
-  return init;
-}
-
-const OWNER_EMAIL_BY_MACRO: Record<string, string> = {
-  a: 'owner_a_email',
-  b: 'owner_b_email',
-  c: 'owner_c_email',
-  d: 'owner_d_email',
-  e: 'owner_e_email',
-  f: 'owner_f_email',
-  g: 'owner_g_email',
-  h: 'owner_h_email',
-  i: 'owner_i_email',
-  j: 'owner_j_email',
-};
-const OWNER_FIELDS_BY_MACRO: Record<string, { name: string; role: string; email: string }> = {
-  a: { name: 'owner_a_nome', role: 'owner_a_ruolo', email: 'owner_a_email' },
-  b: { name: 'owner_b_nome', role: 'owner_b_ruolo', email: 'owner_b_email' },
-  c: { name: 'owner_c_nome', role: 'owner_c_ruolo', email: 'owner_c_email' },
-  d: { name: 'owner_d_nome', role: 'owner_d_ruolo', email: 'owner_d_email' },
-  e: { name: 'owner_e_nome', role: 'owner_e_ruolo', email: 'owner_e_email' },
-  f: { name: 'owner_f_nome', role: 'owner_f_ruolo', email: 'owner_f_email' },
-  g: { name: 'owner_g_nome', role: 'owner_g_ruolo', email: 'owner_g_email' },
-  h: { name: 'owner_h_nome', role: 'owner_h_ruolo', email: 'owner_h_email' },
-  i: { name: 'owner_i_nome', role: 'owner_i_ruolo', email: 'owner_i_email' },
-  j: { name: 'owner_j_nome', role: 'owner_j_ruolo', email: 'owner_j_email' },
-};
-const getOwnerInfo = (data: Record<string, string> | null | undefined, macroId: string) => {
-  if (!data) return null;
-  const fields = OWNER_FIELDS_BY_MACRO[macroId];
-  if (!fields) return null;
-  const name = (data[fields.name] || '').trim();
-  const role = (data[fields.role] || '').trim();
-  const email = (data[fields.email] || '').trim();
-  if (!name && !role && !email) return null;
-  const primary = name || email || '—';
-  const secondary = email && email !== primary ? email : '';
-  return { name, role, email, primary, secondary };
-};
+import { useConfirmDialog } from '../components/ui/ConfirmDialog';
+import { downloadTextFile, formatDateTime, sanitizeFilename } from '../utils/textExport';
+import {
+  OWNER_EMAIL_BY_MACRO,
+  buildPreassessmentCsv,
+  getInitialData,
+  getInitialNaFields,
+  getOwnerInfo,
+} from '../features/preassessment/preassessment-utils';
+import { FormField } from '../features/preassessment/FormField';
 
 const CHAT_SECTION_ID = 'general';
 const getInitials = (name: string) => {
@@ -251,6 +82,17 @@ export default function PreassessmentPage() {
     || user?.ruolo === 'segreteria';
   const [macroAreas, setMacroAreas] = useState<MacroAreaSpec[]>(DEFAULT_MACRO_AREAS);
   const [sections, setSections] = useState<SectionSpec[]>(DEFAULT_SECTIONS);
+  const assignedClientMacroAreas = useMemo(() => {
+    if (!isClient) return null;
+    const values = Array.from(
+      new Set(
+        (user?.macroAreaAssignments || [])
+          .map((value) => value?.trim())
+          .filter((value): value is string => !!value),
+      ),
+    );
+    return values.length > 0 ? new Set(values) : null;
+  }, [isClient, user?.macroAreaAssignments]);
 
   useEffect(() => {
     const modelId = user?.license?.model?.id;
@@ -295,8 +137,15 @@ export default function PreassessmentPage() {
             })),
           }))
         );
-        setMacroAreas(nextMacroAreas.length ? nextMacroAreas : DEFAULT_MACRO_AREAS);
-        setSections(nextSections.length ? nextSections : DEFAULT_SECTIONS);
+        const visibleMacroAreas = assignedClientMacroAreas
+          ? nextMacroAreas.filter((macro) => assignedClientMacroAreas.has(macro.id))
+          : nextMacroAreas;
+        const visibleSections = assignedClientMacroAreas
+          ? nextSections.filter((section) => assignedClientMacroAreas.has(section.macro))
+          : nextSections;
+
+        setMacroAreas(visibleMacroAreas.length || assignedClientMacroAreas ? visibleMacroAreas : DEFAULT_MACRO_AREAS);
+        setSections(visibleSections.length || assignedClientMacroAreas ? visibleSections : DEFAULT_SECTIONS);
       })
       .catch(() => {
         if (cancelled) return;
@@ -307,7 +156,7 @@ export default function PreassessmentPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.license?.model?.id]);
+  }, [assignedClientMacroAreas, user?.license?.model?.id]);
 
   const [clients, setClients] = useState<PreassessmentClientEntry[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);
@@ -324,6 +173,7 @@ export default function PreassessmentPage() {
   const [naFields, setNaFields] = useState<Record<string, boolean>>(() => getInitialNaFields(sections));
   const [macroValidations, setMacroValidations] = useState<Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>>({});
   const [sectionValidations, setSectionValidations] = useState<Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>>({});
+  const [finalValidation, setFinalValidation] = useState<{ by: { id: string; name: string; ruolo: string }; at: string } | null>(null);
   const [assessmentStatus, setAssessmentStatus] = useState<'in_progress' | 'concluso'>('in_progress');
   const [preassessmentId, setPreassessmentId] = useState<string | null>(null);
   const [isPreassessmentOnline, setIsPreassessmentOnline] = useState(false);
@@ -337,6 +187,7 @@ export default function PreassessmentPage() {
   const [exportIncludeConsultantNotes, setExportIncludeConsultantNotes] = useState(true);
   const [panel, setPanel] = useState<'chat' | 'tickets' | 'alerts' | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [zipLoading, setZipLoading] = useState(false);
   const [savingReport, setSavingReport] = useState(false);
   const [reportNotice, setReportNotice] = useState<string | null>(null);
   const consultantNoteDirtyRef = useRef(false);
@@ -344,11 +195,14 @@ export default function PreassessmentPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const { confirm, ConfirmDialog } = useConfirmDialog();
 
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
   const [chatMessages, setChatMessages] = useState<PreassessmentChatMessage[]>([]);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
+  const [ticketUnreadCount, setTicketUnreadCount] = useState(0);
+  const [alertUnreadCount, setAlertUnreadCount] = useState(0);
   const [typingUsers, setTypingUsers] = useState<Array<{ userId: string; name: string; ruolo: string }>>([]);
   const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastTicketIdsRef = useRef<Set<string>>(new Set());
@@ -434,10 +288,13 @@ export default function PreassessmentPage() {
       sectionStats,
       macroValidations,
       chatCount: chatUnreadCount,
+      ticketCount: ticketUnreadCount,
+      alertCount: alertUnreadCount,
+      clientId: activeClientId || null,
       hasAssessment: !!activeClientId,
       isClient,
     });
-  }, [sections, macroAreas, data, naFields, macroValidations, chatUnreadCount, activeClientId, isClient]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sections, macroAreas, data, naFields, macroValidations, chatUnreadCount, ticketUnreadCount, alertUnreadCount, activeClientId, isClient]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Scroll to top when section changes ───────────────────────────────────────
   useEffect(() => {
@@ -523,10 +380,54 @@ export default function PreassessmentPage() {
     URL.revokeObjectURL(url);
   }, []);
 
+  const waitForExportJob = useCallback(async (
+    createJob: () => Promise<{ id: string; status: 'queued' | 'processing' | 'completed' | 'failed'; errorMessage?: string | null }>,
+    fallbackError: string,
+  ) => {
+    const initialJob = await createJob();
+    let job = initialJob;
+    const deadline = Date.now() + 5 * 60 * 1000;
+
+    while (job.status === 'queued' || job.status === 'processing') {
+      if (Date.now() > deadline) {
+        throw new Error("Il file e' ancora in preparazione. Riprova tra qualche istante.");
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      job = await preassessmentApi.getExportJob(job.id);
+    }
+
+    if (job.status === 'failed') {
+      throw new Error(job.errorMessage || fallbackError);
+    }
+
+    const { blob, filename } = await preassessmentApi.downloadExportJob(job.id);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'export';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
   const [previewDoc, setPreviewDoc] = useState<PreassessmentDocument | null>(null);
   const handlePreviewDocument = useCallback((doc: PreassessmentDocument) => {
     setPreviewDoc(doc);
   }, []);
+
+  const handleDownloadDocumentsZip = useCallback(async () => {
+    if (!preassessmentId) return;
+    setZipLoading(true);
+    try {
+      await waitForExportJob(
+        () => preassessmentDocumentsApi.createZipJob(preassessmentId),
+        'Errore durante la preparazione dello ZIP dei documenti',
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante il download dei documenti');
+    } finally {
+      setZipLoading(false);
+    }
+  }, [preassessmentId, waitForExportJob]);
 
   useEffect(() => {
     if (!preassessmentId) {
@@ -611,6 +512,7 @@ export default function PreassessmentPage() {
           setNaFields(getInitialNaFields(sections));
           setMacroValidations({});
           setSectionValidations({});
+          setFinalValidation(null);
           setAssessmentStatus('in_progress');
           setLastSavedAt(null);
           return;
@@ -631,6 +533,7 @@ export default function PreassessmentPage() {
           setNaFields(res.preassessment.naFields || getInitialNaFields(sections));
           setMacroValidations(res.preassessment.macroValidations || {});
           setSectionValidations(res.preassessment.sectionValidations || {});
+          setFinalValidation(res.preassessment.finalValidation || null);
           lastRemoteUpdatedAtRef.current = res.preassessment.updatedAt;
           setLastSavedAt(new Date(res.preassessment.updatedAt).toLocaleTimeString('it-IT'));
           didInitRef.current = true;
@@ -651,6 +554,7 @@ export default function PreassessmentPage() {
         setNaFields(res.naFields || getInitialNaFields(sections));
         setMacroValidations(res.macroValidations || {});
         setSectionValidations(res.sectionValidations || {});
+        setFinalValidation(res.finalValidation || null);
         lastRemoteUpdatedAtRef.current = res.updatedAt;
         setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
         didInitRef.current = true;
@@ -678,7 +582,7 @@ export default function PreassessmentPage() {
     }
     // For clients, restore the last view so they can continue where they left off
     const key = `checkup_preassessment_view_${activeClientId}`;
-    const raw = localStorage.getItem(key);
+    const raw = sessionStorage.getItem(key);
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as { view?: 'dashboard' | number };
@@ -728,7 +632,7 @@ export default function PreassessmentPage() {
   useEffect(() => {
     if (!activeClientId) return;
     const key = `checkup_preassessment_view_${activeClientId}`;
-    localStorage.setItem(key, JSON.stringify({ view }));
+    sessionStorage.setItem(key, JSON.stringify({ view }));
   }, [activeClientId, view, panel]);
 
   useEffect(() => {
@@ -780,6 +684,8 @@ export default function PreassessmentPage() {
           setFieldMeta(res.preassessment.fieldMeta || {});
           setNaFields(res.preassessment.naFields || getInitialNaFields(sections));
           setMacroValidations(res.preassessment.macroValidations || {});
+          setSectionValidations(res.preassessment.sectionValidations || {});
+          setFinalValidation(res.preassessment.finalValidation || null);
           setLastSavedAt(new Date(res.preassessment.updatedAt).toLocaleTimeString('it-IT'));
           lastRemoteUpdatedAtRef.current = res.preassessment.updatedAt;
           return;
@@ -804,6 +710,7 @@ export default function PreassessmentPage() {
         setNaFields(res.naFields || getInitialNaFields(sections));
         setMacroValidations(res.macroValidations || {});
         setSectionValidations(res.sectionValidations || {});
+        setFinalValidation(res.finalValidation || null);
         setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
         lastRemoteUpdatedAtRef.current = res.updatedAt;
       } catch {
@@ -852,6 +759,9 @@ export default function PreassessmentPage() {
           }
           if (res.fieldMeta) {
             setFieldMeta(res.fieldMeta);
+          }
+          if (res.finalValidation !== undefined) {
+            setFinalValidation(res.finalValidation || null);
           }
           // NON aggiornare macroValidations/sectionValidations dalla risposta del save:
           // sono già corrette nello stato locale e aggiornarle triggera un re-salvataggio
@@ -976,6 +886,27 @@ export default function PreassessmentPage() {
     });
   }, [activeClientId, assessmentStatus]);
 
+  const handleFinalValidate = useCallback(async () => {
+    if (!isClient || !user?.superOwner || finalValidation) return;
+    const confirmed = await confirm({
+      title: 'Validare il checkup?',
+      message: 'Confermi la validazione finale del checkup? Dopo la validazione il licenziatario riceverà la notifica.',
+      confirmText: 'Valida checkup',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+
+    try {
+      const res = await preassessmentApi.finalValidate();
+      setFinalValidation(res.finalValidation || null);
+      setAssessmentStatus(res.status || 'concluso');
+      setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
+      setReportNotice('Checkup validato correttamente dal Super-owner.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante la validazione finale');
+    }
+  }, [confirm, finalValidation, isClient, user?.superOwner]);
+
   // Count-based metrics (for display "N/M" labels)
   const totalReq = useMemo(
     () => sections.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id]).length, 0),
@@ -1016,6 +947,18 @@ export default function PreassessmentPage() {
     return true;
   };
 
+  const sectionMatchesDashboardFilter = useCallback((section: SectionSpec) => {
+    const total = sTotal(section);
+    const done = sDone(section);
+    const naCount = sNA(section);
+
+    if (dashFilter === 'all') return true;
+    if (dashFilter === 'completed') return total > 0 && done === total;
+    if (dashFilter === 'todo') return total > 0 && done < total;
+    if (dashFilter === 'na') return section.fields.length > 0 && naCount === section.fields.length;
+    return true;
+  }, [dashFilter, data, naFields]);
+
   const filtered = useMemo(() => {
     if (!search.trim()) return sections;
     const t = search.toLowerCase();
@@ -1024,13 +967,13 @@ export default function PreassessmentPage() {
       || s.description.toLowerCase().includes(t)
       || s.fields.some((f) => f.label.toLowerCase().includes(t)),
     );
-  }, [search]);
+  }, [search, sections]);
 
   const grouped = useMemo(
     () => macroAreas
       .map((m) => ({ ...m, sections: filtered.filter((s) => s.macro === m.id) }))
       .filter((g) => g.sections.length > 0),
-    [filtered],
+    [filtered, macroAreas],
   );
 
   const isOwnerForMacro = (macroId: string) => {
@@ -1050,29 +993,18 @@ export default function PreassessmentPage() {
         : 'Tutti';
 
   const exportCSV = () => {
-    const excludeNA = exportMode === 'excludeNA';
-    const includeNotes = exportIncludeConsultantNotes;
-    let csv = 'Macro Area;Sezione;Campo;Obbligatorio;Valore';
-    csv += ';Nota utente';
-    if (includeNotes) csv += ';Nota consulente';
-    csv += ';Note sezione\n';
-    sections.forEach((s) => {
-      const m = macroAreas.find((x) => x.id === s.macro)?.label || '';
-      const rows = s.fields.filter((f) => !(excludeNA && naFields[f.id]));
-      rows.forEach((f, i) => {
-        const isNA = !!naFields[f.id];
-        const rawValue = isNA ? 'N/A' : (data[f.id] || '');
-        const value = rawValue.includes('||') ? rawValue.split('||').join(', ') : rawValue;
-        let row = `"${m}";"${s.title}";"${f.label}";"${f.required ? 'Sì' : 'No'}";"${value.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
-        row += `;"${(isNA ? '' : (userFieldNotes[f.id] || '')).replace(/"/g, '""')}"`;
-        if (includeNotes) {
-          row += `;"${(isNA ? '' : (fieldNotes[f.id] || '')).replace(/"/g, '""')}"`;
-        }
-        row += `;"${i === 0 ? (notes[s.id] || '').replace(/"/g, '""') : ''}"\n`;
-        csv += row;
-      });
+    const csv = buildPreassessmentCsv({
+      sections,
+      macroAreas,
+      data,
+      notes,
+      userFieldNotes,
+      fieldNotes,
+      naFields,
+      excludeNA: exportMode === 'excludeNA',
+      includeConsultantNotes: exportIncludeConsultantNotes,
     });
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1139,7 +1071,9 @@ export default function PreassessmentPage() {
       'Società non specificata';
     const clientEmail = clientInfo?.email || '';
     const logoUrl = await getLogoDataUrl();
-    // Cover card background color (cover gradient ~#1e3a8a blended with rgba(15,23,42,0.35) = ~#192e68)
+    // Single source of truth for the cover header band background.
+    // The logo transparency is flattened against the exact same color,
+    // so no darker rectangle remains visible around the logo in the PDF.
     const coverCardBg = 'rgb(25, 46, 104)';
     const logoForCover = studioLogoUrl
       ? await flattenLogoTransparency(studioLogoUrl, coverCardBg)
@@ -1232,7 +1166,7 @@ export default function PreassessmentPage() {
         background: rgba(37, 99, 235, 0.2);
         filter: blur(12px);
       }
-      .cover-top { display: flex; align-items: center; gap: 16px; background: rgba(15, 23, 42, 0.35); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; padding: 12px 14px; }
+      .cover-top { display: flex; align-items: center; gap: 16px; background: ${coverCardBg}; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; padding: 12px 14px; }
       .cover-top img { height: 64px; width: auto; max-width: 200px; object-fit: contain; }
       .cover-title { font-size: 28px; font-weight: 700; letter-spacing: 0.02em; }
       .cover-subtitle { font-size: 14px; opacity: 0.85; margin-top: 6px; }
@@ -1624,13 +1558,10 @@ export default function PreassessmentPage() {
     setReportNotice(null);
     try {
       const html = await buildReportHtml();
-      const blob = await preassessmentApi.downloadPdf(html);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `pre_assessment_${new Date().toISOString().slice(0, 10)}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await waitForExportJob(
+        () => preassessmentApi.createPdfJob(html),
+        'Errore durante la generazione del PDF',
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore durante la generazione del PDF');
     } finally {
@@ -1721,6 +1652,21 @@ export default function PreassessmentPage() {
     loadTickets();
     loadAlerts();
   }, [preassessmentId, loadTickets, loadAlerts]);
+
+  useEffect(() => {
+    if (!preassessmentId || isClient) return;
+    const loadUnreadCounts = async () => {
+      try {
+        const counts = await threadsUnreadApi.getCounts(preassessmentId);
+        setTicketUnreadCount(counts.tickets);
+        setAlertUnreadCount(counts.alerts);
+      } catch {
+        setTicketUnreadCount(0);
+        setAlertUnreadCount(0);
+      }
+    };
+    loadUnreadCounts();
+  }, [preassessmentId, isClient, tickets, alerts]);
 
   useEffect(() => {
     if (!preassessmentId) return;
@@ -1824,7 +1770,7 @@ export default function PreassessmentPage() {
                 handleClientSearch();
               }}
             >
-              <div className="relative flex-1">
+              <div className="relative flex-1 min-h-0">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
@@ -1918,10 +1864,11 @@ export default function PreassessmentPage() {
       return t > 0 && sDone(s) === t;
     }).length;
 
-    const filteredMacros = macroAreas.filter((m) => m.id !== 'k');
+    const dashboardSections = sections.filter(sectionMatchesDashboardFilter);
+    const filteredMacros = macroAreas.filter((m) => m.id !== 'k' && dashboardSections.some((s) => s.macro === m.id));
     const validatedCount = filteredMacros.filter((m) => macroValidations[m.id]).length;
     const macroRows = filteredMacros.map((m) => {
-      const sects = sections.filter((s) => s.macro === m.id);
+      const sects = dashboardSections.filter((s) => s.macro === m.id);
       const total = sects.reduce((a, s) => a + sTotal(s), 0);
       const done = sects.reduce((a, s) => a + sDone(s), 0);
       const naCount = sects.reduce((a, s) => a + sNA(s), 0);
@@ -1933,7 +1880,15 @@ export default function PreassessmentPage() {
     });
     const totalSectionsToValidate = macroRows.reduce((acc, row) => acc + row.sections, 0);
     const validatedSectionsTotal = macroRows.reduce((acc, row) => acc + row.validatedSections, 0);
-    const sectionCards = sections.filter((s) => s.fields.some(fieldMatchesFilter));
+    const canFinalValidate =
+      isClient
+      && Boolean(user?.superOwner)
+      && !finalValidation
+      && filteredMacros.length > 0
+      && validatedCount === filteredMacros.length
+      && totalSectionsToValidate > 0
+      && validatedSectionsTotal === totalSectionsToValidate;
+    const sectionCards = dashboardSections;
 
     return (
       <div className="space-y-6">
@@ -2039,6 +1994,37 @@ export default function PreassessmentPage() {
               })()}
             </div>
           )}
+          {isClient && user?.superOwner && (
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {finalValidation ? (
+                <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 text-xs font-semibold text-white">
+                  <ShieldCheck className="h-4 w-4" />
+                  Checkup validato il {new Date(finalValidation.at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleFinalValidate}
+                  disabled={!canFinalValidate}
+                  className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition ${
+                    canFinalValidate
+                      ? 'bg-emerald-500 text-white hover:bg-emerald-400'
+                      : 'cursor-not-allowed bg-white/15 text-white/70'
+                  }`}
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  Valida checkup
+                </button>
+              )}
+              <span className="text-xs text-white/75">
+                {finalValidation
+                  ? `Validazione finale registrata da ${finalValidation.by.name}.`
+                  : canFinalValidate
+                    ? 'Tutte le sezioni e le macro aree sono validate: puoi procedere con la validazione finale.'
+                    : 'La validazione finale sarà disponibile quando tutte le sezioni e le macro aree saranno validate.'}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="wow-panel p-3 flex flex-wrap items-center gap-2">
@@ -2080,7 +2066,7 @@ export default function PreassessmentPage() {
           ))}
         </div>
 
-        <div className="wow-panel p-5">
+        <div id="macro-area-status" className="wow-panel p-5">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-slate-900">Stato per Macro Area</h3>
             {validatedCount > 0 && (
@@ -2569,7 +2555,7 @@ export default function PreassessmentPage() {
             <div className="flex flex-col items-center gap-1">
               <button
                 type="button"
-                onClick={() => { setView('dashboard'); setPanel(null); }}
+                onClick={goToMacroStatusOverview}
                 className="text-xs font-semibold text-slate-400 hover:text-indigo-600 transition-colors"
               >
                 ↑ Panoramica
@@ -2597,12 +2583,22 @@ export default function PreassessmentPage() {
     !panel && !activeSection ? { label: 'Dashboard' } : null,
   ].filter(Boolean) as { label: string; onClick?: () => void }[];
 
+  const goToMacroStatusOverview = useCallback(() => {
+    setView('dashboard');
+    setPanel(null);
+    window.requestAnimationFrame(() => {
+      setTimeout(() => {
+        document.getElementById('macro-area-status')?.scrollIntoView({ behavior: 'auto', block: 'start' });
+      }, 40);
+    });
+  }, []);
+
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6 wow-stagger">
-      <div className="wow-card p-6 md:p-8">
+      {panel !== 'chat' && (
+        <div className="wow-card p-6 md:p-8">
         <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
-            <div className="wow-chip">Checkup Governance</div>
             <div>
               <h1 className="display-font text-3xl font-semibold text-slate-900">Pre-Assessment</h1>
               <p className="text-sm text-slate-600">
@@ -2649,6 +2645,11 @@ export default function PreassessmentPage() {
               {assessmentStatus === 'concluso' && (
                 <div className="text-emerald-700 font-semibold">Checkup concluso</div>
               )}
+              {finalValidation && (
+                <div className="text-teal-700 font-semibold">
+                  Validazione finale registrata il {new Date(finalValidation.at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex flex-col items-start gap-2 md:items-end">
@@ -2690,6 +2691,11 @@ export default function PreassessmentPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button onClick={exportCSV} className="wow-button-ghost">CSV</button>
+                  {documentsEnabled && (
+                    <button onClick={handleDownloadDocumentsZip} className="wow-button-ghost" disabled={zipLoading}>
+                      {zipLoading ? 'Preparazione ZIP...' : 'Documenti ZIP'}
+                    </button>
+                  )}
                   <button onClick={generatePDF} className="wow-button" disabled={pdfLoading}>
                     {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
                     {pdfLoading ? 'Preparazione PDF...' : 'Report PDF'}
@@ -2707,7 +2713,8 @@ export default function PreassessmentPage() {
             )}
           </div>
         </div>
-      </div>
+        </div>
+      )}
 
       {error && (
         <div className="wow-panel border-rose-200 bg-rose-50/80 p-4 text-rose-700 flex items-center gap-2">
@@ -2769,11 +2776,11 @@ export default function PreassessmentPage() {
           sNA={sNA}
           validations={macroValidations}
           hasAssessment={!!activeClientId}
-          chatCount={chatUnreadCount}
-          isClient={isClient}
         />,
         sidebarTarget,
       )}
+
+      <ConfirmDialog />
     </div>
   );
 }
@@ -2794,8 +2801,6 @@ function PreassessmentSidebar({
   sNA,
   validations,
   hasAssessment,
-  chatCount,
-  isClient,
 }: {
   view: 'dashboard' | number;
   setView: (val: 'dashboard' | number) => void;
@@ -2812,36 +2817,9 @@ function PreassessmentSidebar({
   sNA: (s: SectionSpec) => number;
   validations: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>;
   hasAssessment: boolean;
-  chatCount: number;
-  isClient?: boolean;
 }) {
   return (
     <div className="space-y-4">
-      <div className="space-y-1">
-        {hasAssessment && isClient && (
-          <button
-            onClick={() => setPanel(panel === 'chat' ? null : 'chat')}
-            className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition-colors ${panel === 'chat' ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
-          >
-            <span
-              className={[
-                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                panel === 'chat'
-                  ? 'opacity-100 translate-x-0'
-                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-              ].join(' ')}
-            />
-            <MessageCircle className="h-4 w-4 text-slate-400 group-hover:text-white transition-all duration-200" />
-            Chat
-            {chatCount > 0 && (
-              <span className="ml-auto rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-                {chatCount}
-              </span>
-            )}
-          </button>
-        )}
-      </div>
-
       {hasAssessment && (
         <>
           <div className="relative">
@@ -2945,12 +2923,59 @@ function ChatPanel({
 }) {
   const [msg, setMsg] = useState('');
   const [sending, setSending] = useState(false);
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initializedScrollRef = useRef(false);
+  const lastMessageIdRef = useRef<string | null>(null);
+
+  const isNearBottom = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return true;
+    return container.scrollHeight - container.scrollTop - container.clientHeight < 96;
+  }, []);
+
+  const scrollToLatestMessage = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior });
+  }, []);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      setShowScrollToLatest(!isNearBottom());
+    };
+
+    handleScroll();
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [isNearBottom]);
+
+  useLayoutEffect(() => {
+    const latestMessage = messages[messages.length - 1];
+    if (!latestMessage) {
+      lastMessageIdRef.current = null;
+      setShowScrollToLatest(false);
+      return;
+    }
+
+    const hasNewLatestMessage = latestMessage.id !== lastMessageIdRef.current;
+    const shouldSnapToBottom = !initializedScrollRef.current || isNearBottom() || (hasNewLatestMessage && latestMessage.userId === currentUserId);
+
+    if (shouldSnapToBottom) {
+      scrollToLatestMessage(initializedScrollRef.current ? 'smooth' : 'auto');
+      setShowScrollToLatest(false);
+    } else {
+      setShowScrollToLatest(true);
+    }
+
+    initializedScrollRef.current = true;
+    lastMessageIdRef.current = latestMessage.id;
+  }, [messages, currentUserId, isNearBottom, scrollToLatestMessage]);
 
   const handleSend = async () => {
     if (!msg.trim()) return;
@@ -2980,8 +3005,30 @@ function ChatPanel({
     }, 2500);
   };
 
+  const handleExportChat = () => {
+    const lines: string[] = [
+      'ESPORTAZIONE CHAT',
+      `Conversazione con: ${otherName}`,
+      `Generato il: ${formatDateTime(new Date().toISOString())}`,
+      `Numero messaggi: ${messages.length}`,
+      '',
+    ];
+
+    messages.forEach((message, index) => {
+      const author = `${message.user.nome} ${message.user.cognome}`.trim();
+      lines.push(`${index + 1}. ${author} - ${formatDateTime(message.createdAt)}`);
+      lines.push(message.messaggio);
+      lines.push('');
+    });
+
+    downloadTextFile(
+      `chat-${sanitizeFilename(otherName)}-${new Date().toISOString().slice(0, 10)}.txt`,
+      lines.join('\n'),
+    );
+  };
+
   return (
-    <div className="wow-panel flex h-[70vh] flex-col overflow-hidden">
+    <div className="wow-panel flex h-[70vh] min-h-0 flex-col overflow-hidden">
       <div className="border-b border-slate-200 px-5 py-4 flex items-center gap-3">
         {onClose && (
           <button
@@ -2994,25 +3041,19 @@ function ChatPanel({
         )}
         <span className="text-sm font-semibold text-slate-900 flex-1">Chat con {otherName}</span>
         <button
-          onClick={() => window.print()}
+          onClick={handleExportChat}
           className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
-          title="Stampa conversazione"
+          title="Esporta conversazione"
         >
           <Printer className="h-4 w-4" />
         </button>
       </div>
-      <style>{`
-        @media print {
-          .no-print { display: none !important; }
-          body { background: white !important; }
-          aside, header, nav { display: none !important; }
-        }
-      `}</style>
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-        {messages.length === 0 && (
-          <div className="text-center text-xs text-slate-400">Nessun messaggio. Inizia la conversazione.</div>
-        )}
-        {messages.map((m) => {
+      <div className="relative flex-1 min-h-0">
+        <div ref={scrollContainerRef} className="h-full min-h-0 overflow-y-auto px-5 py-4 space-y-3">
+          {messages.length === 0 && (
+            <div className="text-center text-xs text-slate-400">Nessun messaggio. Inizia la conversazione.</div>
+          )}
+          {messages.map((m) => {
           const isOwn = m.userId === currentUserId;
           return (
             <div key={m.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
@@ -3041,8 +3082,20 @@ function ChatPanel({
               </div>
             </div>
           );
-        })}
-        <div ref={endRef} />
+          })}
+          <div ref={endRef} />
+        </div>
+        {showScrollToLatest && messages.length > 0 && (
+          <button
+            type="button"
+            onClick={() => scrollToLatestMessage()}
+            className="absolute bottom-4 right-5 inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-slate-900/20 transition hover:bg-slate-800"
+            title="Vai all'ultimo messaggio"
+          >
+            <ArrowDown className="h-4 w-4" />
+            Ultimo messaggio
+          </button>
+        )}
       </div>
       {typingUsers.length > 0 && (
         <div className="px-5 pb-2 text-[11px] text-slate-500">
@@ -3073,435 +3126,3 @@ function ChatPanel({
     </div>
   );
 }
-
-const FormField = memo(function FormField({
-  field,
-  value,
-  onChange,
-  consultantNote,
-  userNote,
-  onConsultantNoteChange,
-  onUserNoteChange,
-  readOnly = false,
-  fieldMeta,
-  activeEditor,
-  currentUserId,
-  onFieldFocus,
-  onFieldBlur,
-  naChecked = false,
-  onNaChange,
-  canEditConsultantNotes = false,
-  canEditUserNotes = false,
-  documents = [],
-  documentsLoading = false,
-  documentsEnabled = true,
-  onUploadDocument,
-  onDeleteDocument,
-  onDownloadDocument,
-  onPreviewDocument,
-  sectionId,
-  ownerProtected = false,
-}: {
-  field: FieldSpec;
-  value: string;
-  onChange: (id: string, val: string) => void;
-  consultantNote?: string;
-  userNote?: string;
-  onConsultantNoteChange: (id: string, val: string) => void;
-  onUserNoteChange: (id: string, val: string) => void;
-  readOnly?: boolean;
-  ownerProtected?: boolean;
-  fieldMeta?: { updatedAt: string; updatedBy: { id: string; name: string; ruolo: string } };
-  activeEditor?: { userId: string; name: string };
-  currentUserId?: string;
-  onFieldFocus?: (id: string) => void;
-  onFieldBlur?: (id: string) => void;
-  naChecked?: boolean;
-  onNaChange?: (id: string, checked: boolean) => void;
-  canEditConsultantNotes?: boolean;
-  canEditUserNotes?: boolean;
-  documents?: PreassessmentDocument[];
-  documentsLoading?: boolean;
-  documentsEnabled?: boolean;
-  onUploadDocument?: (fieldId: string, sectionId: string, file: File) => Promise<void> | void;
-  onDeleteDocument?: (docId: string) => Promise<void> | void;
-  onDownloadDocument?: (doc: PreassessmentDocument) => Promise<void> | void;
-  onPreviewDocument?: (doc: PreassessmentDocument) => void;
-  sectionId: string;
-}) {
-  const [showHelp, setShowHelp] = useState(false);
-  const [showUserNote, setShowUserNote] = useState(Boolean(userNote));
-  const [showConsultantNote, setShowConsultantNote] = useState(Boolean(consultantNote));
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const helpRef = useRef<HTMLDivElement>(null);
-  const isEditingOther = activeEditor && activeEditor.userId !== currentUserId;
-  const showModified = !!fieldMeta;
-  const modifiedAt = fieldMeta
-    ? new Date(fieldMeta.updatedAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : null;
-  const disabled = readOnly || ownerProtected || !!isEditingOther || naChecked;
-  const consultantNoteDisabled = !!isEditingOther || naChecked;
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !onUploadDocument) return;
-
-    const MAX_SIZE = 15 * 1024 * 1024;
-    if (file.size > MAX_SIZE) {
-      setUploadError('Il file supera la dimensione massima consentita di 15 MB.');
-      if (fileRef.current) fileRef.current.value = '';
-      return;
-    }
-    setUploadError(null);
-
-    setUploading(true);
-    try {
-      await onUploadDocument(field.id, sectionId, file);
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
-
-  useEffect(() => {
-    if (userNote) setShowUserNote(true);
-  }, [userNote]);
-
-  useEffect(() => {
-    if (consultantNote) setShowConsultantNote(true);
-  }, [consultantNote]);
-
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (!helpRef.current) return;
-      if (!helpRef.current.contains(e.target as Node)) setShowHelp(false);
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
-  const renderValue = (raw: string) => {
-    if (!raw) return '';
-    if (raw.includes('||')) return raw.split('||').join(', ');
-    return raw;
-  };
-
-  return (
-    <div className={`space-y-2 rounded-xl ${isEditingOther ? 'ring-2 ring-blue-200/70 bg-blue-50/40 p-3' : ''}`}>
-      <div className="flex items-center justify-between gap-3">
-        <label className={`text-sm font-medium ${naChecked ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
-          {field.label}
-          {field.required && !naChecked && <span className="text-rose-500 ml-1">*</span>}
-        </label>
-        <div className="flex items-center gap-2">
-          {showModified && (
-            <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5">
-              Ultima modifica: {fieldMeta?.updatedBy.name} • {modifiedAt}
-            </span>
-          )}
-          {isEditingOther && (
-            <span className="text-[10px] font-semibold text-blue-700 bg-blue-100/80 border border-blue-200 rounded-full px-2 py-0.5">
-              In modifica da {activeEditor?.name}
-            </span>
-          )}
-          {ownerProtected && (
-            <span className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5">
-              <Lock className="h-2.5 w-2.5" />
-              Campo Studio
-            </span>
-          )}
-          {!readOnly && !ownerProtected && !isEditingOther && (
-            <label className={`flex items-center gap-2 rounded-md border px-2 py-1 text-[10px] font-semibold ${naChecked ? 'border-rose-200 bg-rose-50 text-rose-600' : 'border-slate-200 text-slate-500'}`}>
-              <input
-                type="checkbox"
-                checked={naChecked}
-                onChange={(e) => onNaChange?.(field.id, e.target.checked)}
-                className="h-3 w-3 rounded border-slate-300 text-rose-600"
-              />
-              N/A
-            </label>
-          )}
-          {canEditUserNotes && !naChecked && (
-            <button
-              type="button"
-              onClick={() => setShowUserNote((p) => !p)}
-              className={`rounded-md border px-2 py-1 text-xs transition ${showUserNote || userNote ? 'border-slate-200 bg-slate-50 text-slate-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-              title="Nota utente"
-            >
-              <StickyNote className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {canEditConsultantNotes && !naChecked && (
-            <button
-              type="button"
-              onClick={() => setShowConsultantNote((p) => !p)}
-              className={`rounded-md border px-2 py-1 text-xs transition ${showConsultantNote || consultantNote ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-              title="Nota consulente"
-            >
-              <StickyNote className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {field.help && (
-            <div className="relative" ref={helpRef}>
-              <button
-                type="button"
-                onClick={() => setShowHelp((p) => !p)}
-                className={`rounded-md border px-2 py-1 text-xs transition ${showHelp ? 'border-blue-200 bg-blue-50 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-              >
-                <HelpCircle className="h-3.5 w-3.5" />
-              </button>
-              {showHelp && (
-                <div className="absolute right-0 z-50 mt-2 w-80 rounded-xl border border-blue-100/60 bg-white/95 p-3 text-xs text-slate-600 shadow-sm">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">INFORMAZIONI</div>
-                  <div className="mt-2 whitespace-pre-wrap">{field.help}</div>
-                  <button
-                    type="button"
-                    onClick={() => setShowHelp(false)}
-                    className="mt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-600 hover:text-blue-700"
-                  >
-                    CHIUDI
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {naChecked && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600">
-          Campo contrassegnato come Non Applicabile
-        </div>
-      )}
-
-      {field.type === 'textarea' && (
-        <textarea
-          value={renderValue(value)}
-          onChange={(e) => onChange(field.id, e.target.value)}
-          onFocus={() => onFieldFocus?.(field.id)}
-          onBlur={() => onFieldBlur?.(field.id)}
-          rows={3}
-          disabled={disabled}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
-        />
-      )}
-
-      {field.type === 'select' && (
-        <CustomSelect
-          value={value}
-          onChange={(val) => onChange(field.id, val)}
-          options={getOptions(field).map((o) => ({
-            value: o,
-            label: DOC_ICON_FIELDS.has(field.id)
-              ? getOptionLabel(field, o)
-              : getAssettiOptionLabel(field, o),
-          }))}
-          placeholder="— Selezionare —"
-          triggerClassName="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm"
-          disabled={disabled}
-          onOpen={() => onFieldFocus?.(field.id)}
-          onClose={() => onFieldBlur?.(field.id)}
-          allowClear={!disabled}
-        />
-      )}
-
-      {field.type === 'multiselect' && (
-        <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-          {(field.options || []).map((o) => {
-            const selected = (value || '').split('||').filter(Boolean).includes(o);
-            return (
-              <button
-                key={o}
-                type="button"
-                disabled={disabled}
-                onClick={() => {
-                  if (disabled) return;
-                  const current = (value || '').split('||').filter(Boolean);
-                  const next = selected ? current.filter((x) => x !== o) : [...current, o];
-                  onFieldFocus?.(field.id);
-                  onChange(field.id, next.join('||'));
-                  onFieldBlur?.(field.id);
-                }}
-                className={`rounded-lg border px-3 py-1 text-xs font-semibold transition ${
-                  selected ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600'
-                }`}
-              >
-                {o}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {field.type === 'number' && (
-        <input
-          type="number"
-          value={value}
-          onChange={(e) => onChange(field.id, e.target.value)}
-          onFocus={() => onFieldFocus?.(field.id)}
-          onBlur={() => onFieldBlur?.(field.id)}
-          disabled={disabled}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
-        />
-      )}
-
-      {field.type === 'text' && (
-        <input
-          type="text"
-          value={renderValue(value)}
-          onChange={(e) => onChange(field.id, e.target.value)}
-          onFocus={() => onFieldFocus?.(field.id)}
-          onBlur={() => onFieldBlur?.(field.id)}
-          disabled={disabled}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
-        />
-      )}
-
-      {documentsEnabled && field.allowDocuments !== false && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-slate-400" />
-            <span className="text-xs font-semibold text-slate-500">Documenti allegati</span>
-            {documentsLoading && (
-              <span className="text-[10px] text-slate-400">Caricamento...</span>
-            )}
-          </div>
-          {documents.length > 0 ? (
-            <div className="mt-2 space-y-1">
-              {documents.map((doc) => (
-                <div key={doc.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-                  <button
-                    type="button"
-                    onClick={() => onDownloadDocument?.(doc)}
-                    className="truncate text-left text-slate-700 hover:text-blue-700 flex-1 min-w-0"
-                  >
-                    {doc.nomeOriginale}
-                  </button>
-                  <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => onPreviewDocument?.(doc)}
-                      className="text-slate-400 hover:text-indigo-600 transition-colors"
-                      title="Anteprima"
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                    </button>
-                    {!readOnly && (
-                      <button
-                        type="button"
-                        onClick={() => onDeleteDocument?.(doc.id)}
-                        className="text-slate-400 hover:text-rose-600 transition-colors"
-                        title="Elimina"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-2 text-[11px] text-slate-400">Nessun documento caricato.</div>
-          )}
-          {!readOnly && (
-            <>
-              <input
-                ref={fileRef}
-                type="file"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => { setUploadError(null); fileRef.current?.click(); }}
-                  disabled={uploading}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 hover:border-blue-200 hover:text-blue-700 disabled:opacity-50"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  {uploading ? 'Caricamento...' : 'Carica documento'}
-                </button>
-                <span className="text-[10px] text-slate-400">Max 15 MB</span>
-              </div>
-              {uploadError && (
-                <p className="mt-1 text-[10px] text-rose-600">{uploadError}</p>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {showUserNote && canEditUserNotes && !naChecked && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="text-[11px] font-semibold text-blue-700">Nota utente</label>
-            {userNote && (
-              <button
-                type="button"
-                onClick={() => { onUserNoteChange(field.id, ''); setShowUserNote(false); }}
-                className="inline-flex items-center gap-1 text-[10px] text-rose-400 hover:text-rose-600 transition-colors"
-                title="Elimina nota"
-              >
-                <Trash2 className="h-3 w-3" />
-                Elimina
-              </button>
-            )}
-          </div>
-          <textarea
-            value={userNote || ''}
-            onChange={(e) => onUserNoteChange(field.id, e.target.value)}
-            onFocus={() => onFieldFocus?.(field.id)}
-            onBlur={() => onFieldBlur?.(field.id)}
-            rows={2}
-            placeholder="Nota utente..."
-            disabled={disabled}
-            className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-slate-50 disabled:text-slate-400"
-          />
-        </div>
-      )}
-
-      {!canEditUserNotes && userNote && !naChecked && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
-          <strong>Nota utente:</strong> {userNote}
-        </div>
-      )}
-
-      {showConsultantNote && canEditConsultantNotes && !naChecked && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="text-[11px] font-semibold text-amber-700">Nota consulente</label>
-            {consultantNote && (
-              <button
-                type="button"
-                onClick={() => { onConsultantNoteChange(field.id, ''); setShowConsultantNote(false); }}
-                className="inline-flex items-center gap-1 text-[10px] text-rose-400 hover:text-rose-600 transition-colors"
-                title="Elimina nota"
-              >
-                <Trash2 className="h-3 w-3" />
-                Elimina
-              </button>
-            )}
-          </div>
-          <textarea
-            value={consultantNote || ''}
-            onChange={(e) => onConsultantNoteChange(field.id, e.target.value)}
-            onFocus={() => onFieldFocus?.(field.id)}
-            onBlur={() => onFieldBlur?.(field.id)}
-            rows={2}
-            placeholder="Nota consulente..."
-            disabled={consultantNoteDisabled}
-            className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 outline-none focus:ring-2 focus:ring-amber-300 disabled:bg-slate-50 disabled:text-slate-400"
-          />
-        </div>
-      )}
-
-      {!canEditConsultantNotes && consultantNote && !naChecked && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          <strong>Nota consulente:</strong> {consultantNote}
-        </div>
-      )}
-    </div>
-  );
-});

@@ -3,18 +3,16 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Not, IsNull } from 'typeorm';
 import { CheckupPreassessment } from './checkup-preassessment.entity';
-import { CheckupPreassessmentAlert } from './checkup-preassessment-alert.entity';
 import { UpdatePreassessmentDto } from './dto/update-preassessment.dto';
 import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupUser } from '../users/checkup-user.entity';
 import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
-import { EmailService } from '../../notifications/email.service';
 import { QuestionManagementService } from '../services/question-management.service';
 import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
-import puppeteer from 'puppeteer';
-import sanitizeHtml from 'sanitize-html';
+import { CheckupPreassessmentNotificationsService } from './checkup-preassessment-notifications.service';
+import { CheckupPreassessmentRenderService } from './checkup-preassessment-render.service';
 
 /** Hard cap on the number of preassessment IDs tracked simultaneously in memory. */
 const PRESENCE_MAP_SIZE_CAP = 10_000;
@@ -46,8 +44,6 @@ export class CheckupPreassessmentService {
   constructor(
     @InjectRepository(CheckupPreassessment)
     private preassessmentRepository: Repository<CheckupPreassessment>,
-    @InjectRepository(CheckupPreassessmentAlert)
-    private alertRepository: Repository<CheckupPreassessmentAlert>,
     @InjectRepository(CheckupUser)
     private userRepository: Repository<CheckupUser>,
     @InjectRepository(CheckupLicense)
@@ -56,9 +52,10 @@ export class CheckupPreassessmentService {
     private sublicenseRepository: Repository<CheckupSublicense>,
     @InjectRepository(CheckupClient)
     private clientRepository: Repository<CheckupClient>,
-    private emailService: EmailService,
     private questionManagementService: QuestionManagementService,
     private auditLogService: CheckupAuditLogService,
+    private preassessmentNotificationsService: CheckupPreassessmentNotificationsService,
+    private preassessmentRenderService: CheckupPreassessmentRenderService,
   ) {}
 
   private static OWNER_EMAIL_BY_MACRO: Record<string, string> = {
@@ -95,12 +92,66 @@ export class CheckupPreassessmentService {
     return map;
   }
 
+  private async getStructureMetaByModel(modelId: string) {
+    const structure = await this.questionManagementService.getCompleteStructure(modelId);
+    const sectionMeta = new Map<string, { macroId: string; requiredFields: string[] }>();
+    const fieldToMacro = new Map<string, string>();
+
+    structure.forEach((macro) => {
+      const macroId = macro.code;
+      (macro.sections || []).forEach((section) => {
+        const requiredFields = (section.fields || [])
+          .filter((field) => field.required)
+          .map((field) => field.fieldId);
+        sectionMeta.set(section.code, { macroId, requiredFields });
+        (section.fields || []).forEach((field) => {
+          fieldToMacro.set(field.fieldId, macroId);
+        });
+      });
+    });
+
+    return { sectionMeta, fieldToMacro };
+  }
+
+  private normalizeMacroAssignments(assignments?: string[] | null) {
+    return Array.from(
+      new Set(
+        (assignments || [])
+          .map((value) => value?.trim())
+          .filter((value): value is string => !!value),
+      ),
+    );
+  }
+
+  private mergeAllowedFieldValues<T extends string | boolean>(
+    existing: Record<string, T> | null | undefined,
+    incoming: Record<string, T> | undefined,
+    fieldToMacro: Map<string, string>,
+    allowedMacros: Set<string> | null,
+  ) {
+    if (incoming === undefined) return undefined;
+    if (!allowedMacros) return incoming;
+
+    const merged = { ...(existing || {}) };
+    Object.entries(incoming).forEach(([fieldId, value]) => {
+      const macroId = fieldToMacro.get(fieldId);
+      if (macroId && allowedMacros.has(macroId)) {
+        merged[fieldId] = value;
+      }
+    });
+    return merged;
+  }
+
   private isOwnerForMacro(record: CheckupPreassessment, user: CheckupCurrentUserData, macroId: string) {
     if (user.ruolo !== 'cliente') return false;
     const field = CheckupPreassessmentService.OWNER_EMAIL_BY_MACRO[macroId];
     if (!field) return false;
     const ownerEmail = (record.data?.[field] || '').trim().toLowerCase();
     return ownerEmail !== '' && ownerEmail === user.email.toLowerCase();
+  }
+
+  private isSuperOwner(user: CheckupCurrentUserData) {
+    return user.ruolo === 'cliente' && Boolean(user.superOwner);
   }
 
   private async getOrCreateByClientId(clientId: string, currentUser: CheckupCurrentUserData): Promise<CheckupPreassessment> {
@@ -121,6 +172,7 @@ export class CheckupPreassessmentService {
       naFields: {},
       macroValidations: {},
       sectionValidations: {},
+      finalValidation: null,
       studioCanEdit: false,
       status: 'in_progress',
       completedAt: null,
@@ -154,6 +206,7 @@ export class CheckupPreassessmentService {
       naFields: {},
       macroValidations: {},
       sectionValidations: {},
+      finalValidation: null,
       studioCanEdit: false,
       status: 'in_progress',
       completedAt: null,
@@ -163,7 +216,28 @@ export class CheckupPreassessmentService {
       isLatest: true,
     });
 
-    return this.preassessmentRepository.save(newVersion);
+    const saved = await this.preassessmentRepository.save(newVersion);
+    const notificationContext = await this.buildNotificationContext(clientId, saved.id, currentUser.studioId);
+    this.auditLogService.log({
+      userId: currentUser.id,
+      userEmail: currentUser.email,
+      userRole: currentUser.ruolo,
+      action: 'CREATE',
+      entityType: 'PREASSESSMENT',
+      entityId: saved.id,
+      entityName: notificationContext.clientName,
+      description: `Nuova versione del checkup creata (v${saved.version})`,
+      studioId: notificationContext.studioId ?? undefined,
+      success: true,
+      metadata: {
+        clientId: notificationContext.clientId,
+        clientName: notificationContext.clientName,
+        preassessmentId: notificationContext.preassessmentId,
+        actionUrl: notificationContext.actionUrl,
+        actorName: `${currentUser.nome} ${currentUser.cognome}`.trim() || currentUser.email,
+      },
+    }).catch(() => {});
+    return saved;
   }
 
   async getHistory(clientId: string, currentUser: CheckupCurrentUserData) {
@@ -240,11 +314,47 @@ export class CheckupPreassessmentService {
       if (existing !== undefined) frozenOwnerEmails[field] = existing;
     }
 
-    this.applyFieldMeta(record, dto.data, dto.naFields, user);
-    if (dto.data !== undefined) {
+    const assignedMacroAreas =
+      user.ruolo === 'cliente' && !this.isSuperOwner(user) ? this.normalizeMacroAssignments(user.macroAreaAssignments) : [];
+    const allowedClientMacros = assignedMacroAreas.length > 0 ? new Set(assignedMacroAreas) : null;
+    let sectionMeta: Map<string, { macroId: string; requiredFields: string[] }> | null = null;
+    let fieldToMacro: Map<string, string> | null = null;
+
+    if (
+      user.ruolo === 'cliente' &&
+      allowedClientMacros &&
+      record.clientId &&
+      (
+        dto.data !== undefined ||
+        dto.naFields !== undefined ||
+        dto.userFieldNotes !== undefined ||
+        dto.sectionValidations !== undefined
+      )
+    ) {
+      const { modelId } = await this.resolveModelIdForClient(record.clientId);
+      const structureMeta = await this.getStructureMetaByModel(modelId);
+      sectionMeta = structureMeta.sectionMeta;
+      fieldToMacro = structureMeta.fieldToMacro;
+    }
+
+    const nextData =
+      user.ruolo === 'cliente' && fieldToMacro
+        ? this.mergeAllowedFieldValues(record.data || {}, dto.data, fieldToMacro, allowedClientMacros)
+        : dto.data;
+    const nextNaFields =
+      user.ruolo === 'cliente' && fieldToMacro
+        ? this.mergeAllowedFieldValues(record.naFields || {}, dto.naFields, fieldToMacro, allowedClientMacros)
+        : dto.naFields;
+    const nextUserFieldNotes =
+      user.ruolo === 'cliente' && fieldToMacro
+        ? this.mergeAllowedFieldValues(record.userFieldNotes || {}, dto.userFieldNotes, fieldToMacro, allowedClientMacros)
+        : dto.userFieldNotes;
+
+    this.applyFieldMeta(record, nextData, nextNaFields, user);
+    if (nextData !== undefined) {
       if (user.ruolo === 'cliente') {
         // Merge incoming data but preserve all owner email fields from the DB
-        const sanitized = { ...dto.data };
+        const sanitized = { ...nextData };
         for (const field of ownerEmailFields) {
           if (frozenOwnerEmails[field] !== undefined) {
             sanitized[field] = frozenOwnerEmails[field];
@@ -254,17 +364,17 @@ export class CheckupPreassessmentService {
         }
         record.data = sanitized;
       } else {
-        record.data = dto.data;
+        record.data = nextData;
       }
     }
     if (dto.notes !== undefined) record.notes = dto.notes;
     if (dto.fieldNotes !== undefined && user.ruolo !== 'cliente') {
       record.fieldNotes = dto.fieldNotes;
     }
-    if (dto.userFieldNotes !== undefined && user.ruolo === 'cliente') {
-      record.userFieldNotes = dto.userFieldNotes;
+    if (nextUserFieldNotes !== undefined && user.ruolo === 'cliente') {
+      record.userFieldNotes = nextUserFieldNotes;
     }
-    if (dto.naFields !== undefined) record.naFields = dto.naFields;
+    if (nextNaFields !== undefined) record.naFields = nextNaFields;
     if (dto.macroValidations !== undefined && user.ruolo === 'cliente') {
       const prev = record.macroValidations || {};
       const next = dto.macroValidations || {};
@@ -278,6 +388,9 @@ export class CheckupPreassessmentService {
         const prevVal = prev[key];
         const nextVal = next[key];
         if (JSON.stringify(prevVal) !== JSON.stringify(nextVal)) {
+          if (allowedClientMacros && !allowedClientMacros.has(key)) {
+            throw new ForbiddenException('Utente non assegnato alla macro area');
+          }
           if (!this.isOwnerForMacro(recordForOwnerCheck, user, key)) {
             throw new ForbiddenException('Solo l\'owner può validare la macro area');
           }
@@ -290,8 +403,15 @@ export class CheckupPreassessmentService {
       const prev = record.sectionValidations || {};
       const next = dto.sectionValidations || {};
       const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
-      const { modelId, studioId } = await this.resolveModelIdForClient(record.clientId);
-      const sectionMeta = await this.getSectionMetaByModel(modelId);
+      let studioId: string | null = null;
+      if (!sectionMeta) {
+        const resolved = await this.resolveModelIdForClient(record.clientId);
+        studioId = resolved.studioId;
+        sectionMeta = await this.getSectionMetaByModel(resolved.modelId);
+      } else {
+        const resolved = await this.resolveModelIdForClient(record.clientId);
+        studioId = resolved.studioId;
+      }
       const recordForOwnerCheck = {
         ...record,
         data: { ...(record.data || {}), ...frozenOwnerEmails },
@@ -304,6 +424,9 @@ export class CheckupPreassessmentService {
         const meta = sectionMeta.get(key);
         if (!meta) {
           throw new NotFoundException('Sezione non trovata per la validazione');
+        }
+        if (allowedClientMacros && !allowedClientMacros.has(meta.macroId)) {
+          throw new ForbiddenException('Utente non assegnato alla macro area');
         }
         if (!this.isOwnerForMacro(recordForOwnerCheck, user, meta.macroId)) {
           throw new ForbiddenException('Solo l\'owner può validare la sezione');
@@ -325,6 +448,7 @@ export class CheckupPreassessmentService {
       // Log esplicito per ogni sezione appena validata
       const newlyValidated = Array.from(keys).filter((k) => !prev[k] && next[k]);
       if (newlyValidated.length > 0) {
+        const notificationContext = await this.buildNotificationContext(record.clientId, record.id, completionStudioId);
         const sectionNames = newlyValidated.join(', ');
         this.auditLogService.log({
           userId: user.id,
@@ -333,10 +457,18 @@ export class CheckupPreassessmentService {
           action: 'UPDATE',
           entityType: 'PREASSESSMENT',
           entityId: record.id,
+          entityName: notificationContext.clientName,
           description: `Sezione${newlyValidated.length > 1 ? 'i' : ''} validat${newlyValidated.length > 1 ? 'e' : 'a'}: ${sectionNames}`,
-          studioId: user.studioId ?? undefined,
+          studioId: notificationContext.studioId ?? undefined,
           success: true,
-          metadata: { validatedSections: newlyValidated },
+          metadata: {
+            validatedSections: newlyValidated,
+            clientId: notificationContext.clientId,
+            clientName: notificationContext.clientName,
+            preassessmentId: notificationContext.preassessmentId,
+            actionUrl: notificationContext.actionUrl,
+            actorName: `${user.nome} ${user.cognome}`.trim() || user.email,
+          },
         }).catch(() => {});
       }
 
@@ -361,7 +493,7 @@ export class CheckupPreassessmentService {
     if (completionStudioId) {
       const client = await this.clientRepository.findOne({ where: { id: record.clientId } });
       if (client) {
-        this.notifyCompletion(saved, client, user, completionStudioId).catch((err) =>
+        this.preassessmentNotificationsService.notifyCompletion(saved, client, user, completionStudioId).catch((err) =>
           this.logger.error(`notifyCompletion failed: ${err?.message}`),
         );
       }
@@ -388,63 +520,22 @@ export class CheckupPreassessmentService {
     return { modelId, studioId: license.studioId, license };
   }
 
-  private async notifyCompletion(
-    preassessment: CheckupPreassessment,
-    client: CheckupClient,
-    user: CheckupCurrentUserData,
-    studioId: string | null,
-  ) {
-    if (!studioId) return;
-    const admins = await this.userRepository.find({
-      where: { studioId, ruolo: 'admin_studio', attivo: true },
-    });
-    const requester = `${user.nome} ${user.cognome}`.trim() || user.email;
-    const company = client.nome || client.ragioneSociale || 'Cliente';
-    const completedAt = new Date().toLocaleDateString('it-IT', {
-      day: '2-digit', month: 'long', year: 'numeric',
-    });
-    const subject = `✅ Checkup concluso — ${company}`;
-    const text = `Il checkup di ${company} è stato completato da ${requester} in data ${completedAt}.`;
-    const html = `
-      <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#f8fafc;padding:32px;border-radius:12px">
-        <div style="background:#1e3a8a;border-radius:8px;padding:20px 24px;margin-bottom:24px">
-          <h2 style="color:#fff;margin:0;font-size:18px">Checkup Governance · Pre-Assessment</h2>
-        </div>
-        <h3 style="color:#0f172a;margin:0 0 8px">✅ Checkup concluso</h3>
-        <p style="color:#334155;margin:0 0 16px;font-size:15px">
-          Il pre-assessment per <strong>${company}</strong> è stato completato con successo.
-        </p>
-        <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0">
-          <tr><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px">Cliente</td><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#0f172a;font-size:13px">${company}</td></tr>
-          <tr><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px">Completato da</td><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#0f172a;font-size:13px">${requester}</td></tr>
-          <tr><td style="padding:10px 16px;color:#64748b;font-size:13px">Data</td><td style="padding:10px 16px;font-weight:600;color:#0f172a;font-size:13px">${completedAt}</td></tr>
-        </table>
-        <p style="color:#64748b;font-size:12px;margin-top:24px;text-align:center">
-          Accedi alla piattaforma Checkup per visualizzare il report completo.
-        </p>
-      </div>`;
-
-    await Promise.all(
-      admins.map(async (admin) => {
-        if (admin.email) {
-          await this.emailService.sendEmail({
-            to: admin.email,
-            subject,
-            text,
-            html,
-          });
-        }
-        const alert = this.alertRepository.create({
-          preassessmentId: preassessment.id,
-          createdById: user.id,
-          targetUserId: admin.id,
-          priority: 'info',
-          messaggio: text,
-        });
-        await this.alertRepository.save(alert);
-      }),
-    );
+  private async buildNotificationContext(clientId: string, preassessmentId: string, studioId?: string | null) {
+    const client = await this.clientRepository.findOne({ where: { id: clientId } });
+    const resolvedStudioId = studioId ?? (await this.resolveModelIdForClient(clientId)).studioId;
+    const clientName = client?.ragioneSociale || client?.nome || 'Cliente';
+    return {
+      studioId: resolvedStudioId,
+      clientId,
+      preassessmentId,
+      clientName,
+      actionUrl: `/checkup/clienti/${clientId}`,
+    };
   }
+
+
+
+
 
   async complete(user: CheckupCurrentUserData) {
     if (user.ruolo !== 'cliente') {
@@ -477,7 +568,59 @@ export class CheckupPreassessmentService {
 
     const client = await this.clientRepository.findOne({ where: { id: user.clientId } });
     if (client) {
-      await this.notifyCompletion(saved, client, user, studioId);
+      await this.preassessmentNotificationsService.notifyCompletion(saved, client, user, studioId);
+    }
+
+    return saved;
+  }
+
+  async finalValidate(user: CheckupCurrentUserData) {
+    if (user.ruolo !== 'cliente' || !user.clientId) {
+      throw new ForbiddenException('Solo un utente cliente può validare il checkup');
+    }
+    if (!user.superOwner) {
+      throw new ForbiddenException('Solo il Super-owner può validare il checkup');
+    }
+
+    const record = await this.getOrCreate(user);
+    if (record.finalValidation) {
+      throw new ConflictException('Il checkup è già stato validato dal Super-owner');
+    }
+
+    const { modelId, studioId } = await this.resolveModelIdForClient(user.clientId);
+    const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
+    const validatableMacros = macroAreas.filter((m) => !this.isOwnerMacroArea(m.code, m.label));
+    const expectedMacros = validatableMacros.map((m) => m.code);
+    const structureMeta = await this.getStructureMetaByModel(modelId);
+    const expectedSections = Array.from(structureMeta.sectionMeta.entries())
+      .filter(([_, meta]) => !this.isOwnerMacroArea(meta.macroId))
+      .map(([sectionId]) => sectionId);
+
+    const missingMacros = expectedMacros.filter((macroId) => !(record.macroValidations || {})[macroId]);
+    if (missingMacros.length > 0) {
+      throw new ConflictException('Per la validazione finale tutte le macro aree devono essere validate');
+    }
+
+    const missingSections = expectedSections.filter((sectionId) => !(record.sectionValidations || {})[sectionId]);
+    if (missingSections.length > 0) {
+      throw new ConflictException('Per la validazione finale tutte le sezioni devono essere validate');
+    }
+
+    const name = `${user.nome} ${user.cognome}`.trim() || user.email;
+    record.status = 'concluso';
+    record.finalValidation = {
+      by: { id: user.id, name, ruolo: user.ruolo },
+      at: new Date().toISOString(),
+    };
+    if (!record.completedAt) {
+      record.completedAt = new Date();
+      record.completedById = user.id;
+    }
+    const saved = await this.preassessmentRepository.save(record);
+
+    const client = await this.clientRepository.findOne({ where: { id: user.clientId } });
+    if (client) {
+      await this.preassessmentNotificationsService.notifyFinalValidation(saved, client, user, studioId);
     }
 
     return saved;
@@ -787,126 +930,17 @@ export class CheckupPreassessmentService {
             id: pre.id,
             updatedAt: pre.updatedAt,
             studioCanEdit: pre.studioCanEdit,
+            status: pre.status,
             data: pre.data,
+            sectionValidationsCount: Object.keys(pre.sectionValidations || {}).length,
+            finalValidationAt: pre.finalValidation?.at || null,
           }
           : null,
       };
     });
   }
 
-  /**
-   * Sanitizes HTML with a strict allowlist before passing it to Puppeteer.
-   * Uses sanitize-html (allowlist-based) instead of regex for robust XSS/SSRF
-   * prevention: blocks event handlers, dangerous tags (script, iframe, object,
-   * svg, embed, form), data:/javascript: URIs, and external resources.
-   * Puppeteer request interception provides a second layer of defence.
-   */
-  private sanitizeHtmlForPdf(html: string): string {
-    return sanitizeHtml(html, {
-      // Allow only presentational and structural tags needed for PDF rendering
-      allowedTags: [
-        'html', 'head', 'body', 'title', 'style',
-        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-        'p', 'br', 'hr', 'div', 'span', 'section', 'article', 'main',
-        'header', 'footer', 'nav', 'aside',
-        'ul', 'ol', 'li', 'dl', 'dt', 'dd',
-        'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
-        'strong', 'b', 'em', 'i', 'u', 's', 'del', 'ins', 'mark', 'small',
-        'sub', 'sup', 'code', 'pre', 'blockquote', 'q', 'abbr', 'cite',
-        'img',       // data: URIs allowed below for inline images
-        'figure', 'figcaption',
-        'a',         // href restricted below
-        'meta',      // charset only
-      ],
-      allowedAttributes: {
-        '*': ['class', 'id', 'style'],
-        'a': ['href'],          // only safe schemes allowed below
-        'img': ['src', 'alt', 'width', 'height'],
-        'td': ['colspan', 'rowspan'],
-        'th': ['colspan', 'rowspan', 'scope'],
-        'table': ['border', 'cellpadding', 'cellspacing', 'width'],
-        'meta': ['charset'],
-      },
-      // Allow only safe URI schemes — block javascript:, vbscript:, file:, http/https (SSRF)
-      allowedSchemes: ['data'],          // data: URIs for inline images/fonts only
-      allowedSchemesByTag: {
-        'a': ['mailto'],                 // links can only be mailto: (no http/https external)
-      },
-      // Strip all inline event handlers (onclick, onload, onerror, …)
-      allowedStyles: {
-        '*': {
-          // Allow common CSS properties; block url() to prevent external resource loading
-          'color': [/.*/],
-          'background-color': [/.*/],
-          'font-size': [/.*/],
-          'font-weight': [/.*/],
-          'font-family': [/.*/],
-          'text-align': [/.*/],
-          'text-decoration': [/.*/],
-          'border': [/.*/],
-          'border-radius': [/.*/],
-          'padding': [/.*/],
-          'margin': [/.*/],
-          'width': [/.*/],
-          'height': [/.*/],
-          'max-width': [/.*/],
-          'display': [/.*/],
-          'flex': [/.*/],
-          'flex-direction': [/.*/],
-          'align-items': [/.*/],
-          'justify-content': [/.*/],
-          'gap': [/.*/],
-          'page-break-after': [/.*/],
-          'page-break-before': [/.*/],
-          'page-break-inside': [/.*/],
-        },
-      },
-      // Disallow dangerous tags entirely — svg, script, iframe, object, embed, form, input, …
-      disallowedTagsMode: 'discard',
-    });
-  }
-
   async renderHtmlToPdf(html: string): Promise<Buffer> {
-    const safeHtml = this.sanitizeHtmlForPdf(html);
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-extensions',
-        '--disable-background-networking',
-        '--disable-sync',
-        '--metrics-recording-only',
-        '--no-first-run',
-      ],
-    });
-    try {
-      const page = await browser.newPage();
-
-      // Block all network requests except data URIs (needed for inline images/fonts)
-      await page.setRequestInterception(true);
-      page.on('request', (req) => {
-        const resourceType = req.resourceType();
-        const url = req.url();
-        // Allow data: URIs for fonts/images; block everything else that goes to network
-        if (url.startsWith('data:') || resourceType === 'document') {
-          req.continue();
-        } else {
-          req.abort();
-        }
-      });
-
-      await page.setContent(safeHtml, { waitUntil: 'domcontentloaded' });
-      const pdf = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' },
-      });
-      return Buffer.from(pdf);
-    } finally {
-      // Always close the browser to prevent Chromium process leaks
-      await browser.close();
-    }
+    return this.preassessmentRenderService.renderHtmlToPdf(html);
   }
 }

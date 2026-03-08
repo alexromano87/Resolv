@@ -17,6 +17,7 @@ import { ReplyPreassessmentTicketDto } from './dto/reply-preassessment-ticket.dt
 import { CreatePreassessmentAlertDto } from './dto/create-preassessment-alert.dto';
 import { UpdatePreassessmentAlertDto } from './dto/update-preassessment-alert.dto';
 import { CheckupMailService } from '../mail/checkup-mail.service';
+import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
 
 const SEEN_TTL = 30 * 24 * 60 * 60; // 30 giorni in secondi
 
@@ -42,6 +43,7 @@ export class CheckupPreassessmentThreadsService {
     @InjectRepository(CheckupSublicense)
     private sublicenseRepository: Repository<CheckupSublicense>,
     private readonly mailService: CheckupMailService,
+    private readonly auditLogService: CheckupAuditLogService,
     @Inject('CHECKUP_REDIS') private readonly redis: Redis,
   ) {}
 
@@ -95,6 +97,60 @@ export class CheckupPreassessmentThreadsService {
     const license = await this.licenseRepository.findOne({ where: { id: sublicense.licenseId } });
     if (!license?.studioId) return [];
     return this.findAdminsByStudio(license.studioId);
+  }
+
+  private async resolveNotificationContext(preassessmentId: string) {
+    const pre = await this.preassessmentRepository.findOne({ where: { id: preassessmentId } });
+    if (!pre?.clientId) return null;
+    const sublicense = await this.sublicenseRepository.findOne({
+      where: { clientId: pre.clientId, attiva: true },
+    });
+    if (!sublicense) return null;
+    const license = await this.licenseRepository.findOne({ where: { id: sublicense.licenseId } });
+    if (!license?.studioId) return null;
+    const clientUser = await this.userRepository.findOne({ where: { clientId: pre.clientId, ruolo: 'cliente' } });
+    const clientName = clientUser?.azienda || clientUser?.nome || 'Cliente';
+    return {
+      studioId: license.studioId,
+      clientId: pre.clientId,
+      clientName,
+      preassessmentId,
+    };
+  }
+
+  private async logNotificationEvent(params: {
+    preassessmentId: string;
+    user: CheckupCurrentUserData;
+    entityType: 'TICKET' | 'ALERT';
+    action: 'CREATE' | 'UPDATE' | 'DELETE';
+    entityId?: string | null;
+    entityName?: string | null;
+    description: string;
+    priority?: 'info' | 'warning' | 'urgent';
+    actionUrl: string;
+  }) {
+    const context = await this.resolveNotificationContext(params.preassessmentId);
+    if (!context) return;
+    this.auditLogService.log({
+      userId: params.user.id,
+      userEmail: params.user.email,
+      userRole: params.user.ruolo,
+      action: params.action,
+      entityType: params.entityType,
+      entityId: params.entityId ?? null,
+      entityName: params.entityName ?? context.clientName,
+      description: params.description,
+      studioId: context.studioId,
+      success: true,
+      metadata: {
+        clientId: context.clientId,
+        clientName: context.clientName,
+        preassessmentId: context.preassessmentId,
+        actionUrl: params.actionUrl,
+        actorName: `${params.user.nome} ${params.user.cognome}`.trim() || params.user.email,
+        priority: params.priority ?? 'info',
+      },
+    }).catch(() => {});
   }
 
   private appUrl(): string {
@@ -237,6 +293,17 @@ export class CheckupPreassessmentThreadsService {
       });
     }).catch(() => {/* silenzioso */});
 
+    this.logNotificationEvent({
+      preassessmentId,
+      user,
+      entityType: 'TICKET',
+      action: 'CREATE',
+      entityId: saved.id,
+      entityName: dto.subject,
+      description: `Nuovo ticket aperto: ${dto.subject}`,
+      actionUrl: `/checkup/clienti/${user.clientId}/tickets`,
+    }).catch(() => {});
+
     return result;
   }
 
@@ -305,6 +372,17 @@ export class CheckupPreassessmentThreadsService {
       }).catch(() => {/* silenzioso */});
     }
 
+    this.logNotificationEvent({
+      preassessmentId: ticket.preassessmentId,
+      user,
+      entityType: 'TICKET',
+      action: 'UPDATE',
+      entityId: ticket.id,
+      entityName: ticket.subject,
+      description: `Nuova risposta sul ticket: ${ticket.subject}`,
+      actionUrl: `/checkup/clienti/${(await this.ensureAccess(ticket.preassessmentId, user)).clientId}/tickets`,
+    }).catch(() => {});
+
     return result;
   }
 
@@ -332,6 +410,17 @@ export class CheckupPreassessmentThreadsService {
         });
       }
     }).catch(() => {/* silenzioso */});
+
+    this.logNotificationEvent({
+      preassessmentId: ticket.preassessmentId,
+      user,
+      entityType: 'TICKET',
+      action: 'UPDATE',
+      entityId: ticket.id,
+      entityName: ticket.subject,
+      description: `Ticket preso in carico: ${ticket.subject}`,
+      actionUrl: `/checkup/clienti/${(await this.ensureAccess(ticket.preassessmentId, user)).clientId}/tickets`,
+    }).catch(() => {});
 
     return saved;
   }
@@ -362,6 +451,17 @@ export class CheckupPreassessmentThreadsService {
         });
       }
     }).catch(() => {/* silenzioso */});
+
+    this.logNotificationEvent({
+      preassessmentId: ticket.preassessmentId,
+      user,
+      entityType: 'TICKET',
+      action: 'UPDATE',
+      entityId: ticket.id,
+      entityName: ticket.subject,
+      description: `Richiesta chiusura ticket: ${ticket.subject}`,
+      actionUrl: `/checkup/clienti/${(await this.ensureAccess(ticket.preassessmentId, user)).clientId}/tickets`,
+    }).catch(() => {});
 
     return saved;
   }
@@ -410,6 +510,17 @@ export class CheckupPreassessmentThreadsService {
     };
     notifyAdmin().catch(() => {/* silenzioso */});
 
+    this.logNotificationEvent({
+      preassessmentId: ticket.preassessmentId,
+      user,
+      entityType: 'TICKET',
+      action: 'UPDATE',
+      entityId: ticket.id,
+      entityName: ticket.subject,
+      description: `Ticket chiuso: ${ticket.subject}`,
+      actionUrl: `/checkup/clienti/${user.clientId}/tickets`,
+    }).catch(() => {});
+
     return saved;
   }
 
@@ -440,6 +551,17 @@ export class CheckupPreassessmentThreadsService {
         });
       }
     }).catch(() => {/* silenzioso */});
+
+    this.logNotificationEvent({
+      preassessmentId: ticket.preassessmentId,
+      user,
+      entityType: 'TICKET',
+      action: 'UPDATE',
+      entityId: ticket.id,
+      entityName: ticket.subject,
+      description: `Ticket riaperto: ${ticket.subject}`,
+      actionUrl: `/checkup/clienti/${(await this.ensureAccess(ticket.preassessmentId, user)).clientId}/tickets`,
+    }).catch(() => {});
 
     return saved;
   }
@@ -475,10 +597,10 @@ export class CheckupPreassessmentThreadsService {
         { userId: user.id },
       );
     } else {
-      // Admin vede tutto TRANNE gli alert privati di altri (targetUserId = createdById != adminId)
+      // Staff vede solo alert pubblici, alert creati da lui o alert esplicitamente diretti a lui.
       qb.andWhere(
-        'NOT (alert.targetUserId IS NOT NULL AND alert.targetUserId = alert.createdById AND alert.createdById != :adminId)',
-        { adminId: user.id },
+        '(alert.targetUserId IS NULL OR alert.targetUserId = :userId OR alert.createdById = :userId)',
+        { userId: user.id },
       );
     }
 
@@ -604,6 +726,17 @@ export class CheckupPreassessmentThreadsService {
       notifyAdmins().catch(() => {/* silenzioso */});
     }
 
+    this.logNotificationEvent({
+      preassessmentId,
+      user,
+      entityType: 'ALERT',
+      action: 'CREATE',
+      entityId: saved.id,
+      description: `Nuovo alert ${dto.priority || 'info'}: ${dto.messaggio}`,
+      priority: dto.priority || 'info',
+      actionUrl: `/checkup/clienti/${clientId}/alerts`,
+    }).catch(() => {});
+
     return result;
   }
 
@@ -629,7 +762,18 @@ export class CheckupPreassessmentThreadsService {
       alert.preavvisoGiorni = dto.preavvisoGiorni ?? null;
     }
 
-    return this.alertRepository.save(alert);
+    const saved = await this.alertRepository.save(alert);
+    this.logNotificationEvent({
+      preassessmentId: alert.preassessmentId,
+      user,
+      entityType: 'ALERT',
+      action: 'UPDATE',
+      entityId: alert.id,
+      description: `Alert aggiornato: ${alert.messaggio}`,
+      priority: alert.priority,
+      actionUrl: `/checkup/clienti/${(await this.ensureAccess(alert.preassessmentId, user)).clientId}/alerts`,
+    }).catch(() => {});
+    return saved;
   }
 
   async closeAlert(alertId: string, user: CheckupCurrentUserData) {
@@ -637,18 +781,26 @@ export class CheckupPreassessmentThreadsService {
     if (!alert) throw new NotFoundException('Alert non trovato');
     if (alert.stato === 'chiuso') throw new ForbiddenException('Alert già chiuso');
 
-    // Creator can always close their own alert
-    // Staff (non-cliente) can close any alert on preassessments they can access
-    if (alert.createdById !== user.id) {
-      if (user.ruolo === 'cliente') {
-        throw new ForbiddenException('Solo il creatore può chiudere l\'alert');
-      }
-      // Verify staff has access to this preassessment
-      await this.ensureAccess(alert.preassessmentId, user);
+    await this.ensureAccess(alert.preassessmentId, user);
+
+    const canClose = alert.createdById === user.id || alert.targetUserId === user.id;
+    if (!canClose) {
+      throw new ForbiddenException('Puoi chiudere solo alert creati da te o assegnati a te');
     }
 
     alert.stato = 'chiuso';
-    return this.alertRepository.save(alert);
+    const saved = await this.alertRepository.save(alert);
+    this.logNotificationEvent({
+      preassessmentId: alert.preassessmentId,
+      user,
+      entityType: 'ALERT',
+      action: 'UPDATE',
+      entityId: alert.id,
+      description: `Alert chiuso: ${alert.messaggio}`,
+      priority: alert.priority,
+      actionUrl: `/checkup/clienti/${(await this.ensureAccess(alert.preassessmentId, user)).clientId}/alerts`,
+    }).catch(() => {});
+    return saved;
   }
 
   async deleteAlert(alertId: string, user: CheckupCurrentUserData) {
@@ -698,7 +850,18 @@ export class CheckupPreassessmentThreadsService {
     if (alert.stato === 'aperto') throw new ForbiddenException('Solo alert chiusi o scaduti possono essere archiviati');
     await this.ensureAccess(alert.preassessmentId, user);
     alert.archiviato = true;
-    return this.alertRepository.save(alert);
+    const saved = await this.alertRepository.save(alert);
+    this.logNotificationEvent({
+      preassessmentId: alert.preassessmentId,
+      user,
+      entityType: 'ALERT',
+      action: 'UPDATE',
+      entityId: alert.id,
+      description: `Alert archiviato: ${alert.messaggio}`,
+      priority: alert.priority,
+      actionUrl: `/checkup/clienti/${(await this.ensureAccess(alert.preassessmentId, user)).clientId}/alerts`,
+    }).catch(() => {});
+    return saved;
   }
 
   async archiveTicket(ticketId: string, user: CheckupCurrentUserData) {

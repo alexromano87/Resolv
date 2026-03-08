@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, Search } from 'lucide-react';
+import { Download, FileText, RefreshCw, Search } from 'lucide-react';
 import { CustomSelect } from '../components/CustomSelect';
 import { preassessmentApi, type PreassessmentClientEntry } from '../api/preassessment';
 import { preassessmentReportApi, type SavedPreassessmentReport } from '../api/reports';
@@ -16,6 +16,7 @@ export default function SavedReportsPage() {
   const [reports, setReports] = useState<SavedPreassessmentReport[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [hasFetched, setHasFetched] = useState(false);
 
   useEffect(() => {
     if (!isStaff) return;
@@ -62,6 +63,7 @@ export default function SavedReportsPage() {
     }
     setNotice(null);
     setReportsLoading(true);
+    setHasFetched(true);
     try {
       const res = await preassessmentReportApi.listByClient(selectedClientId);
       setReports(res);
@@ -102,86 +104,111 @@ export default function SavedReportsPage() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6 wow-stagger">
-      <div className="wow-card p-6 md:p-8">
-        <div className="space-y-2">
-          <div className="wow-chip">Report salvati</div>
-          <h1 className="display-font text-3xl font-semibold text-slate-900">Archivio report</h1>
-          <p className="text-sm text-slate-600">
-            Cerca e scarica i report PDF salvati per i clienti del tuo studio.
-          </p>
-        </div>
-        <div className="mt-6 grid gap-4 md:grid-cols-[1fr_auto]">
+      <section className="wow-card p-6 md:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-3">
-            <label className="text-xs font-semibold text-slate-600">Cliente</label>
+            <span className="wow-chip">Operativita'</span>
+            <h1 className="display-font text-3xl font-semibold text-slate-900 dark:text-slate-50">Report salvati</h1>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Cerca, filtra e scarica i report PDF salvati per i clienti del tuo studio.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={fetchReports}
+            className="wow-button inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={reportsLoading || !selectedClientId}
+          >
+            <RefreshCw className={`h-4 w-4 ${reportsLoading ? 'animate-spin' : ''}`} />
+            {reportsLoading ? 'Carico...' : 'Aggiorna elenco'}
+          </button>
+        </div>
+      </section>
+
+      <section className="wow-panel p-5 space-y-4 md:p-6">
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Cliente</label>
             <CustomSelect
               value={selectedClientId || ''}
               onChange={(val) => setSelectedClientId(val || '')}
               options={clientOptions}
               placeholder={clientsLoading ? 'Caricamento clienti...' : 'Seleziona cliente'}
-              triggerClassName="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm"
+              triggerClassName="rounded-xl border-slate-200 bg-white py-3 text-sm dark:border-slate-700 dark:bg-slate-950"
             />
           </div>
           <div className="flex items-end">
             <button
               onClick={fetchReports}
-              className="wow-button"
+              className="wow-button disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={reportsLoading || !selectedClientId}
             >
               {reportsLoading ? 'Carico...' : 'Cerca report'}
             </button>
           </div>
         </div>
-        <div className="mt-6 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-          <Search className="h-4 w-4" />
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={reportQuery}
             onChange={(e) => setReportQuery(e.target.value)}
             placeholder="Filtra per nome file o data..."
-            className="flex-1 bg-transparent outline-none border-0 shadow-none focus:ring-0 rounded-none"
+            className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-50"
           />
         </div>
-      </div>
+      </section>
 
       {notice && (
-        <div className="wow-panel border-amber-200 bg-amber-50/80 p-4 text-amber-700 flex items-center gap-2">
+        <div className="wow-panel flex items-center gap-2 border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-700">
           {notice}
         </div>
       )}
 
-      <div className="wow-card p-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Elenco report</h2>
+      <section className="wow-panel overflow-hidden">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5 dark:border-slate-700">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Elenco report</h2>
           <span className="text-xs font-semibold text-slate-400">{filteredReports.length} report</span>
         </div>
-        <div className="mt-4 space-y-3">
-          {filteredReports.length === 0 && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-              Nessun report da mostrare.
+        <div className="p-6">
+          {reportsLoading ? (
+            <div className="flex items-center justify-center py-20 text-slate-500">
+              <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
+              <span className="text-sm">Caricamento report...</span>
+            </div>
+          ) : filteredReports.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center text-slate-400">
+              <FileText className="mb-4 h-12 w-12 opacity-40" />
+              <p className="text-sm">
+                {hasFetched ? 'Nessun report da mostrare con i filtri selezionati.' : 'Seleziona un cliente per visualizzare i report salvati.'}
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-200 dark:divide-slate-700">
+              {filteredReports.map((report) => (
+                <div
+                  key={report.id}
+                  className="flex flex-wrap items-center justify-between gap-4 py-4 text-sm hover:bg-slate-50/70 dark:hover:bg-slate-800/40"
+                >
+                  <div className="min-w-[220px] space-y-1">
+                    <div className="font-semibold text-slate-900 dark:text-slate-50">{report.filename}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Salvato il {new Date(report.createdAt).toLocaleString('it-IT')}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDownload(report)}
+                    className="wow-button-ghost"
+                  >
+                    <Download className="h-4 w-4" />
+                    Scarica PDF
+                  </button>
+                </div>
+              ))}
             </div>
           )}
-          {filteredReports.map((report) => (
-            <div
-              key={report.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600"
-            >
-              <div className="min-w-[220px]">
-                <div className="font-semibold text-slate-800">{report.filename}</div>
-                <div className="text-xs text-slate-400">
-                  Salvato il {new Date(report.createdAt).toLocaleString('it-IT')}
-                </div>
-              </div>
-              <button
-                onClick={() => handleDownload(report)}
-                className="wow-button-ghost"
-              >
-                <Download className="h-4 w-4" />
-                Scarica PDF
-              </button>
-            </div>
-          ))}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

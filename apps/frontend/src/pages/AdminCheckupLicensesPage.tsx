@@ -6,9 +6,11 @@ import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { DateField } from '../components/ui/DateField';
+import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 
 export default function AdminCheckupLicensesPage() {
   const { success, error: toastError } = useToast();
+  const { confirm, ConfirmDialog } = useConfirmDialog();
   const licenseTypeOptions = [
     { value: 'Standard', label: 'Standard (preset)' },
     { value: 'Professional', label: 'Professional (preset)' },
@@ -57,6 +59,15 @@ export default function AdminCheckupLicensesPage() {
       toastError('Compila tutti i campi obbligatori');
       return;
     }
+    const confirmed = await confirm({
+      title: editingLicenseId ? 'Confermare modifica licenza?' : 'Confermare creazione licenza?',
+      message: editingLicenseId
+        ? `Vuoi salvare le modifiche della licenza di tipo "${licenseForm.tipo.trim()}"?`
+        : `Vuoi creare una nuova licenza di tipo "${licenseForm.tipo.trim()}"?`,
+      confirmText: editingLicenseId ? 'Salva modifiche' : 'Crea licenza',
+      variant: 'info',
+    });
+    if (!confirmed) return;
     try {
       await checkupAdminApi.upsertLicense({
         id: editingLicenseId ?? undefined,
@@ -358,7 +369,7 @@ export default function AdminCheckupLicensesPage() {
           </div>
         </BodyPortal>
       )}
-
+      <ConfirmDialog />
     </div>
   );
 }

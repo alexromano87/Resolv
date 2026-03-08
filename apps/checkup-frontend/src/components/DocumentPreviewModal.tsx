@@ -10,7 +10,7 @@ interface DocumentPreviewModalProps {
   downloadFn: (id: string) => Promise<Blob>;
 }
 
-function getFileType(nome: string): 'pdf' | 'image' | 'other' {
+export function getDocumentPreviewType(nome: string): 'pdf' | 'image' | 'other' {
   const ext = nome.split('.').pop()?.toLowerCase() ?? '';
   if (ext === 'pdf') return 'pdf';
   if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image';
@@ -25,7 +25,7 @@ export function DocumentPreviewModal({ doc, open, onClose, downloadFn }: Documen
   useEffect(() => {
     if (!open || !doc) return;
 
-    const fileType = getFileType(doc.nomeOriginale);
+    const fileType = getDocumentPreviewType(doc.nomeOriginale);
     if (fileType === 'other') return; // no preview needed
 
     let url: string | null = null;
@@ -67,7 +67,7 @@ export function DocumentPreviewModal({ doc, open, onClose, downloadFn }: Documen
 
   if (!open || !doc) return null;
 
-  const fileType = getFileType(doc.nomeOriginale);
+  const fileType = getDocumentPreviewType(doc.nomeOriginale);
 
   return (
     <BodyPortal>

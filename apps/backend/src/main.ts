@@ -4,6 +4,8 @@ import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { json, urlencoded } from 'express';
+import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 
 // Sanitize request objects from keys like $ or dots (basic NoSQL injection guard)
 function sanitizeObject(obj: any) {
@@ -22,17 +24,35 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
+  const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+  const isProduction = nodeEnv === 'production';
+
+  app.use(cookieParser());
+  app.use(helmet({
+    crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: isProduction ? {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'self'"],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        fontSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+      },
+    } : false,
+  }));
 
   // Limita dimensioni dei payload JSON/form
   app.use(json({ limit: '2mb' }));
   app.use(urlencoded({ limit: '2mb', extended: true }));
 
-  // Header di sicurezza base
+  // Header di sicurezza base e sanitizzazione input
   app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
 
     // Sanitize body/query/params (shallow)
@@ -42,10 +62,6 @@ async function bootstrap() {
 
     next();
   });
-
-  // Rileva ambiente e configura CORS automaticamente
-  const nodeEnv = configService.get<string>('NODE_ENV', 'development');
-  const isProduction = nodeEnv === 'production';
 
   // Configurazione CORS da variabile d'ambiente
   const corsOriginsEnv = configService.get<string>('CORS_ORIGINS', '');
@@ -113,6 +129,17 @@ async function bootstrap() {
 
   const port = configService.get<number>('PORT', 3000);
   await app.listen(port);
+
+  // Allinea i timeout del server Node con nginx per evitare errori sporadici
+  // su connessioni keep-alive rimaste aperte troppo a lungo dal proxy.
+  const httpServer = app.getHttpServer() as {
+    keepAliveTimeout?: number;
+    headersTimeout?: number;
+    requestTimeout?: number;
+  };
+  httpServer.keepAliveTimeout = 65_000;
+  httpServer.headersTimeout = 66_000;
+  httpServer.requestTimeout = 300_000;
 
   // Log info ambiente
   logger.log(`${'='.repeat(50)}`);

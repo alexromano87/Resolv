@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Put, UseGuards, Post, Param, Patch } from '@nestjs/common';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupAdminStudioGuard } from '../auth/checkup-admin-studio.guard';
+import { CheckupStaffGuard } from '../auth/checkup-staff.guard';
 import { CheckupSuperadminGuard } from '../auth/checkup-superadmin.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
@@ -35,7 +36,7 @@ export class CheckupStudiosController {
   }
 
   @Get('sublicenses')
-  @UseGuards(CheckupAdminStudioGuard)
+  @UseGuards(CheckupStaffGuard)
   listSublicenses(@CheckupCurrentUser() user: CheckupCurrentUserData) {
     return this.studiosService.listSublicenses(user);
   }

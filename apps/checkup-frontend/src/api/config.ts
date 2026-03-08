@@ -4,12 +4,9 @@ export const apiBase = API_BASE;
 const DEFAULT_TIMEOUT_MS = 20000;
 
 // ── In-memory access token store ─────────────────────────────────────────────
-// Initialised synchronously from localStorage so it is available before any
-// React effect fires (effects run child→parent, so children like StudioProvider
-// would otherwise make unauthenticated calls before AuthProvider bootstraps).
-let _accessToken: string | null = (() => {
-  try { return localStorage.getItem('checkup_access_token'); } catch { return null; }
-})();
+// Access token intentionally stays only in memory to reduce XSS exfiltration risk.
+// Session restore on page reload relies on the httpOnly refresh cookie.
+let _accessToken: string | null = null;
 let _logoutCallback: (() => void) | null = null;
 
 /** Called by AuthContext on login/refresh to update the in-memory token. */
@@ -35,28 +32,18 @@ async function tryRefreshToken(): Promise<string | null> {
 
   _refreshing = (async () => {
     try {
-      const refreshToken = localStorage.getItem('checkup_refresh_token');
-      if (!refreshToken) return null;
-
       const res = await fetch(`${API_BASE}/checkup/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
+        credentials: 'include', // sends httpOnly refresh cookie automatically
       });
 
       if (!res.ok) {
-        localStorage.removeItem('checkup_refresh_token');
-        localStorage.removeItem('checkup_user');
         return null;
       }
 
       const data = await res.json();
-      // Store new tokens
       _accessToken = data.access_token;
-      localStorage.setItem('checkup_access_token', data.access_token);
-      if (data.refresh_token) {
-        localStorage.setItem('checkup_refresh_token', data.refresh_token);
-      }
       return data.access_token as string;
     } catch {
       return null;
@@ -130,8 +117,6 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     // Refresh failed → logout and redirect
     if (_logoutCallback) _logoutCallback();
     else {
-      localStorage.removeItem('checkup_refresh_token');
-      localStorage.removeItem('checkup_user');
       window.location.href = '/checkup/login';
     }
     throw new Error('Sessione scaduta. Effettua nuovamente il login.');
@@ -201,8 +186,6 @@ export async function requestBlob(endpoint: string, options: RequestOptions = {}
     }
     if (_logoutCallback) _logoutCallback();
     else {
-      localStorage.removeItem('checkup_refresh_token');
-      localStorage.removeItem('checkup_user');
       window.location.href = '/checkup/login';
     }
     throw new Error('Sessione scaduta. Effettua nuovamente il login.');
@@ -219,6 +202,80 @@ export async function requestBlob(endpoint: string, options: RequestOptions = {}
   }
 
   return response.blob();
+}
+
+export async function requestBlobWithFilename(
+  endpoint: string,
+  options: RequestOptions = {},
+): Promise<{ blob: Blob; filename: string | null }> {
+  const { params, skipAuthRedirect, timeoutMs, _isRetry, ...fetchOptions } = options;
+
+  let url = `${API_BASE}${endpoint}`;
+  if (params) {
+    const searchParams = new URLSearchParams(params);
+    url += `?${searchParams.toString()}`;
+  }
+
+  const headers: Record<string, string> = {
+    ...(fetchOptions.headers as Record<string, string>),
+  };
+
+  if (_accessToken) {
+    headers['Authorization'] = `Bearer ${_accessToken}`;
+  }
+
+  if (!(fetchOptions.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs ?? DEFAULT_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(url, { ...fetchOptions, headers, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Tempo di risposta scaduto. Riprova tra qualche istante.');
+    }
+    if (error instanceof TypeError || (error as any)?.name === 'NetworkError') {
+      throw new Error('Impossibile contattare il server. Verifica la connessione o riprova più tardi.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (response.status === 401 && !skipAuthRedirect && !_isRetry) {
+    const newToken = await tryRefreshToken();
+    if (newToken) {
+      return requestBlobWithFilename(endpoint, { ...options, _isRetry: true });
+    }
+    if (_logoutCallback) _logoutCallback();
+    else {
+      window.location.href = '/checkup/login';
+    }
+    throw new Error('Sessione scaduta. Effettua nuovamente il login.');
+  }
+
+  if (response.status === 401 && (skipAuthRedirect || _isRetry)) {
+    throw new Error('Credenziali non valide');
+  }
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Errore di rete' }));
+    const isTimeout = response.status === 408 || response.status === 504;
+    throw new Error(error.message || (isTimeout ? 'Tempo di risposta scaduto. Riprova tra qualche istante.' : `Errore ${response.status}`));
+  }
+
+  const contentDisposition = response.headers.get('Content-Disposition') || response.headers.get('content-disposition');
+  const filenameMatch = contentDisposition?.match(/filename=\"?([^\";]+)\"?/i);
+  const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : null;
+
+  return {
+    blob: await response.blob(),
+    filename,
+  };
 }
 
 export const api = {

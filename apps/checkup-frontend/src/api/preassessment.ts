@@ -1,4 +1,4 @@
-import { api, apiBase, getAccessToken, requestBlob } from './config';
+import { api, apiBase, getAccessToken, requestBlob, requestBlobWithFilename } from './config';
 
 export interface PreassessmentPayload {
   data?: Record<string, string>;
@@ -24,6 +24,7 @@ export interface PreassessmentRecord {
   naFields?: Record<string, boolean> | null;
   macroValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }> | null;
   sectionValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }> | null;
+  finalValidation?: { by: { id: string; name: string; ruolo: string }; at: string } | null;
   fieldMeta?: Record<string, { updatedAt: string; updatedBy: { id: string; name: string; ruolo: string } }> | null;
   studioCanEdit: boolean;
   version: number;
@@ -64,7 +65,10 @@ export interface PreassessmentClientEntry {
     id: string;
     updatedAt: string;
     studioCanEdit: boolean;
+    status: 'in_progress' | 'concluso';
     data: Record<string, string> | null;
+    sectionValidationsCount: number;
+    finalValidationAt: string | null;
   } | null;
 }
 
@@ -86,6 +90,7 @@ export const preassessmentApi = {
   update: (payload: PreassessmentPayload) =>
     api.put<PreassessmentRecord>('/checkup/preassessment', payload),
   complete: () => api.post<PreassessmentRecord>('/checkup/preassessment/complete', {}),
+  finalValidate: () => api.post<PreassessmentRecord>('/checkup/preassessment/final-validate', {}),
   listClients: () => api.get<PreassessmentClientEntry[]>('/checkup/preassessment/clients'),
   getClient: (clientId: string) =>
     api.get<PreassessmentClientRecord>(`/checkup/preassessment/clients/${clientId}`),
@@ -107,13 +112,25 @@ export const preassessmentApi = {
     api.get<PreassessmentTyping>(`/checkup/preassessment/${preassessmentId}/sections/${sectionId}/typing`),
   setTyping: (preassessmentId: string, sectionId: string, active: boolean) =>
     api.post(`/checkup/preassessment/${preassessmentId}/sections/${sectionId}/typing`, { active }),
-  downloadPdf: (html: string) =>
-    requestBlob('/checkup/preassessment/pdf', {
-      method: 'POST',
-      body: JSON.stringify({ html }),
-      timeoutMs: 120_000,
-    }),
+  createPdfJob: (html: string) =>
+    api.post<PreassessmentExportJob>('/checkup/preassessment/pdf/jobs', { html }, { timeoutMs: 120_000 }),
+  getExportJob: (jobId: string) =>
+    api.get<PreassessmentExportJob>(`/checkup/preassessment/export-jobs/${jobId}`),
+  downloadExportJob: (jobId: string) =>
+    requestBlobWithFilename(`/checkup/preassessment/export-jobs/${jobId}/download`, { timeoutMs: 120_000 }),
 };
+
+
+export interface PreassessmentExportJob {
+  id: string;
+  type: 'pdf' | 'zip';
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  filename?: string | null;
+  mimeType?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+}
 
 export interface PreassessmentChatMessage {
   id: string;
@@ -275,6 +292,8 @@ export const preassessmentDocumentsApi = {
   },
   download: (id: string) =>
     requestBlob(`/checkup/preassessment/documents/${id}/download`),
+  createZipJob: (preassessmentId: string) =>
+    api.post<PreassessmentExportJob>(`/checkup/preassessment/${preassessmentId}/documents/download-zip/jobs`, {}),
   delete: (id: string) => api.delete(`/checkup/preassessment/documents/${id}`),
 };
 

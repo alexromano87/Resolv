@@ -39,7 +39,7 @@ export class CheckupJwtStrategy extends PassportStrategy(Strategy, 'checkup-jwt'
     });
 
     if (!user || !user.attivo) {
-      throw new UnauthorizedException('User not found or inactive');
+      throw new UnauthorizedException('Utente non trovato o non attivo');
     }
 
     return user;

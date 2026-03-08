@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class UpdateCheckupStudioDto {
   @IsOptional()
@@ -55,6 +55,10 @@ export class UpdateCheckupStudioDto {
 
   @IsOptional()
   @IsString()
+  logoUrl?: string;
+
+  @IsOptional()
+  @IsString()
   note?: string;
 
   @IsOptional()
@@ -64,4 +68,9 @@ export class UpdateCheckupStudioDto {
   @IsOptional()
   @IsBoolean()
   attivo?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  keepUserIds?: string[];
 }

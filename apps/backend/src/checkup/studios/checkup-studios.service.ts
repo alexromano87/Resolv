@@ -23,6 +23,10 @@ export class CheckupStudiosService {
     private sublicenseRepository: Repository<CheckupSublicense>,
   ) {}
 
+  private isStudioStaff(currentUser: CheckupCurrentUserData) {
+    return ['admin_studio', 'segreteria', 'collaboratore'].includes(currentUser.ruolo);
+  }
+
   private async getStudioOrThrow(studioId: string) {
     const studio = await this.studioRepository.findOne({
       where: { id: studioId, attivo: true },
@@ -136,7 +140,7 @@ export class CheckupStudiosService {
           clientId: s.clientId ?? null,
           numeroUtenze: s.numeroUtenze,
           attiva: s.attiva,
-          cliente: cliente ? { id: cliente.id, nome: cliente.nome } : null,
+          cliente: cliente ? { id: cliente.id, nome: cliente.ragioneSociale || cliente.nome || 'Cliente senza nome' } : null,
         };
       }),
     };
@@ -216,7 +220,7 @@ export class CheckupStudiosService {
   }
 
   async listSublicenses(currentUser: CheckupCurrentUserData) {
-    if (currentUser.ruolo !== 'admin_studio') {
+    if (!this.isStudioStaff(currentUser)) {
       throw new ForbiddenException('Non autorizzato');
     }
     const license = await this.getLicenseForAdmin(currentUser);
@@ -262,10 +266,15 @@ export class CheckupStudiosService {
       throw new NotFoundException('Sublicenza non trovata');
     }
     await this.ensureSublicenseAssignable(sublicense, license.id);
+    const nome = dto.nome?.trim() || null;
+    const ragioneSociale = dto.ragioneSociale?.trim() || null;
+    if (!nome && !ragioneSociale) {
+      throw new ConflictException('Compila almeno nome cliente o ragione sociale/denominazione');
+    }
 
     const client = this.clientRepository.create({
-      nome: dto.nome.trim(),
-      ragioneSociale: dto.ragioneSociale?.trim() || null,
+      nome,
+      ragioneSociale,
       partitaIva: dto.partitaIva?.trim() || null,
       codiceFiscale: dto.codiceFiscale?.trim() || null,
       indirizzo: dto.indirizzo?.trim() || null,
@@ -326,9 +335,15 @@ export class CheckupStudiosService {
       throw new ForbiddenException('Cliente non associato alla licenza');
     }
 
+    const nextNome = dto.nome !== undefined ? (dto.nome.trim() || null) : client.nome;
+    const nextRagioneSociale = dto.ragioneSociale !== undefined ? (dto.ragioneSociale.trim() || null) : client.ragioneSociale;
+    if (!nextNome && !nextRagioneSociale) {
+      throw new ConflictException('Compila almeno nome cliente o ragione sociale/denominazione');
+    }
+
     Object.assign(client, {
-      nome: dto.nome?.trim() ?? client.nome,
-      ragioneSociale: dto.ragioneSociale?.trim() ?? client.ragioneSociale,
+      nome: nextNome,
+      ragioneSociale: nextRagioneSociale,
       partitaIva: dto.partitaIva?.trim() ?? client.partitaIva,
       codiceFiscale: dto.codiceFiscale?.trim() ?? client.codiceFiscale,
       indirizzo: dto.indirizzo?.trim() ?? client.indirizzo,
