@@ -70,9 +70,11 @@ describe('HealthController', () => {
       expect(result.status).toBe('ok');
       expect(result.database).toBe('healthy');
       expect(result.redis).toBe('healthy');
-      expect(result).toHaveProperty('timestamp');
-      expect(result).toHaveProperty('uptime');
-      expect(result).toHaveProperty('memory');
+      expect(result).toEqual({
+        status: 'ok',
+        database: 'healthy',
+        redis: 'healthy',
+      });
     });
 
     it('should return degraded status when database fails', async () => {
@@ -96,6 +98,24 @@ describe('HealthController', () => {
       expect(result.status).toBe('ok');
       expect(result.database).toBe('healthy');
       expect(result.redis).toBe('unhealthy');
+    });
+  });
+
+  describe('details', () => {
+    it('should return detailed health data', async () => {
+      mockDataSource.query.mockResolvedValue([{ 1: 1 }]);
+      mockCacheService.set.mockResolvedValue(undefined);
+      mockCacheService.get.mockResolvedValue('ok');
+      mockCacheService.del.mockResolvedValue(undefined);
+
+      const result = await controller.details();
+
+      expect(result.status).toBe('ok');
+      expect(result.database).toBe('healthy');
+      expect(result.redis).toBe('healthy');
+      expect(result).toHaveProperty('timestamp');
+      expect(result).toHaveProperty('uptime');
+      expect(result).toHaveProperty('memory');
     });
   });
 

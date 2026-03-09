@@ -523,8 +523,8 @@ export default function AdminCheckupUsersPage() {
       {showUserModal && (
         <BodyPortal>
           <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
-            <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl">
-              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+            <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">
                   {isEditing ? 'Modifica utente checkup' : 'Nuovo utente checkup'}
                 </h2>
@@ -532,7 +532,8 @@ export default function AdminCheckupUsersPage() {
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              <form onSubmit={handleSubmitUser} className="space-y-4 p-6">
+              <form onSubmit={handleSubmitUser} className="flex min-h-0 flex-1 flex-col">
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-6">
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <div>
                     <label className={labelClass('nome')}>Nome <span className="text-rose-600">*</span></label>
@@ -827,7 +828,8 @@ export default function AdminCheckupUsersPage() {
                     </div>
                   )}
                 </div>
-                <div className="flex justify-end gap-3 pt-2">
+                </div>
+                <div className="flex shrink-0 justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
                   <button type="button" onClick={handleCloseUserModal} className="wow-button-ghost">
                     Annulla
                   </button>

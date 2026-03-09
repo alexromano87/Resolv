@@ -16,11 +16,8 @@ export class HealthController {
   async check() {
     const checks = {
       status: 'ok',
-      timestamp: new Date().toISOString(),
       database: 'unknown',
       redis: 'unknown',
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
     };
 
     // Check database connection
@@ -45,6 +42,18 @@ export class HealthController {
     }
 
     return checks;
+  }
+
+  @Get('details')
+  async details() {
+    const checks = await this.check();
+
+    return {
+      ...checks,
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+    };
   }
 
   @Get('ready')

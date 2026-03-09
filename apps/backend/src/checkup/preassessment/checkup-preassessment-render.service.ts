@@ -1,9 +1,32 @@
-import { Injectable } from '@nestjs/common';
-import puppeteer from 'puppeteer';
+import { Injectable, OnModuleDestroy, Logger } from '@nestjs/common';
+import puppeteer, { Browser } from 'puppeteer';
 import sanitizeHtml from 'sanitize-html';
 
+/**
+ * Shared Puppeteer launch options.
+ * Headless mode required for Docker/server environments with --no-sandbox.
+ */
+const BROWSER_LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-extensions',
+  '--disable-background-networking',
+  '--disable-sync',
+  '--metrics-recording-only',
+  '--no-first-run',
+];
+
 @Injectable()
-export class CheckupPreassessmentRenderService {
+export class CheckupPreassessmentRenderService implements OnModuleDestroy {
+  private readonly logger = new Logger(CheckupPreassessmentRenderService.name);
+
+  /** Singleton browser instance — reused across PDF requests. */
+  private browser: Browser | null = null;
+
+  /** Serialise browser (re-)launch to avoid race conditions. */
+  private launchPromise: Promise<Browser> | null = null;
+
   sanitizeHtmlForPdf(html: string): string {
     return sanitizeHtml(html, {
       allowedTags: [
@@ -88,23 +111,46 @@ export class CheckupPreassessmentRenderService {
     });
   }
 
+  /**
+   * Returns the shared singleton browser, launching it if necessary.
+   * If the existing browser has crashed, it relaunches automatically.
+   */
+  private async getBrowser(): Promise<Browser> {
+    if (this.browser?.connected) return this.browser;
+
+    // Serialise concurrent callers so we launch only once
+    if (this.launchPromise) return this.launchPromise;
+
+    this.launchPromise = puppeteer
+      .launch({ headless: true, args: BROWSER_LAUNCH_ARGS })
+      .then((b) => {
+        this.browser = b;
+        this.launchPromise = null;
+
+        // Auto-reconnect on unexpected crash
+        b.on('disconnected', () => {
+          this.logger.warn('Puppeteer browser disconnected — will relaunch on next request');
+          this.browser = null;
+        });
+
+        return b;
+      })
+      .catch((err) => {
+        this.launchPromise = null;
+        throw err;
+      });
+
+    return this.launchPromise;
+  }
+
   async renderHtmlToPdf(html: string): Promise<Buffer> {
     const safeHtml = this.sanitizeHtmlForPdf(html);
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-extensions',
-        '--disable-background-networking',
-        '--disable-sync',
-        '--metrics-recording-only',
-        '--no-first-run',
-      ],
-    });
+    const browser = await this.getBrowser();
+
+    const page = await browser.newPage();
     try {
-      const page = await browser.newPage();
+      // Block all external network requests — only allow data: URIs and the
+      // initial document load so the PDF renderer never makes outbound calls.
       await page.setRequestInterception(true);
       page.on('request', (req) => {
         const resourceType = req.resourceType();
@@ -124,7 +170,19 @@ export class CheckupPreassessmentRenderService {
       });
       return Buffer.from(pdf);
     } finally {
-      await browser.close();
+      await page.close().catch(() => { /* ignore close errors */ });
+    }
+  }
+
+  /** Cleanly shuts down the browser when the NestJS module is destroyed. */
+  async onModuleDestroy(): Promise<void> {
+    if (this.browser) {
+      try {
+        await this.browser.close();
+      } catch (err: any) {
+        this.logger.warn(`Error closing Puppeteer browser on shutdown: ${err.message}`);
+      }
+      this.browser = null;
     }
   }
 }

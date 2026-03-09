@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, InternalServerErrorE
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { promisify } from 'util';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import archiver from 'archiver';
@@ -84,6 +85,16 @@ export class CheckupPreassessmentDocumentsService {
     private questionManagementService: QuestionManagementService,
   ) {}
 
+  private computeSha256(filePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha256');
+      const stream = fs.createReadStream(filePath);
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('end', () => resolve(hash.digest('hex')));
+      stream.on('error', reject);
+    });
+  }
+
   private getDocumentType(ext: string): CheckupPreassessmentDocumentType {
     const extLower = ext.toLowerCase().replace('.', '');
     const mapping: Record<string, CheckupPreassessmentDocumentType> = {
@@ -144,6 +155,15 @@ export class CheckupPreassessmentDocumentsService {
     }
 
     const ext = path.extname(file.originalname);
+
+    // Compute SHA-256 integrity hash (best-effort — never fails the upload)
+    let sha256: string | null = null;
+    try {
+      sha256 = await this.computeSha256(file.path);
+    } catch (err: any) {
+      this.logger.warn(`SHA-256 computation failed for ${file.filename}: ${err.message}`);
+    }
+
     const doc = this.documentRepository.create({
       preassessmentId,
       fieldId,
@@ -155,6 +175,7 @@ export class CheckupPreassessmentDocumentsService {
       tipo: this.getDocumentType(ext),
       dimensione: file.size,
       caricatoDa: user.id,
+      sha256,
     });
 
     return this.documentRepository.save(doc);

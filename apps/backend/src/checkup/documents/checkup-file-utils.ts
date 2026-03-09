@@ -1,12 +1,26 @@
 import * as fs from 'fs';
 
 /**
+ * Number of bytes to sample when checking text files for binary content.
+ * 8 KB is enough to catch most binary blobs disguised as text.
+ */
+const TEXT_SAMPLE_BYTES = 8192;
+
+/**
+ * Maximum fraction of non-printable control bytes tolerated in a text file.
+ * Values above this threshold indicate binary content.
+ * We allow up to 3% to tolerate exotic but valid UTF-8 sequences.
+ */
+const MAX_BINARY_BYTE_RATIO = 0.03;
+
+/**
  * Maps declared MIME types to their expected magic byte signatures.
  * Each entry is an array of possible valid signatures for that MIME type.
  *
  * We read only the first 8 bytes — sufficient for all supported formats.
+ * text/csv and text/plain use a dedicated binary-content check (see below).
  */
-const MAGIC_BYTE_MAP: Record<string, Array<number[]>> = {
+const MAGIC_BYTE_MAP: Record<string, Array<number[]> | null> = {
   // PDF: %PDF
   'application/pdf': [[0x25, 0x50, 0x44, 0x46]],
 
@@ -46,9 +60,9 @@ const MAGIC_BYTE_MAP: Record<string, Array<number[]>> = {
     [0xFF, 0xFE],
   ],
 
-  // CSV / plain text: no magic bytes — accepted on MIME trust
-  'text/csv': [],
-  'text/plain': [],
+  // CSV / plain text: null = use binary-content heuristic check instead
+  'text/csv': null,
+  'text/plain': null,
 };
 
 function startsWith(buffer: Buffer, signature: number[]): boolean {
@@ -57,7 +71,53 @@ function startsWith(buffer: Buffer, signature: number[]): boolean {
 }
 
 /**
- * Validates that the actual file content (magic bytes) matches the declared MIME type.
+ * Checks whether a file declared as text (CSV or plain text) actually contains
+ * printable text data, rejecting binary files that were renamed with a .csv/.txt extension.
+ *
+ * We read up to TEXT_SAMPLE_BYTES bytes and count bytes that are:
+ *   - null (0x00) — always binary
+ *   - C0 control codes (0x01–0x08, 0x0B, 0x0C, 0x0E–0x1F) — not expected in text
+ *
+ * Legitimate tabs (0x09), newlines (0x0A), carriage returns (0x0D),
+ * DEL (0x7F), and all high-byte UTF-8 sequences are allowed.
+ *
+ * @returns `true` if the file appears to be text, `false` if it looks binary.
+ */
+async function isTextContent(filePath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(TEXT_SAMPLE_BYTES);
+      const bytesRead = fs.readSync(fd, buffer, 0, TEXT_SAMPLE_BYTES, 0);
+
+      if (bytesRead === 0) {
+        resolve(true); // empty file is fine
+        return;
+      }
+
+      let binaryCount = 0;
+      for (let i = 0; i < bytesRead; i++) {
+        const b = buffer[i];
+        // Strict binary indicators: null byte or non-printable C0 controls
+        // (excluding HT=0x09, LF=0x0A, CR=0x0D which are valid in text)
+        if (b === 0x00 || (b < 0x09) || (b === 0x0B) || (b === 0x0C) || (b >= 0x0E && b <= 0x1F)) {
+          binaryCount++;
+        }
+      }
+
+      const ratio = binaryCount / bytesRead;
+      resolve(ratio <= MAX_BINARY_BYTE_RATIO);
+    } catch {
+      resolve(false);
+    } finally {
+      fs.closeSync(fd);
+    }
+  });
+}
+
+/**
+ * Validates that the actual file content (magic bytes / content heuristics)
+ * matches the declared MIME type.
  *
  * @returns `true` if the file content is consistent with the declared MIME type.
  *          `false` if the content does NOT match — caller should delete the file and reject.
@@ -68,8 +128,8 @@ export async function validateMagicBytes(filePath: string, declaredMime: string)
   // Unknown MIME type → reject by default (not in allowlist)
   if (signatures === undefined) return false;
 
-  // MIME types with no magic bytes (CSV, plain text) → accept on MIME declaration
-  if (signatures.length === 0) return true;
+  // text/csv and text/plain: use binary-content heuristic instead of magic bytes
+  if (signatures === null) return isTextContent(filePath);
 
   const HEADER_SIZE = 8;
   const buffer = Buffer.alloc(HEADER_SIZE);

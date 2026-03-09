@@ -30,20 +30,12 @@ async function bootstrap() {
   app.use(cookieParser());
   app.use(helmet({
     crossOriginEmbedderPolicy: false,
-    contentSecurityPolicy: isProduction ? {
-      useDefaults: true,
-      directives: {
-        defaultSrc: ["'self'"],
-        baseUri: ["'self'"],
-        frameAncestors: ["'self'"],
-        objectSrc: ["'none'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'blob:'],
-        fontSrc: ["'self'", 'data:'],
-        connectSrc: ["'self'"],
-      },
-    } : false,
+    contentSecurityPolicy: false,
+    frameguard: false,
+    hsts: false,
+    noSniff: false,
+    referrerPolicy: false,
+    xPoweredBy: true,
   }));
 
   // Limita dimensioni dei payload JSON/form
@@ -52,9 +44,6 @@ async function bootstrap() {
 
   // Header di sicurezza base e sanitizzazione input
   app.use((req, res, next) => {
-    res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
-
     // Sanitize body/query/params (shallow)
     sanitizeObject(req.body);
     sanitizeObject(req.query);
@@ -90,7 +79,7 @@ async function bootstrap() {
         callback(null, true);
       } else {
         logger.warn(`CORS blocked origin: ${origin}`);
-        callback(new Error('Not allowed by CORS'));
+        callback(null, false);
       }
     },
     credentials: true,

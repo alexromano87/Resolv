@@ -1,6 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException } from '@nestjs/common';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { CheckupPreassessmentDocumentsService } from './checkup-preassessment-documents.service';
 import { CheckupPreassessmentDocument } from './checkup-preassessment-document.entity';
 import { CheckupPreassessmentService } from './checkup-preassessment.service';
@@ -21,6 +24,7 @@ describe('CheckupPreassessmentDocumentsService', () => {
   let licenseRepo: ReturnType<typeof mockRepository>;
   let preassessmentService: { getPreassessmentForDocuments: jest.Mock };
   let questionManagementService: { getCompleteStructure: jest.Mock };
+  let tempFilePath: string;
 
   const baseUser = {
     id: 'u-1',
@@ -34,15 +38,11 @@ describe('CheckupPreassessmentDocumentsService', () => {
     studioCanEdit: true,
   };
 
-  const fileMock = {
-    originalname: 'test.pdf',
-    filename: 'test.pdf',
-    path: '/tmp/test.pdf',
-    size: 123,
-    buffer: Buffer.from('file'),
-  } as any;
-
   beforeEach(async () => {
+    // Create a real temp file so SHA-256 computation has something to read
+    tempFilePath = path.join(os.tmpdir(), `doc-svc-test-${Date.now()}.pdf`);
+    fs.writeFileSync(tempFilePath, Buffer.from('%PDF-1.4 test content'));
+
     documentRepo = mockRepository();
     sublicenseRepo = mockRepository();
     licenseRepo = mockRepository();
@@ -69,6 +69,7 @@ describe('CheckupPreassessmentDocumentsService', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+    try { fs.unlinkSync(tempFilePath); } catch { /* ignore */ }
   });
 
   it('nega upload se allowDocuments è false', async () => {
@@ -79,7 +80,7 @@ describe('CheckupPreassessmentDocumentsService', () => {
     });
 
     await expect(
-      service.upload('p-1', fileMock, baseUser, 'field-1', 'section-1'),
+      service.upload('p-1', { ...getFileMock(tempFilePath) }, baseUser, 'field-1', 'section-1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
     expect(documentRepo.save).not.toHaveBeenCalled();
@@ -92,7 +93,7 @@ describe('CheckupPreassessmentDocumentsService', () => {
       allowDocuments: true,
     });
 
-    const result = await service.upload('p-1', fileMock, baseUser, 'field-1', 'section-1');
+    const result = await service.upload('p-1', getFileMock(tempFilePath), baseUser, 'field-1', 'section-1');
 
     expect(documentRepo.create).toHaveBeenCalled();
     expect(documentRepo.save).toHaveBeenCalled();
@@ -104,4 +105,49 @@ describe('CheckupPreassessmentDocumentsService', () => {
       nomeOriginale: 'test.pdf',
     });
   });
+
+  it('include sha256 nel documento salvato', async () => {
+    preassessmentService.getPreassessmentForDocuments.mockResolvedValue({
+      preassessment: basePreassessment,
+      client: { id: basePreassessment.clientId },
+      allowDocuments: true,
+    });
+
+    const result = await service.upload('p-1', getFileMock(tempFilePath), baseUser, 'field-1', 'section-1');
+
+    expect(result.sha256).toBeDefined();
+    expect(typeof result.sha256).toBe('string');
+    // SHA-256 hex digest is exactly 64 characters
+    expect(result.sha256).toHaveLength(64);
+  });
+
+  it('procede con sha256=null se il file non esiste', async () => {
+    preassessmentService.getPreassessmentForDocuments.mockResolvedValue({
+      preassessment: basePreassessment,
+      client: { id: basePreassessment.clientId },
+      allowDocuments: true,
+    });
+
+    const missingFileMock = {
+      originalname: 'test.pdf',
+      filename: 'test.pdf',
+      path: '/tmp/non-existent-file-abc123.pdf',
+      size: 123,
+      buffer: Buffer.from('file'),
+    } as any;
+
+    // Should not throw even if file is missing — sha256 falls back to null
+    const result = await service.upload('p-1', missingFileMock, baseUser, 'field-1', 'section-1');
+    expect(result.sha256).toBeNull();
+  });
 });
+
+function getFileMock(filePath: string) {
+  return {
+    originalname: 'test.pdf',
+    filename: path.basename(filePath),
+    path: filePath,
+    size: fs.statSync(filePath).size,
+    buffer: Buffer.from('file'),
+  } as any;
+}

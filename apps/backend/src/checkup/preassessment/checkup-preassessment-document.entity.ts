@@ -50,6 +50,9 @@ export class CheckupPreassessmentDocument {
   @Column({ type: 'uuid', nullable: true })
   caricatoDa: string | null;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  sha256: string | null;
+
   @Column({ default: true })
   attivo: boolean;
 
