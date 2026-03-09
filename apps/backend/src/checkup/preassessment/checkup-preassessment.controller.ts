@@ -6,6 +6,7 @@ import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupPreassessmentService } from './checkup-preassessment.service';
+import { CheckupPreassessmentPresenceService } from './checkup-preassessment-presence.service';
 import { UpdatePreassessmentDto } from './dto/update-preassessment.dto';
 import { CheckupStaffGuard } from '../auth/checkup-staff.guard';
 import { CheckupPreassessmentReportsService } from './checkup-preassessment-reports.service';
@@ -16,6 +17,7 @@ import { CheckupPreassessmentExportJobsService } from './checkup-preassessment-e
 export class CheckupPreassessmentController {
   constructor(
     private readonly preassessmentService: CheckupPreassessmentService,
+    private readonly presenceService: CheckupPreassessmentPresenceService,
     private readonly reportsService: CheckupPreassessmentReportsService,
     private readonly exportJobsService: CheckupPreassessmentExportJobsService,
   ) {}
@@ -166,13 +168,13 @@ export class CheckupPreassessmentController {
     @Param('preassessmentId') preassessmentId: string,
     @CheckupCurrentUser() user: CheckupCurrentUserData,
   ) {
-    return this.preassessmentService.getPresence(preassessmentId, user);
+    return this.presenceService.getPresence(preassessmentId, user);
   }
 
   @Get('online')
   @RateLimit({ limit: 30, windowMs: 60 * 1000 })
   getOnline(@CheckupCurrentUser() user: CheckupCurrentUserData) {
-    return this.preassessmentService.getOnline(user);
+    return this.presenceService.getOnline(user);
   }
 
   @Post(':preassessmentId/presence/active')
@@ -185,7 +187,7 @@ export class CheckupPreassessmentController {
     if (!fieldId) {
       throw new BadRequestException('Campo mancante');
     }
-    return this.preassessmentService.setPresenceActive(preassessmentId, fieldId, user);
+    return this.presenceService.setPresenceActive(preassessmentId, fieldId, user);
   }
 
   @Post(':preassessmentId/presence/inactive')
@@ -198,6 +200,6 @@ export class CheckupPreassessmentController {
     if (!fieldId) {
       throw new BadRequestException('Campo mancante');
     }
-    return this.preassessmentService.setPresenceInactive(preassessmentId, fieldId, user);
+    return this.presenceService.setPresenceInactive(preassessmentId, fieldId, user);
   }
 }

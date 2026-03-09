@@ -77,13 +77,13 @@ export class CheckupUser {
   @Column({ type: 'varchar', length: 10, nullable: true })
   twoFactorChannel: string | null;
 
-  @Column({ type: 'varchar', length: 12, nullable: true })
+  @Column({ type: 'varchar', length: 255, nullable: true })
   twoFactorCode: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
   twoFactorCodeExpires: Date | null;
 
-  @Column({ type: 'varchar', length: 12, nullable: true })
+  @Column({ type: 'varchar', length: 50, nullable: true })
   twoFactorCodePurpose: string | null;
 
   @CreateDateColumn()

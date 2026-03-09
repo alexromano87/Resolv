@@ -67,6 +67,8 @@ import { CheckupPreassessmentDocumentsService } from './preassessment/checkup-pr
 import { CheckupPreassessmentDocumentsController } from './preassessment/checkup-preassessment-documents.controller';
 import { CheckupPreassessmentReportsService } from './preassessment/checkup-preassessment-reports.service';
 import { CheckupPreassessmentRetentionService } from './preassessment/checkup-preassessment-retention.service';
+import { CheckupPreassessmentPresenceService } from './preassessment/checkup-preassessment-presence.service';
+import { CheckupPreassessmentValidationService } from './preassessment/checkup-preassessment-validation.service';
 import { CheckupPreassessmentExportJobsService } from './preassessment/checkup-preassessment-export-jobs.service';
 import { CheckupStudiosService } from './studios/checkup-studios.service';
 import { CheckupStudiosController } from './studios/checkup-studios.controller';
@@ -189,6 +191,8 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
     CheckupPreassessmentDocumentsService,
     CheckupPreassessmentReportsService,
     CheckupPreassessmentRetentionService,
+    CheckupPreassessmentPresenceService,
+    CheckupPreassessmentValidationService,
     CheckupPreassessmentExportJobsService,
     CheckupStudiosService,
     QuestionManagementService,

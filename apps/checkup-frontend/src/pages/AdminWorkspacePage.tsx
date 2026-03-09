@@ -34,6 +34,7 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
   const formRef = useRef<HTMLFormElement>(null);
   const pendingClickRef = useRef<HTMLElement | null>(null);
   const allowNextClickRef = useRef(false);
+  const logoFileRef = useRef<HTMLInputElement>(null);
   const loadProfile = async () => {
     setLoading(true);
     setError('');
@@ -53,6 +54,7 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
         email: data.studio.email || '',
         telefono: data.studio.telefono || '',
         sitoWeb: data.studio.sitoWeb || '',
+        logoUrl: data.studio.logoUrl || undefined,
         note: data.studio.note || '',
       });
       setSnapshot({
@@ -68,6 +70,7 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
         email: data.studio.email || '',
         telefono: data.studio.telefono || '',
         sitoWeb: data.studio.sitoWeb || '',
+        logoUrl: data.studio.logoUrl || undefined,
         note: data.studio.note || '',
       });
     } catch (err: any) {
@@ -176,6 +179,38 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
     document.addEventListener('click', handleClickCapture, true);
     return () => document.removeEventListener('click', handleClickCapture, true);
   }, [editMode, isDirty, snapshot]);
+
+  /** Resize the selected image to max 300×100 px and store as PNG data-URI. */
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const MAX_W = 300;
+      const MAX_H = 100;
+      let { width, height } = img;
+      if (width > MAX_W || height > MAX_H) {
+        const ratio = Math.min(MAX_W / width, MAX_H / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/png');
+        setFormData((p) => ({ ...p, logoUrl: dataUrl }));
+      }
+      URL.revokeObjectURL(objectUrl);
+    };
+    img.onerror = () => URL.revokeObjectURL(objectUrl);
+    img.src = objectUrl;
+    // Reset so the same file can be picked again
+    e.target.value = '';
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -340,6 +375,58 @@ export default function AdminWorkspacePage({ initialTab = 'studio' }: { initialT
                     className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50 disabled:text-slate-400 focus:ring-2 focus:ring-primary-500"
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* ── Logo Studio ──────────────────────────────────────────────── */}
+            <div className="wow-panel p-6">
+              <h2 className="text-lg font-semibold text-slate-900">Logo</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Logo dello studio visualizzato nell'intestazione e in copertina dei report PDF.
+              </p>
+              {/* Hidden file input */}
+              <input
+                ref={logoFileRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={handleLogoFileChange}
+              />
+              <div className="mt-5 flex flex-wrap items-center gap-4">
+                {/* Preview box */}
+                <div className="flex h-20 w-48 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-2 shrink-0">
+                  {formData.logoUrl ? (
+                    <img
+                      src={formData.logoUrl}
+                      alt="Logo studio"
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  ) : (
+                    <span className="text-xs text-slate-400">Nessun logo</span>
+                  )}
+                </div>
+                {/* Upload / remove actions (edit mode only) */}
+                {editMode && (
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => logoFileRef.current?.click()}
+                      className="wow-button-ghost text-sm"
+                    >
+                      {formData.logoUrl ? 'Sostituisci logo' : 'Carica logo'}
+                    </button>
+                    {formData.logoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData((p) => ({ ...p, logoUrl: undefined }))}
+                        className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-600 hover:bg-rose-100 transition-colors"
+                      >
+                        Rimuovi logo
+                      </button>
+                    )}
+                    <p className="text-xs text-slate-400">PNG, JPEG o WEBP — ridimensionato a max 300×100 px</p>
+                  </div>
+                )}
               </div>
             </div>
 

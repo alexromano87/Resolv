@@ -1,45 +1,22 @@
 import { Injectable, ForbiddenException, NotFoundException, ConflictException, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Not, IsNull } from 'typeorm';
+import { DataSource, Repository, In, Not, IsNull } from 'typeorm';
 import { CheckupPreassessment } from './checkup-preassessment.entity';
+import { CheckupPreassessmentStatus } from './checkup-preassessment-status.enum';
+import { CheckupPreassessmentValidationService, OWNER_EMAIL_FIELDS } from './checkup-preassessment-validation.service';
 import { UpdatePreassessmentDto } from './dto/update-preassessment.dto';
 import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupUser } from '../users/checkup-user.entity';
 import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
-import { QuestionManagementService } from '../services/question-management.service';
 import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
 import { CheckupPreassessmentNotificationsService } from './checkup-preassessment-notifications.service';
 import { CheckupPreassessmentRenderService } from './checkup-preassessment-render.service';
 
-/** Hard cap on the number of preassessment IDs tracked simultaneously in memory. */
-const PRESENCE_MAP_SIZE_CAP = 10_000;
-
 @Injectable()
 export class CheckupPreassessmentService {
   private readonly logger = new Logger(CheckupPreassessmentService.name);
-  private presenceByPreassessment = new Map<string, Map<string, { userId: string; name: string; expiresAt: number }>>();
-
-  // Mutex per-campo per evitare race condition su setPresenceActive
-  private presenceMutexes = new Map<string, Promise<void>>();
-
-  private async withPresenceLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    let release!: () => void;
-    const lock = new Promise<void>((resolve) => { release = resolve; });
-    const prev = this.presenceMutexes.get(key) ?? Promise.resolve();
-    this.presenceMutexes.set(key, prev.then(() => lock));
-    await prev;
-    try {
-      return await fn();
-    } finally {
-      release();
-      if (this.presenceMutexes.get(key) === lock) {
-        this.presenceMutexes.delete(key);
-      }
-    }
-  }
 
   constructor(
     @InjectRepository(CheckupPreassessment)
@@ -52,107 +29,12 @@ export class CheckupPreassessmentService {
     private sublicenseRepository: Repository<CheckupSublicense>,
     @InjectRepository(CheckupClient)
     private clientRepository: Repository<CheckupClient>,
-    private questionManagementService: QuestionManagementService,
     private auditLogService: CheckupAuditLogService,
     private preassessmentNotificationsService: CheckupPreassessmentNotificationsService,
     private preassessmentRenderService: CheckupPreassessmentRenderService,
+    private readonly dataSource: DataSource,
+    private readonly validationService: CheckupPreassessmentValidationService,
   ) {}
-
-  private static OWNER_EMAIL_BY_MACRO: Record<string, string> = {
-    a: 'owner_a_email',
-    b: 'owner_b_email',
-    c: 'owner_c_email',
-    d: 'owner_d_email',
-    e: 'owner_e_email',
-    f: 'owner_f_email',
-    g: 'owner_g_email',
-    h: 'owner_h_email',
-    i: 'owner_i_email',
-    j: 'owner_j_email',
-  };
-
-  private isOwnerMacroArea(code: string, label?: string | null) {
-    if (code === 'k') return true;
-    if (label && label.toLowerCase().includes('owner')) return true;
-    return false;
-  }
-
-  private async getSectionMetaByModel(modelId: string) {
-    const structure = await this.questionManagementService.getCompleteStructure(modelId);
-    const map = new Map<string, { macroId: string; requiredFields: string[] }>();
-    structure.forEach((macro) => {
-      const macroId = macro.code;
-      (macro.sections || []).forEach((section) => {
-        const requiredFields = (section.fields || [])
-          .filter((field) => field.required)
-          .map((field) => field.fieldId);
-        map.set(section.code, { macroId, requiredFields });
-      });
-    });
-    return map;
-  }
-
-  private async getStructureMetaByModel(modelId: string) {
-    const structure = await this.questionManagementService.getCompleteStructure(modelId);
-    const sectionMeta = new Map<string, { macroId: string; requiredFields: string[] }>();
-    const fieldToMacro = new Map<string, string>();
-
-    structure.forEach((macro) => {
-      const macroId = macro.code;
-      (macro.sections || []).forEach((section) => {
-        const requiredFields = (section.fields || [])
-          .filter((field) => field.required)
-          .map((field) => field.fieldId);
-        sectionMeta.set(section.code, { macroId, requiredFields });
-        (section.fields || []).forEach((field) => {
-          fieldToMacro.set(field.fieldId, macroId);
-        });
-      });
-    });
-
-    return { sectionMeta, fieldToMacro };
-  }
-
-  private normalizeMacroAssignments(assignments?: string[] | null) {
-    return Array.from(
-      new Set(
-        (assignments || [])
-          .map((value) => value?.trim())
-          .filter((value): value is string => !!value),
-      ),
-    );
-  }
-
-  private mergeAllowedFieldValues<T extends string | boolean>(
-    existing: Record<string, T> | null | undefined,
-    incoming: Record<string, T> | undefined,
-    fieldToMacro: Map<string, string>,
-    allowedMacros: Set<string> | null,
-  ) {
-    if (incoming === undefined) return undefined;
-    if (!allowedMacros) return incoming;
-
-    const merged = { ...(existing || {}) };
-    Object.entries(incoming).forEach(([fieldId, value]) => {
-      const macroId = fieldToMacro.get(fieldId);
-      if (macroId && allowedMacros.has(macroId)) {
-        merged[fieldId] = value;
-      }
-    });
-    return merged;
-  }
-
-  private isOwnerForMacro(record: CheckupPreassessment, user: CheckupCurrentUserData, macroId: string) {
-    if (user.ruolo !== 'cliente') return false;
-    const field = CheckupPreassessmentService.OWNER_EMAIL_BY_MACRO[macroId];
-    if (!field) return false;
-    const ownerEmail = (record.data?.[field] || '').trim().toLowerCase();
-    return ownerEmail !== '' && ownerEmail === user.email.toLowerCase();
-  }
-
-  private isSuperOwner(user: CheckupCurrentUserData) {
-    return user.ruolo === 'cliente' && Boolean(user.superOwner);
-  }
 
   private async getOrCreateByClientId(clientId: string, currentUser: CheckupCurrentUserData): Promise<CheckupPreassessment> {
     const clientExists = await this.clientRepository.findOne({ where: { id: clientId, attivo: true } });
@@ -174,7 +56,7 @@ export class CheckupPreassessmentService {
       sectionValidations: {},
       finalValidation: null,
       studioCanEdit: false,
-      status: 'in_progress',
+      status: CheckupPreassessmentStatus.IN_PROGRESS,
       completedAt: null,
       completedById: null,
       version: 1,
@@ -193,30 +75,43 @@ export class CheckupPreassessmentService {
       throw new NotFoundException('Preassessment non trovato');
     }
 
-    current.isLatest = false;
-    await this.preassessmentRepository.save(current);
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    const newVersion = this.preassessmentRepository.create({
-      userId: currentUser.id,
-      clientId,
-      data: {},
-      notes: {},
-      fieldNotes: {},
-      userFieldNotes: {},
-      naFields: {},
-      macroValidations: {},
-      sectionValidations: {},
-      finalValidation: null,
-      studioCanEdit: false,
-      status: 'in_progress',
-      completedAt: null,
-      completedById: null,
-      version: current.version + 1,
-      parentId: current.id,
-      isLatest: true,
-    });
+    let saved: CheckupPreassessment;
+    try {
+      current.isLatest = false;
+      await queryRunner.manager.save(current);
 
-    const saved = await this.preassessmentRepository.save(newVersion);
+      const newVersion = queryRunner.manager.create(CheckupPreassessment, {
+        userId: currentUser.id,
+        clientId,
+        data: {},
+        notes: {},
+        fieldNotes: {},
+        userFieldNotes: {},
+        naFields: {},
+        macroValidations: {},
+        sectionValidations: {},
+        finalValidation: null,
+        studioCanEdit: false,
+        status: CheckupPreassessmentStatus.IN_PROGRESS,
+        completedAt: null,
+        completedById: null,
+        version: current.version + 1,
+        parentId: current.id,
+        isLatest: true,
+      });
+
+      saved = await queryRunner.manager.save(newVersion);
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
     const notificationContext = await this.buildNotificationContext(clientId, saved.id, currentUser.studioId);
     this.auditLogService.log({
       userId: currentUser.id,
@@ -257,49 +152,10 @@ export class CheckupPreassessmentService {
     return this.getOrCreateByClientId(user.clientId, user);
   }
 
-  private applyFieldMeta(
-    record: CheckupPreassessment,
-    nextData: Record<string, string> | undefined,
-    nextNaFields: Record<string, boolean> | undefined,
-    currentUser: CheckupCurrentUserData,
-  ) {
-    if (!nextData && !nextNaFields) return;
-    const prev = record.data || {};
-    const prevNA = record.naFields || {};
-    const meta = record.fieldMeta || {};
-    const nowIso = new Date().toISOString();
-    const name = `${currentUser.nome} ${currentUser.cognome}`.trim() || currentUser.email;
-    const keys = new Set<string>([
-      ...Object.keys(prev),
-      ...Object.keys(prevNA),
-      ...Object.keys(nextData || {}),
-      ...Object.keys(nextNaFields || {}),
-    ]);
-
-    keys.forEach((key) => {
-      const prevVal = prev[key] ?? '';
-      const nextVal = nextData ? (nextData[key] ?? '') : prevVal;
-      const prevNa = !!prevNA[key];
-      const nextNa = nextNaFields ? !!nextNaFields[key] : prevNa;
-      if (prevVal !== nextVal || prevNa !== nextNa) {
-        meta[key] = {
-          updatedAt: nowIso,
-          updatedBy: {
-            id: currentUser.id,
-            name,
-            ruolo: currentUser.ruolo,
-          },
-        };
-      }
-    });
-
-    record.fieldMeta = meta;
-  }
-
   async update(user: CheckupCurrentUserData, dto: UpdatePreassessmentDto): Promise<CheckupPreassessment> {
     const record = await this.getOrCreate(user);
 
-    if (user.ruolo === 'cliente' && record.status === 'concluso') {
+    if (user.ruolo === 'cliente' && record.status === CheckupPreassessmentStatus.CONCLUSO) {
       throw new ForbiddenException('Il checkup è concluso e non può più essere modificato');
     }
 
@@ -307,15 +163,17 @@ export class CheckupPreassessmentService {
     // Capture them from the existing record BEFORE any data update so that
     // isOwnerForMacro always checks the staff-assigned values, not what the
     // client just sent.
-    const ownerEmailFields = new Set(Object.values(CheckupPreassessmentService.OWNER_EMAIL_BY_MACRO));
     const frozenOwnerEmails: Record<string, string> = {};
-    for (const field of ownerEmailFields) {
+    for (const field of OWNER_EMAIL_FIELDS) {
       const existing = record.data?.[field];
       if (existing !== undefined) frozenOwnerEmails[field] = existing;
     }
 
+    const vs = this.validationService;
     const assignedMacroAreas =
-      user.ruolo === 'cliente' && !this.isSuperOwner(user) ? this.normalizeMacroAssignments(user.macroAreaAssignments) : [];
+      user.ruolo === 'cliente' && !vs.isSuperOwner(user)
+        ? vs.normalizeMacroAssignments(user.macroAreaAssignments)
+        : [];
     const allowedClientMacros = assignedMacroAreas.length > 0 ? new Set(assignedMacroAreas) : null;
     let sectionMeta: Map<string, { macroId: string; requiredFields: string[] }> | null = null;
     let fieldToMacro: Map<string, string> | null = null;
@@ -324,132 +182,103 @@ export class CheckupPreassessmentService {
       user.ruolo === 'cliente' &&
       allowedClientMacros &&
       record.clientId &&
-      (
-        dto.data !== undefined ||
-        dto.naFields !== undefined ||
-        dto.userFieldNotes !== undefined ||
-        dto.sectionValidations !== undefined
-      )
+      (dto.data !== undefined || dto.naFields !== undefined || dto.userFieldNotes !== undefined || dto.sectionValidations !== undefined)
     ) {
       const { modelId } = await this.resolveModelIdForClient(record.clientId);
-      const structureMeta = await this.getStructureMetaByModel(modelId);
+      const structureMeta = await vs.getStructureMetaByModel(modelId);
       sectionMeta = structureMeta.sectionMeta;
       fieldToMacro = structureMeta.fieldToMacro;
     }
 
-    const nextData =
-      user.ruolo === 'cliente' && fieldToMacro
-        ? this.mergeAllowedFieldValues(record.data || {}, dto.data, fieldToMacro, allowedClientMacros)
-        : dto.data;
-    const nextNaFields =
-      user.ruolo === 'cliente' && fieldToMacro
-        ? this.mergeAllowedFieldValues(record.naFields || {}, dto.naFields, fieldToMacro, allowedClientMacros)
-        : dto.naFields;
-    const nextUserFieldNotes =
-      user.ruolo === 'cliente' && fieldToMacro
-        ? this.mergeAllowedFieldValues(record.userFieldNotes || {}, dto.userFieldNotes, fieldToMacro, allowedClientMacros)
-        : dto.userFieldNotes;
+    const nextData = user.ruolo === 'cliente' && fieldToMacro
+      ? vs.mergeAllowedFieldValues(record.data || {}, dto.data, fieldToMacro, allowedClientMacros)
+      : dto.data;
+    const nextNaFields = user.ruolo === 'cliente' && fieldToMacro
+      ? vs.mergeAllowedFieldValues(record.naFields || {}, dto.naFields, fieldToMacro, allowedClientMacros)
+      : dto.naFields;
+    const nextUserFieldNotes = user.ruolo === 'cliente' && fieldToMacro
+      ? vs.mergeAllowedFieldValues(record.userFieldNotes || {}, dto.userFieldNotes, fieldToMacro, allowedClientMacros)
+      : dto.userFieldNotes;
 
-    this.applyFieldMeta(record, nextData, nextNaFields, user);
+    vs.applyFieldMeta(record, nextData, nextNaFields, user);
+
     if (nextData !== undefined) {
       if (user.ruolo === 'cliente') {
         // Merge incoming data but preserve all owner email fields from the DB
         const sanitized = { ...nextData };
-        for (const field of ownerEmailFields) {
-          if (frozenOwnerEmails[field] !== undefined) {
-            sanitized[field] = frozenOwnerEmails[field];
-          } else {
-            delete sanitized[field];
-          }
+        for (const field of OWNER_EMAIL_FIELDS) {
+          if (frozenOwnerEmails[field] !== undefined) sanitized[field] = frozenOwnerEmails[field];
+          else delete sanitized[field];
         }
         record.data = sanitized;
       } else {
         record.data = nextData;
       }
     }
+
     if (dto.notes !== undefined) record.notes = dto.notes;
-    if (dto.fieldNotes !== undefined && user.ruolo !== 'cliente') {
-      record.fieldNotes = dto.fieldNotes;
-    }
-    if (nextUserFieldNotes !== undefined && user.ruolo === 'cliente') {
-      record.userFieldNotes = nextUserFieldNotes;
-    }
+    if (dto.fieldNotes !== undefined && user.ruolo !== 'cliente') record.fieldNotes = dto.fieldNotes;
+    if (nextUserFieldNotes !== undefined && user.ruolo === 'cliente') record.userFieldNotes = nextUserFieldNotes;
     if (nextNaFields !== undefined) record.naFields = nextNaFields;
+
     if (dto.macroValidations !== undefined && user.ruolo === 'cliente') {
       const prev = record.macroValidations || {};
       const next = dto.macroValidations || {};
-      const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
       // Build a temporary record snapshot using frozen owner emails for the check
-      const recordForOwnerCheck = {
-        ...record,
-        data: { ...(record.data || {}), ...frozenOwnerEmails },
-      } as CheckupPreassessment;
-      for (const key of keys) {
-        const prevVal = prev[key];
-        const nextVal = next[key];
-        if (JSON.stringify(prevVal) !== JSON.stringify(nextVal)) {
+      const recordForOwnerCheck = { ...record, data: { ...(record.data || {}), ...frozenOwnerEmails } } as CheckupPreassessment;
+      for (const key of new Set([...Object.keys(prev), ...Object.keys(next)])) {
+        if (JSON.stringify(prev[key]) !== JSON.stringify(next[key])) {
           if (allowedClientMacros && !allowedClientMacros.has(key)) {
+            this.logger.warn(`Macro validation denied for user ${user.id}: not assigned to macro ${key}`);
             throw new ForbiddenException('Utente non assegnato alla macro area');
           }
-          if (!this.isOwnerForMacro(recordForOwnerCheck, user, key)) {
+          if (!vs.isOwnerForMacro(recordForOwnerCheck, user, key)) {
+            this.logger.warn(`Macro validation denied for user ${user.id}: not owner of macro ${key}`);
             throw new ForbiddenException('Solo l\'owner può validare la macro area');
           }
         }
       }
       record.macroValidations = next;
     }
+
     let completionStudioId: string | null = null;
     if (dto.sectionValidations !== undefined && user.ruolo === 'cliente') {
       const prev = record.sectionValidations || {};
       const next = dto.sectionValidations || {};
-      const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
-      let studioId: string | null = null;
+      const resolved = await this.resolveModelIdForClient(record.clientId);
+      const studioId = resolved.studioId;
       if (!sectionMeta) {
-        const resolved = await this.resolveModelIdForClient(record.clientId);
-        studioId = resolved.studioId;
-        sectionMeta = await this.getSectionMetaByModel(resolved.modelId);
-      } else {
-        const resolved = await this.resolveModelIdForClient(record.clientId);
-        studioId = resolved.studioId;
+        sectionMeta = await vs.getSectionMetaByModel(resolved.modelId);
       }
-      const recordForOwnerCheck = {
-        ...record,
-        data: { ...(record.data || {}), ...frozenOwnerEmails },
-      } as CheckupPreassessment;
+      const recordForOwnerCheck = { ...record, data: { ...(record.data || {}), ...frozenOwnerEmails } } as CheckupPreassessment;
 
-      for (const key of keys) {
-        const prevVal = prev[key];
-        const nextVal = next[key];
-        if (JSON.stringify(prevVal) === JSON.stringify(nextVal)) continue;
+      for (const key of new Set([...Object.keys(prev), ...Object.keys(next)])) {
+        if (JSON.stringify(prev[key]) === JSON.stringify(next[key])) continue;
         const meta = sectionMeta.get(key);
-        if (!meta) {
-          throw new NotFoundException('Sezione non trovata per la validazione');
-        }
+        if (!meta) throw new NotFoundException('Sezione non trovata per la validazione');
         if (allowedClientMacros && !allowedClientMacros.has(meta.macroId)) {
+          this.logger.warn(`Section validation denied for user ${user.id}: not assigned to macro ${meta.macroId}`);
           throw new ForbiddenException('Utente non assegnato alla macro area');
         }
-        if (!this.isOwnerForMacro(recordForOwnerCheck, user, meta.macroId)) {
+        if (!vs.isOwnerForMacro(recordForOwnerCheck, user, meta.macroId)) {
+          this.logger.warn(`Section validation denied for user ${user.id}: not owner of macro ${meta.macroId}`);
           throw new ForbiddenException('Solo l\'owner può validare la sezione');
         }
-        if (nextVal) {
+        if (next[key]) {
           const data = record.data || {};
           const naFields = record.naFields || {};
           const required = meta.requiredFields || [];
-          const total = required.filter((fieldId) => !naFields[fieldId]).length;
-          const done = required.filter((fieldId) => !naFields[fieldId] && (data[fieldId] || '').trim() !== '').length;
-          if (total > 0 && done < total) {
-            throw new ForbiddenException('La sezione non è completa');
-          }
+          const total = required.filter((f) => !naFields[f]).length;
+          const done = required.filter((f) => !naFields[f] && (data[f] || '').trim() !== '').length;
+          if (total > 0 && done < total) throw new ForbiddenException('La sezione non è completa');
         }
       }
 
       record.sectionValidations = next;
 
-      // Log esplicito per ogni sezione appena validata
-      const newlyValidated = Array.from(keys).filter((k) => !prev[k] && next[k]);
+      const newlyValidated = Object.keys(next).filter((k) => !prev[k] && next[k]);
       if (newlyValidated.length > 0) {
         const notificationContext = await this.buildNotificationContext(record.clientId, record.id, completionStudioId);
-        const sectionNames = newlyValidated.join(', ');
         this.auditLogService.log({
           userId: user.id,
           userEmail: user.email,
@@ -458,7 +287,7 @@ export class CheckupPreassessmentService {
           entityType: 'PREASSESSMENT',
           entityId: record.id,
           entityName: notificationContext.clientName,
-          description: `Sezione${newlyValidated.length > 1 ? 'i' : ''} validat${newlyValidated.length > 1 ? 'e' : 'a'}: ${sectionNames}`,
+          description: `Sezione${newlyValidated.length > 1 ? 'i' : ''} validat${newlyValidated.length > 1 ? 'e' : 'a'}: ${newlyValidated.join(', ')}`,
           studioId: notificationContext.studioId ?? undefined,
           success: true,
           metadata: {
@@ -473,23 +302,20 @@ export class CheckupPreassessmentService {
       }
 
       const sectionsToValidate = Array.from(sectionMeta.entries())
-        .filter(([_, meta]) => !this.isOwnerMacroArea(meta.macroId))
+        .filter(([_, m]) => !vs.isOwnerMacroArea(m.macroId))
         .map(([sectionId]) => sectionId);
-      if (sectionsToValidate.length > 0) {
-        const allValidated = sectionsToValidate.every((sectionId) => next[sectionId]);
-        if (allValidated && record.status !== 'concluso') {
-          record.status = 'concluso';
-          record.completedAt = new Date();
-          record.completedById = user.id;
-          completionStudioId = studioId;
-        }
+      if (sectionsToValidate.length > 0 && sectionsToValidate.every((s) => next[s]) && record.status !== CheckupPreassessmentStatus.CONCLUSO) {
+        record.status = CheckupPreassessmentStatus.CONCLUSO;
+        record.completedAt = new Date();
+        record.completedById = user.id;
+        completionStudioId = studioId;
       }
     }
+
     if (dto.studioCanEdit !== undefined) record.studioCanEdit = dto.studioCanEdit;
 
     const saved = await this.preassessmentRepository.save(record);
 
-    // Notifica completamento: email + alert agli admin_studio del licenziatario
     if (completionStudioId) {
       const client = await this.clientRepository.findOne({ where: { id: record.clientId } });
       if (client) {
@@ -546,22 +372,19 @@ export class CheckupPreassessmentService {
     }
 
     const record = await this.getOrCreate(user);
-    if (record.status === 'concluso') {
+    if (record.status === CheckupPreassessmentStatus.CONCLUSO) {
       return record;
     }
 
     const { modelId, studioId } = await this.resolveModelIdForClient(user.clientId);
-    const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
-    const expectedMacros = macroAreas
-      .filter((m) => !this.isOwnerMacroArea(m.code, m.label))
-      .map((m) => m.code);
+    const expectedMacros = await this.validationService.getNonOwnerMacroCodes(modelId);
     const validations = record.macroValidations || {};
     const missing = expectedMacros.filter((m) => !validations[m]);
     if (missing.length > 0) {
       throw new ConflictException('Non tutte le macro aree sono validate');
     }
 
-    record.status = 'concluso';
+    record.status = CheckupPreassessmentStatus.CONCLUSO;
     record.completedAt = new Date();
     record.completedById = user.id;
     const saved = await this.preassessmentRepository.save(record);
@@ -588,12 +411,11 @@ export class CheckupPreassessmentService {
     }
 
     const { modelId, studioId } = await this.resolveModelIdForClient(user.clientId);
-    const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
-    const validatableMacros = macroAreas.filter((m) => !this.isOwnerMacroArea(m.code, m.label));
-    const expectedMacros = validatableMacros.map((m) => m.code);
-    const structureMeta = await this.getStructureMetaByModel(modelId);
+    const vs = this.validationService;
+    const expectedMacros = await vs.getNonOwnerMacroCodes(modelId);
+    const structureMeta = await vs.getStructureMetaByModel(modelId);
     const expectedSections = Array.from(structureMeta.sectionMeta.entries())
-      .filter(([_, meta]) => !this.isOwnerMacroArea(meta.macroId))
+      .filter(([_, meta]) => !vs.isOwnerMacroArea(meta.macroId))
       .map(([sectionId]) => sectionId);
 
     const missingMacros = expectedMacros.filter((macroId) => !(record.macroValidations || {})[macroId]);
@@ -607,7 +429,7 @@ export class CheckupPreassessmentService {
     }
 
     const name = `${user.nome} ${user.cognome}`.trim() || user.email;
-    record.status = 'concluso';
+    record.status = CheckupPreassessmentStatus.CONCLUSO;
     record.finalValidation = {
       by: { id: user.id, name, ruolo: user.ruolo },
       at: new Date().toISOString(),
@@ -678,133 +500,6 @@ export class CheckupPreassessmentService {
     return { preassessment, client, allowDocuments };
   }
 
-  private cleanupPresence(preassessmentId: string) {
-    const map = this.presenceByPreassessment.get(preassessmentId);
-    if (!map) return;
-    const now = Date.now();
-    for (const [fieldId, entry] of map.entries()) {
-      if (entry.expiresAt < now) {
-        map.delete(fieldId);
-      }
-    }
-    if (map.size === 0) {
-      this.presenceByPreassessment.delete(preassessmentId);
-    }
-  }
-
-  /**
-   * Global presence cleanup — runs every 5 minutes.
-   * Iterates ALL tracked preassessments and removes expired entries.
-   * Prevents unbounded memory growth over long server uptime.
-   */
-  @Cron('*/5 * * * *')
-  cleanupAllPresence() {
-    const now = Date.now();
-    let removed = 0;
-    for (const [preassessmentId, map] of this.presenceByPreassessment.entries()) {
-      for (const [fieldId, entry] of map.entries()) {
-        if (entry.expiresAt < now) {
-          map.delete(fieldId);
-          removed++;
-        }
-      }
-      if (map.size === 0) {
-        this.presenceByPreassessment.delete(preassessmentId);
-      }
-    }
-    if (removed > 0) {
-      this.logger.debug(`Presence cleanup: removed ${removed} expired entries. Active preassessments: ${this.presenceByPreassessment.size}`);
-    }
-  }
-
-  async getPresence(preassessmentId: string, currentUser: CheckupCurrentUserData) {
-    await this.ensureAccessByPreassessment(currentUser, preassessmentId);
-    this.cleanupPresence(preassessmentId);
-    const map = this.presenceByPreassessment.get(preassessmentId);
-    const fields = map
-      ? Array.from(map.entries()).map(([fieldId, entry]) => ({
-        fieldId,
-        userId: entry.userId,
-        name: entry.name,
-      }))
-      : [];
-    return { fields };
-  }
-
-  async getOnline(currentUser: CheckupCurrentUserData) {
-    const now = Date.now();
-    const activeIds = Array.from(this.presenceByPreassessment.entries())
-      .filter(([_, map]) => Array.from(map.values()).some((v) => v.expiresAt > now))
-      .map(([id]) => id);
-    if (activeIds.length === 0) return { preassessmentIds: [] };
-
-    if (currentUser.ruolo === 'cliente') {
-      if (!currentUser.clientId) return { preassessmentIds: [] };
-      const mine = await this.preassessmentRepository.findOne({ where: { clientId: currentUser.clientId } });
-      return { preassessmentIds: mine ? [mine.id] : [] };
-    }
-
-    if (!currentUser.studioId) return { preassessmentIds: [] };
-    const license = await this.licenseRepository.findOne({ where: { studioId: currentUser.studioId } });
-    if (!license) return { preassessmentIds: [] };
-    const sublicenses = await this.sublicenseRepository.find({
-      where: { licenseId: license.id, attiva: true },
-    });
-    const clientIds = new Set(sublicenses.map((s) => s.clientId).filter(Boolean) as string[]);
-    if (clientIds.size === 0) return { preassessmentIds: [] };
-
-    const preassessments = await this.preassessmentRepository.find({
-      where: activeIds.map((id) => ({ id })),
-    });
-    const filtered = preassessments.filter((p) => clientIds.has(p.clientId)).map((p) => p.id);
-    return { preassessmentIds: filtered };
-  }
-
-  async setPresenceActive(preassessmentId: string, fieldId: string, currentUser: CheckupCurrentUserData) {
-    const { preassessment } = await this.ensureAccessByPreassessment(currentUser, preassessmentId);
-    const isOwner = currentUser.clientId && currentUser.clientId === preassessment.clientId;
-    const canEdit = !!isOwner || preassessment.studioCanEdit;
-    if (!canEdit) {
-      throw new ForbiddenException('Modifiche non autorizzate');
-    }
-
-    // Guard against unbounded map growth
-    if (!this.presenceByPreassessment.has(preassessmentId) &&
-        this.presenceByPreassessment.size >= PRESENCE_MAP_SIZE_CAP) {
-      this.logger.warn(`Presence map size cap reached (${PRESENCE_MAP_SIZE_CAP}). Ignoring setPresenceActive for preassessment ${preassessmentId}`);
-      return { ok: true };
-    }
-
-    // Mutex per-campo: garantisce atomicità del check-and-set anche con async/await
-    const lockKey = `${preassessmentId}:${fieldId}`;
-    return this.withPresenceLock(lockKey, async () => {
-      const map = this.presenceByPreassessment.get(preassessmentId) || new Map();
-      const now = Date.now();
-      const existing = map.get(fieldId);
-      if (existing && existing.userId !== currentUser.id && existing.expiresAt > now) {
-        throw new ForbiddenException('Campo in modifica da altro utente');
-      }
-      map.set(fieldId, {
-        userId: currentUser.id,
-        name: `${currentUser.nome} ${currentUser.cognome}`.trim() || currentUser.email,
-        expiresAt: now + 30000, // 30s: più ragionevole di 10s
-      });
-      this.presenceByPreassessment.set(preassessmentId, map);
-      return { ok: true };
-    });
-  }
-
-  async setPresenceInactive(preassessmentId: string, fieldId: string, currentUser: CheckupCurrentUserData) {
-    await this.ensureAccessByPreassessment(currentUser, preassessmentId);
-    const map = this.presenceByPreassessment.get(preassessmentId);
-    const entry = map?.get(fieldId);
-    if (entry && entry.userId === currentUser.id) {
-      map?.delete(fieldId);
-    }
-    this.cleanupPresence(preassessmentId);
-    return { ok: true };
-  }
-
   async getClient(clientId: string, currentUser: CheckupCurrentUserData) {
     const client = await this.clientRepository.findOne({ where: { id: clientId, attivo: true } });
     if (!client) {
@@ -862,7 +557,7 @@ export class CheckupPreassessmentService {
       }
     }
 
-    this.applyFieldMeta(record, dto.data, dto.naFields, currentUser);
+    this.validationService.applyFieldMeta(record, dto.data, dto.naFields, currentUser);
     if (dto.data !== undefined) record.data = dto.data;
     if (dto.notes !== undefined) record.notes = dto.notes;
     if (dto.fieldNotes !== undefined) record.fieldNotes = dto.fieldNotes;

@@ -1,13 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { CheckupPreassessmentService } from './checkup-preassessment.service';
+import { CheckupPreassessmentValidationService } from './checkup-preassessment-validation.service';
 import { CheckupPreassessment } from './checkup-preassessment.entity';
 import { CheckupUser } from '../users/checkup-user.entity';
 import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
-import { QuestionManagementService } from '../services/question-management.service';
 import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
 import { CheckupPreassessmentNotificationsService } from './checkup-preassessment-notifications.service';
 import { CheckupPreassessmentRenderService } from './checkup-preassessment-render.service';
@@ -19,6 +20,38 @@ const mockRepository = () => ({
   save: jest.fn(async (entity) => entity),
 });
 
+/**
+ * Creates a mock ValidationService that delegates pure logic to the real
+ * implementation while allowing structure-lookup methods to be overridden.
+ */
+function makeValidationServiceMock(structureOverrides: {
+  getCompleteStructure?: jest.Mock;
+  getAllMacroAreas?: jest.Mock;
+} = {}) {
+  // Import the real class for pure-logic methods
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { CheckupPreassessmentValidationService: RealVS } = require('./checkup-preassessment-validation.service');
+
+  const real = new RealVS({
+    getCompleteStructure: structureOverrides.getCompleteStructure ?? jest.fn().mockResolvedValue([
+      {
+        code: 'a', label: 'Area A',
+        sections: [{ code: 'sec_a', fields: [{ fieldId: 'field_a', required: true }] }],
+      },
+      {
+        code: 'b', label: 'Area B',
+        sections: [{ code: 'sec_b', fields: [{ fieldId: 'field_b', required: true }] }],
+      },
+    ]),
+    getAllMacroAreas: structureOverrides.getAllMacroAreas ?? jest.fn().mockResolvedValue([
+      { code: 'a', label: 'Area A' },
+      { code: 'b', label: 'Area B' },
+    ]),
+  });
+
+  return real as CheckupPreassessmentValidationService;
+}
+
 describe('CheckupPreassessmentService', () => {
   let service: CheckupPreassessmentService;
   let preassessmentRepository: ReturnType<typeof mockRepository>;
@@ -26,8 +59,8 @@ describe('CheckupPreassessmentService', () => {
   let licenseRepository: ReturnType<typeof mockRepository>;
   let sublicenseRepository: ReturnType<typeof mockRepository>;
   let clientRepository: ReturnType<typeof mockRepository>;
-  let questionManagementService: { getCompleteStructure: jest.Mock; getAllMacroAreas: jest.Mock };
   let notificationsService: { notifyCompletion: jest.Mock; notifyFinalValidation: jest.Mock };
+  let validationService: CheckupPreassessmentValidationService;
 
   const baseUser = {
     id: 'user-1',
@@ -77,38 +110,11 @@ describe('CheckupPreassessmentService', () => {
     licenseRepository = mockRepository();
     sublicenseRepository = mockRepository();
     clientRepository = mockRepository();
-    questionManagementService = {
-      getCompleteStructure: jest.fn().mockResolvedValue([
-        {
-          code: 'a',
-          label: 'Area A',
-          sections: [
-            {
-              code: 'sec_a',
-              fields: [{ fieldId: 'field_a', required: true }],
-            },
-          ],
-        },
-        {
-          code: 'b',
-          label: 'Area B',
-          sections: [
-            {
-              code: 'sec_b',
-              fields: [{ fieldId: 'field_b', required: true }],
-            },
-          ],
-        },
-      ]),
-      getAllMacroAreas: jest.fn().mockResolvedValue([
-        { code: 'a', label: 'Area A' },
-        { code: 'b', label: 'Area B' },
-      ]),
-    };
     notificationsService = {
       notifyCompletion: jest.fn().mockResolvedValue(undefined),
       notifyFinalValidation: jest.fn().mockResolvedValue(undefined),
     };
+    validationService = makeValidationServiceMock();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -118,10 +124,11 @@ describe('CheckupPreassessmentService', () => {
         { provide: getRepositoryToken(CheckupLicense), useValue: licenseRepository },
         { provide: getRepositoryToken(CheckupSublicense), useValue: sublicenseRepository },
         { provide: getRepositoryToken(CheckupClient), useValue: clientRepository },
-        { provide: QuestionManagementService, useValue: questionManagementService },
         { provide: CheckupAuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
         { provide: CheckupPreassessmentNotificationsService, useValue: notificationsService },
         { provide: CheckupPreassessmentRenderService, useValue: { renderHtmlToPdf: jest.fn() } },
+        { provide: DataSource, useValue: { createQueryRunner: jest.fn() } },
+        { provide: CheckupPreassessmentValidationService, useValue: validationService },
       ],
     }).compile();
 

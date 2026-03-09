@@ -29,13 +29,30 @@ async function bootstrap() {
 
   app.use(cookieParser());
   app.use(helmet({
+    // crossOriginEmbedderPolicy disabled — needed for embedded iframes / PDF viewer
     crossOriginEmbedderPolicy: false,
-    contentSecurityPolicy: false,
-    frameguard: false,
-    hsts: false,
-    noSniff: false,
-    referrerPolicy: false,
-    xPoweredBy: true,
+    // CSP: strict in production, relaxed in development to allow Swagger UI
+    contentSecurityPolicy: isProduction ? {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        fontSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    } : false,
+    // X-Frame-Options: DENY — prevents clickjacking
+    frameguard: { action: 'deny' },
+    // HSTS: 1 year in production + preload (HTTP Strict Transport Security)
+    hsts: isProduction ? { maxAge: 31_536_000, includeSubDomains: true, preload: true } : false,
+    // X-Content-Type-Options: nosniff — prevents MIME-type sniffing
+    noSniff: true,
+    // Referrer-Policy: no-referrer — no referrer information leaked
+    referrerPolicy: { policy: 'no-referrer' },
+    // xPoweredBy: not specified → Helmet default removes X-Powered-By header
   }));
 
   // Limita dimensioni dei payload JSON/form
