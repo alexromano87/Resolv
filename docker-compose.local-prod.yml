@@ -68,6 +68,8 @@ services:
       context: ./apps/backend
       dockerfile: Dockerfile
       target: runner
+    env_file:
+      - ./.env.local
     container_name: resolv-backend-local
     restart: always
     deploy:
@@ -90,7 +92,6 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS}
       CHECKUP_JWT_SECRET: ${CHECKUP_JWT_SECRET}
       CHECKUP_REFRESH_SECRET: ${CHECKUP_REFRESH_SECRET}
-      CHECKUP_BACKUP_ENCRYPTION_KEY: ${CHECKUP_BACKUP_ENCRYPTION_KEY:-}
       CHECKUP_AUDIT_RETENTION_DAYS: ${CHECKUP_AUDIT_RETENTION_DAYS:-90}
 
       # Rate Limiting (production values)

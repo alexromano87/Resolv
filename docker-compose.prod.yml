@@ -66,6 +66,8 @@ services:
       context: ./apps/backend
       dockerfile: Dockerfile
       target: runner
+    env_file:
+      - ./.env.production
     container_name: resolv-backend-prod
     restart: always
     environment:
@@ -79,7 +81,7 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       CHECKUP_JWT_SECRET: ${CHECKUP_JWT_SECRET}
       CHECKUP_REFRESH_SECRET: ${CHECKUP_REFRESH_SECRET}
-      CHECKUP_BACKUP_ENCRYPTION_KEY: ${CHECKUP_BACKUP_ENCRYPTION_KEY:-}
+      CHECKUP_BACKUP_ENCRYPTION_KEY: ${CHECKUP_BACKUP_ENCRYPTION_KEY}
       CHECKUP_AUDIT_RETENTION_DAYS: ${CHECKUP_AUDIT_RETENTION_DAYS:-90}
       CHECKUP_PREASSESSMENT_RETENTION_DAYS: ${CHECKUP_PREASSESSMENT_RETENTION_DAYS:-365}
       BACKUP_SCHEDULER_ENABLED: "false"
