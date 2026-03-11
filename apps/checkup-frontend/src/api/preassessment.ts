@@ -67,6 +67,7 @@ export interface PreassessmentClientEntry {
     studioCanEdit: boolean;
     status: 'in_progress' | 'concluso';
     data: Record<string, string> | null;
+    naFields?: Record<string, boolean> | null;
     sectionValidationsCount: number;
     finalValidationAt: string | null;
   } | null;
@@ -91,6 +92,7 @@ export const preassessmentApi = {
     api.put<PreassessmentRecord>('/checkup/preassessment', payload),
   complete: () => api.post<PreassessmentRecord>('/checkup/preassessment/complete', {}),
   finalValidate: () => api.post<PreassessmentRecord>('/checkup/preassessment/final-validate', {}),
+  reopenFinalValidation: () => api.post<PreassessmentRecord>('/checkup/preassessment/final-reopen', {}),
   listClients: () => api.get<PreassessmentClientEntry[]>('/checkup/preassessment/clients'),
   getClient: (clientId: string) =>
     api.get<PreassessmentClientRecord>(`/checkup/preassessment/clients/${clientId}`),
@@ -180,9 +182,18 @@ export interface PreassessmentTicket {
   closeRequestedBy?: { id: string; nome: string; cognome: string; ruolo: string } | null;
   closedBy?: { id: string; nome: string; cognome: string; ruolo: string } | null;
   messages?: PreassessmentTicketMessage[];
+  client?: {
+    id: string | null;
+    nome: string | null;
+    ragioneSociale: string | null;
+    label: string;
+    preassessmentId: string;
+  };
 }
 
 export const preassessmentTicketApi = {
+  listAll: (search?: string) =>
+    api.get<PreassessmentTicket[]>('/checkup/preassessment/tickets', search ? { search } : undefined),
   list: (preassessmentId: string) =>
     api.get<PreassessmentTicket[]>(`/checkup/preassessment/${preassessmentId}/tickets`),
   create: (preassessmentId: string, subject: string, body: string) =>
@@ -219,9 +230,18 @@ export interface PreassessmentAlert {
   updatedAt?: string;
   createdBy?: AlertUser;
   targetUser?: AlertUser | null;
+  client?: {
+    id: string | null;
+    nome: string | null;
+    ragioneSociale: string | null;
+    label: string;
+    preassessmentId: string;
+  };
 }
 
 export const preassessmentAlertApi = {
+  listAll: (search?: string) =>
+    api.get<PreassessmentAlert[]>('/checkup/preassessment/alerts', search ? { search } : undefined),
   list: (preassessmentId: string) =>
     api.get<PreassessmentAlert[]>(`/checkup/preassessment/${preassessmentId}/alerts`),
   create: (preassessmentId: string, payload: {
@@ -251,6 +271,95 @@ export const preassessmentAlertApi = {
     api.delete<void>(`/checkup/preassessment/alerts/${alertId}`),
   getExpiring: () =>
     api.get<PreassessmentAlert[]>('/checkup/preassessment/alerts/expiring'),
+};
+
+export interface StaffChatConversation {
+  id: string;
+  clientId: string | null;
+  participant: {
+    id: string;
+    nome: string;
+    cognome: string;
+    email: string;
+    ruolo: string;
+    azienda: string | null;
+    clientId?: string | null;
+    studioId?: string | null;
+  };
+  lastMessage: {
+    id: string;
+    messaggio: string;
+    createdAt: string;
+    user: { id: string; nome: string; cognome: string; ruolo: string };
+  } | null;
+  unreadCount: number;
+}
+
+export const preassessmentStaffChatApi = {
+  listConversations: (search?: string) =>
+    api.get<StaffChatConversation[]>('/checkup/direct-chat/conversations', search ? { search } : undefined),
+  listRecipients: (search?: string) =>
+    api.get<{
+      clients: Array<{
+        id: string;
+        label: string;
+        subtitle: string;
+        users: Array<{
+          id: string;
+          nome: string;
+          cognome: string;
+          email: string;
+          ruolo: string;
+          azienda: string | null;
+        }>;
+      }>;
+      colleagueUsers: Array<{
+        id: string;
+        nome: string;
+        cognome: string;
+        email: string;
+        ruolo: string;
+        azienda: string | null;
+      }>;
+      studioUsers: Array<{
+        id: string;
+        nome: string;
+        cognome: string;
+        email: string;
+        ruolo: string;
+        azienda: string | null;
+      }>;
+    }>('/checkup/direct-chat/recipients', search ? { search } : undefined),
+  createConversation: (participantUserId: string) =>
+    api.post<{
+      id: string;
+      participant: StaffChatConversation['participant'];
+      clientId: string | null;
+      studioId: string | null;
+      lastMessageAt: string | null;
+    }>('/checkup/direct-chat/conversations', { participantUserId }),
+  getMessages: (conversationId: string) =>
+    api.get<Array<{
+      id: string;
+      conversationId: string;
+      userId: string;
+      messaggio: string;
+      letto: boolean;
+      createdAt: string;
+      user: { id: string; nome: string; cognome: string; ruolo: string };
+    }>>(`/checkup/direct-chat/conversations/${conversationId}/messages`),
+  sendMessage: (conversationId: string, messaggio: string) =>
+    api.post<{
+      id: string;
+      conversationId: string;
+      userId: string;
+      messaggio: string;
+      letto: boolean;
+      createdAt: string;
+      user: { id: string; nome: string; cognome: string; ruolo: string };
+    }>(`/checkup/direct-chat/conversations/${conversationId}/messages`, { messaggio }),
+  markAsRead: (id: string) => api.post(`/checkup/direct-chat/messages/${id}/read`, {}),
+  getUnreadCount: () => api.get<{ unread: number }>('/checkup/direct-chat/unread-count'),
 };
 
 export interface CoParticipant {

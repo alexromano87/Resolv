@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -17,6 +17,22 @@ import { CacheService } from '../../common/cache.service';
 const REFRESH_TOKEN_TTL_S = 7 * 24 * 60 * 60;
 /** Redis key prefix for refresh-token blacklist */
 const REFRESH_BLACKLIST_PREFIX = 'checkup:refresh:blacklist:';
+/**
+ * [M-02] Redis prefix per challenge token opaco 2FA.
+ * Valore: userId; TTL: 5 minuti; eliminato dopo il primo utilizzo.
+ */
+const TWO_FACTOR_CHALLENGE_PREFIX = 'checkup:2fa:challenge:';
+const TWO_FACTOR_CHALLENGE_TTL_S = 5 * 60;
+/**
+ * [M-05] Account lockout per-utente.
+ * Dopo LOCKOUT_MAX_ATTEMPTS tentativi falliti consecutivi l'account è bloccato
+ * per LOCKOUT_TTL_S secondi (15 min). Il contatore viene azzerato al login OK.
+ */
+const LOGIN_FAILURES_PREFIX = 'checkup:login:failures:';
+const LOCKOUT_PREFIX = 'checkup:login:lockout:';
+const LOCKOUT_MAX_ATTEMPTS = 10;
+const LOCKOUT_WINDOW_S = 15 * 60; // finestra per il contatore tentativi
+const LOCKOUT_TTL_S = 15 * 60;    // durata del lockout
 
 @Injectable()
 export class CheckupAuthService {
@@ -152,8 +168,9 @@ export class CheckupAuthService {
       throw new UnauthorizedException('Refresh token revocato');
     }
 
-    // Blacklist old refresh token (rotate)
-    const remainingTtl = Math.max(0, payload.exp - Math.floor(Date.now() / 1000));
+    // Blacklist old refresh token (rotate). Use Math.max(1, ...) to ensure the
+    // Redis entry is always stored (TTL=0 would cause immediate eviction in some drivers).
+    const remainingTtl = Math.max(1, payload.exp - Math.floor(Date.now() / 1000));
     await this.cacheService.set(REFRESH_BLACKLIST_PREFIX + payload.jti, true, remainingTtl);
 
     const user = await this.loadUserForAuth({ id: payload.sub });
@@ -184,8 +201,10 @@ export class CheckupAuthService {
 
   // ── 2FA helpers ───────────────────────────────────────────────────────────
 
-  private generateTwoFactorCode() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+  private generateTwoFactorCode(): string {
+    // [H-01] crypto.randomInt è crittograficamente sicuro (CSPRNG).
+    // Math.random() era prevedibile su V8 (xorshift128+); rimosso.
+    return crypto.randomInt(100000, 1000000).toString();
   }
 
   private async sendPasswordResetCode(email: string, code: string) {
@@ -221,22 +240,69 @@ export class CheckupAuthService {
     });
   }
 
+  // ── Account lockout helpers ────────────────────────────────────────────────
+
+  /** Verifica se l'account è attualmente bloccato (lockout attivo). */
+  private async isAccountLocked(email: string): Promise<boolean> {
+    const locked = await this.cacheService.get<boolean>(LOCKOUT_PREFIX + email);
+    return Boolean(locked);
+  }
+
+  /** Registra un tentativo di login fallito; se supera la soglia blocca l'account. */
+  private async recordFailedLogin(email: string): Promise<void> {
+    try {
+      const failures = await this.cacheService.increment(
+        LOGIN_FAILURES_PREFIX + email,
+        LOCKOUT_WINDOW_S,
+      );
+      if (failures >= LOCKOUT_MAX_ATTEMPTS) {
+        await this.cacheService.set(LOCKOUT_PREFIX + email, true, LOCKOUT_TTL_S);
+        this.logger.warn(`[Lockout] Account bloccato per ${LOCKOUT_TTL_S}s: ${email}`);
+      }
+    } catch {
+      // Redis non disponibile: fallire silenziosamente per non bloccare il flusso
+    }
+  }
+
+  /** Azzera il contatore dei tentativi falliti dopo un login riuscito. */
+  private async clearFailedLogins(email: string): Promise<void> {
+    await this.cacheService.del(LOGIN_FAILURES_PREFIX + email);
+    await this.cacheService.del(LOCKOUT_PREFIX + email);
+  }
+
+  // ── Login ──────────────────────────────────────────────────────────────────
+
   async login(dto: CheckupLoginDto) {
     const email = dto.email.toLowerCase().trim();
+
+    // [M-05] Controlla lockout prima di caricare l'utente (evita timing oracle)
+    if (await this.isAccountLocked(email)) {
+      throw new HttpException(
+        { statusCode: 429, message: 'Account temporaneamente bloccato. Riprova tra 15 minuti.' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const user = await this.loadUserForAuth({ email });
 
     if (!user) {
+      // Incrementa comunque per resistere a enumerazione + brute force su account inesistenti
+      await this.recordFailedLogin(email);
       throw new UnauthorizedException('Credenziali non valide');
     }
 
     const isPasswordValid = await bcrypt.compare(dto.password, user.password);
     if (!isPasswordValid) {
+      await this.recordFailedLogin(email); // [M-05]
       throw new UnauthorizedException('Credenziali non valide');
     }
 
+    // Login credenziali OK: azzera il contatore fallimenti
+    await this.clearFailedLogins(email); // [M-05]
+
     if (user.twoFactorEnabled) {
       const code = this.generateTwoFactorCode();
-      user.twoFactorCode = await bcrypt.hash(code, 8);
+      user.twoFactorCode = await bcrypt.hash(code, 10); // [L-03] cost factor allineato a 10 (standard OWASP)
       user.twoFactorCodePurpose = 'login';
       user.twoFactorCodeExpires = new Date(Date.now() + 5 * 60 * 1000);
       await this.userRepository.save(user);
@@ -248,9 +314,18 @@ export class CheckupAuthService {
       }
       await this.sendTwoFactorCode(channel, destination, code);
 
+      // [M-02] Emettiamo un token opaco invece di esporre l'UUID interno.
+      // Il challenge viene memorizzato in Redis (TTL 5 min) e consumato una sola volta.
+      const challengeToken = crypto.randomUUID();
+      await this.cacheService.set(
+        TWO_FACTOR_CHALLENGE_PREFIX + challengeToken,
+        user.id,
+        TWO_FACTOR_CHALLENGE_TTL_S,
+      );
+
       return {
         requiresTwoFactor: true,
-        userId: user.id,
+        challengeToken,
         channel,
       };
     }
@@ -270,7 +345,17 @@ export class CheckupAuthService {
     };
   }
 
-  async verifyTwoFactorLogin(userId: string, code: string) {
+  async verifyTwoFactorLogin(challengeToken: string, code: string) {
+    // [M-02] Risolvi il challenge token opaco → userId senza esporre UUID al client.
+    const userId = await this.cacheService.get<string>(
+      TWO_FACTOR_CHALLENGE_PREFIX + challengeToken,
+    );
+    if (!userId) {
+      throw new UnauthorizedException('Challenge 2FA non valido o scaduto');
+    }
+    // Eliminazione immediata (one-time use) — previene replay attack
+    await this.cacheService.del(TWO_FACTOR_CHALLENGE_PREFIX + challengeToken);
+
     const user = await this.loadUserForAuth({ id: userId });
     if (!user) {
       throw new UnauthorizedException('Utente non trovato');
@@ -323,7 +408,7 @@ export class CheckupAuthService {
     }
 
     const code = this.generateTwoFactorCode();
-    user.twoFactorCode = await bcrypt.hash(code, 8);
+    user.twoFactorCode = await bcrypt.hash(code, 10); // [L-03] cost factor allineato a 10 (standard OWASP)
     user.twoFactorCodePurpose = 'enable';
     user.twoFactorCodeExpires = new Date(Date.now() + 5 * 60 * 1000);
     user.twoFactorChannel = channel;
@@ -376,7 +461,7 @@ export class CheckupAuthService {
     }
 
     const code = this.generateTwoFactorCode();
-    user.twoFactorCode = await bcrypt.hash(code, 8);
+    user.twoFactorCode = await bcrypt.hash(code, 10); // [L-03] cost factor allineato a 10 (standard OWASP)
     user.twoFactorCodePurpose = 'disable';
     user.twoFactorCodeExpires = new Date(Date.now() + 5 * 60 * 1000);
     await this.userRepository.save(user);
@@ -454,7 +539,7 @@ export class CheckupAuthService {
     }
 
     const code = this.generateTwoFactorCode();
-    user.twoFactorCode = await bcrypt.hash(code, 8);
+    user.twoFactorCode = await bcrypt.hash(code, 10); // [L-03] cost factor allineato a 10 (standard OWASP)
     user.twoFactorCodePurpose = 'password_reset';
     user.twoFactorCodeExpires = new Date(Date.now() + 15 * 60 * 1000);
     await this.userRepository.save(user);

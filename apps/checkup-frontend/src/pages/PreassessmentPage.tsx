@@ -252,7 +252,8 @@ export default function PreassessmentPage() {
   const sidebarTarget = typeof document !== 'undefined' ? document.getElementById('checkup-subnav') : null;
 
   const activeClientId = isClient ? user?.clientId ?? null : selectedClientId;
-  const canEditAnswers = isClient ? assessmentStatus !== 'concluso' : false;
+  const isFinalClosed = assessmentStatus === 'concluso' && !!finalValidation;
+  const canEditAnswers = isClient ? !isFinalClosed : false;
   const readOnly = !canEditAnswers;
   const showAssessment = !!activeClientId && !!preassessmentId;
   const activeSection = typeof view === 'number' ? sections[view] : null;
@@ -840,32 +841,19 @@ export default function PreassessmentPage() {
     }
   }, [canEditAnswers, naFields]);
 
-  const handleValidateMacro = useCallback((macroId: string) => {
-    if (!activeClientId || !user) return;
-    if (assessmentStatus === 'concluso') return;
-    const name = `${user.nome} ${user.cognome}`.trim() || user.email;
-    setMacroValidations((p) => ({
-      ...p,
-      [macroId]: {
-        by: { id: user.id, name, ruolo: user.ruolo },
-        at: new Date().toISOString(),
-      },
-    }));
-  }, [activeClientId, assessmentStatus, user]);
-
   const handleRevokeValidation = useCallback((macroId: string) => {
     if (!activeClientId) return;
-    if (assessmentStatus === 'concluso') return;
+    if (isFinalClosed) return;
     setMacroValidations((p) => {
       const next = { ...p };
       delete next[macroId];
       return next;
     });
-  }, [activeClientId, assessmentStatus]);
+  }, [activeClientId, isFinalClosed]);
 
   const handleValidateSection = useCallback((sectionId: string) => {
     if (!activeClientId || !user) return;
-    if (assessmentStatus === 'concluso') return;
+    if (isFinalClosed) return;
     const name = `${user.nome} ${user.cognome}`.trim() || user.email;
     setSectionValidations((p) => ({
       ...p,
@@ -874,24 +862,24 @@ export default function PreassessmentPage() {
         at: new Date().toISOString(),
       },
     }));
-  }, [activeClientId, assessmentStatus, user]);
+  }, [activeClientId, isFinalClosed, user]);
 
   const handleRevokeSectionValidation = useCallback((sectionId: string) => {
     if (!activeClientId) return;
-    if (assessmentStatus === 'concluso') return;
+    if (isFinalClosed) return;
     setSectionValidations((p) => {
       const next = { ...p };
       delete next[sectionId];
       return next;
     });
-  }, [activeClientId, assessmentStatus]);
+  }, [activeClientId, isFinalClosed]);
 
   const handleFinalValidate = useCallback(async () => {
     if (!isClient || !user?.superOwner || finalValidation) return;
     const confirmed = await confirm({
-      title: 'Validare il checkup?',
-      message: 'Confermi la validazione finale del checkup? Dopo la validazione il licenziatario riceverà la notifica.',
-      confirmText: 'Valida checkup',
+      title: 'Chiudere e validare il checkup?',
+      message: 'Confermi la chiusura e la validazione finale del checkup? Dopo la validazione il licenziatario riceverà la notifica.',
+      confirmText: 'Chiudi e valida',
       variant: 'warning',
     });
     if (!confirmed) return;
@@ -901,47 +889,76 @@ export default function PreassessmentPage() {
       setFinalValidation(res.finalValidation || null);
       setAssessmentStatus(res.status || 'concluso');
       setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
-      setReportNotice('Checkup validato correttamente dal Super-owner.');
+      setReportNotice('Checkup chiuso e validato correttamente dal Super-owner.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore durante la validazione finale');
     }
   }, [confirm, finalValidation, isClient, user?.superOwner]);
 
+  const handleReopenFinalValidation = useCallback(async () => {
+    if (!isClient || !user?.superOwner || !finalValidation) return;
+    const confirmed = await confirm({
+      title: 'Riaprire il checkup?',
+      message: 'Confermi la riapertura del checkup? La validazione finale verrà rimossa e il checkup tornerà modificabile.',
+      confirmText: 'Riapri checkup',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+
+    try {
+      const res = await preassessmentApi.reopenFinalValidation();
+      setFinalValidation(res.finalValidation || null);
+      setAssessmentStatus(res.status || 'in_progress');
+      setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
+      setReportNotice('Checkup riaperto correttamente dal Super-owner.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante la riapertura del checkup');
+    }
+  }, [confirm, finalValidation, isClient, user?.superOwner]);
+
+  const isOwnerSection = useCallback(
+    (section: SectionSpec) => section.macro === 'k' || section.fields.some((field) => /^owner_[a-j]_/.test(field.id)),
+    [],
+  );
+  const countedSections = useMemo(
+    () => sections.filter((section) => !isOwnerSection(section)),
+    [sections, isOwnerSection],
+  );
+  const countedMacroAreas = useMemo(
+    () => macroAreas.filter((macro) => macro.id !== 'k' && countedSections.some((section) => section.macro === macro.id)),
+    [macroAreas, countedSections],
+  );
+  const isFieldResolved = useCallback(
+    (field: FieldSpec) => !!naFields[field.id] || !!data[field.id]?.trim(),
+    [data, naFields],
+  );
+
   // Count-based metrics (for display "N/M" labels)
   const totalReq = useMemo(
-    () => sections.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id]).length, 0),
-    [sections, naFields],
+    () => countedSections.reduce((a, s) => a + s.fields.filter((f) => f.required).length, 0),
+    [countedSections],
   );
   const totalFilled = useMemo(
-    () => sections.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id] && data[f.id]?.trim()).length, 0),
-    [sections, data, naFields],
+    () => countedSections.reduce((a, s) => a + s.fields.filter((f) => f.required && isFieldResolved(f)).length, 0),
+    [countedSections, isFieldResolved],
   );
   const totalFields = useMemo(
-    () => sections.reduce((a, s) => a + s.fields.length, 0),
-    [sections],
+    () => countedSections.reduce((a, s) => a + s.fields.length, 0),
+    [countedSections],
   );
   const totalNA = useMemo(
-    () => Object.values(naFields).filter(Boolean).length,
-    [naFields],
+    () => countedSections.reduce((a, s) => a + s.fields.filter((f) => f.required && naFields[f.id]).length, 0),
+    [countedSections, naFields],
   );
-  // Weighted score (uses field.weight, defaults to 1)
-  const totalWeightReq = useMemo(
-    () => sections.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id]).reduce((acc, f) => acc + (f.weight ?? 1), 0), 0),
-    [sections, naFields],
-  );
-  const totalWeightFilled = useMemo(
-    () => sections.reduce((a, s) => a + s.fields.filter((f) => f.required && !naFields[f.id] && data[f.id]?.trim()).reduce((acc, f) => acc + (f.weight ?? 1), 0), 0),
-    [sections, data, naFields],
-  );
-  const pct = totalWeightReq > 0 ? Math.round((totalWeightFilled / totalWeightReq) * 100) : 0;
+  const pct = totalReq > 0 ? Math.min(100, Math.round((totalFilled / totalReq) * 100)) : 0;
 
-  const sDone = (s: SectionSpec) => s.fields.filter((f) => f.required && !naFields[f.id] && data[f.id]?.trim()).length;
-  const sTotal = (s: SectionSpec) => s.fields.filter((f) => f.required && !naFields[f.id]).length;
-  const sNA = (s: SectionSpec) => s.fields.filter((f) => naFields[f.id]).length;
+  const sDone = (s: SectionSpec) => s.fields.filter((f) => f.required && isFieldResolved(f)).length;
+  const sTotal = (s: SectionSpec) => s.fields.filter((f) => f.required).length;
+  const sNA = (s: SectionSpec) => s.fields.filter((f) => f.required && naFields[f.id]).length;
 
   const fieldMatchesFilter = (f: FieldSpec) => {
     if (dashFilter === 'all') return true;
-    if (dashFilter === 'completed') return !naFields[f.id] && !!data[f.id]?.trim();
+    if (dashFilter === 'completed') return isFieldResolved(f);
     if (dashFilter === 'todo') return !naFields[f.id] && !data[f.id]?.trim();
     if (dashFilter === 'na') return !!naFields[f.id];
     return true;
@@ -955,9 +972,9 @@ export default function PreassessmentPage() {
     if (dashFilter === 'all') return true;
     if (dashFilter === 'completed') return total > 0 && done === total;
     if (dashFilter === 'todo') return total > 0 && done < total;
-    if (dashFilter === 'na') return section.fields.length > 0 && naCount === section.fields.length;
+    if (dashFilter === 'na') return total > 0 && naCount === total;
     return true;
-  }, [dashFilter, data, naFields]);
+  }, [dashFilter, isFieldResolved, data, naFields]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return sections;
@@ -1859,14 +1876,15 @@ export default function PreassessmentPage() {
       );
     }
 
-    const completedSections = sections.filter((s) => {
+    const completedSections = countedSections.filter((s) => {
       const t = sTotal(s);
       return t > 0 && sDone(s) === t;
     }).length;
 
+    const allRelevantSections = countedSections;
+    const allRelevantMacros = countedMacroAreas.filter((m) => allRelevantSections.some((s) => s.macro === m.id));
     const dashboardSections = sections.filter(sectionMatchesDashboardFilter);
-    const filteredMacros = macroAreas.filter((m) => m.id !== 'k' && dashboardSections.some((s) => s.macro === m.id));
-    const validatedCount = filteredMacros.filter((m) => macroValidations[m.id]).length;
+    const filteredMacros = macroAreas.filter((m) => dashboardSections.some((s) => s.macro === m.id));
     const macroRows = filteredMacros.map((m) => {
       const sects = dashboardSections.filter((s) => s.macro === m.id);
       const total = sects.reduce((a, s) => a + sTotal(s), 0);
@@ -1874,21 +1892,44 @@ export default function PreassessmentPage() {
       const naCount = sects.reduce((a, s) => a + sNA(s), 0);
       const pctMacro = total > 0 ? Math.round((done / total) * 100) : 0;
       const ownerInfo = getOwnerInfo(data, m.id);
-      const validated = !!macroValidations[m.id];
       const validatedSections = sects.filter((s) => sectionValidations[s.id]).length;
-      return { ...m, total, done, naCount, pctMacro, sections: sects.length, ownerInfo, validated, validatedSections };
+      const excluded = sects.length > 0 && sects.every((section) => isOwnerSection(section));
+      const validated = excluded || (sects.length > 0 && validatedSections === sects.length);
+      const explicitMacroValidation = !!macroValidations[m.id];
+      const macroValidationInfo = macroValidations[m.id] || null;
+      return {
+        ...m,
+        total,
+        done,
+        naCount,
+        pctMacro,
+        sections: sects.length,
+        ownerInfo,
+        validated,
+        validatedSections,
+        excluded,
+        explicitMacroValidation,
+        macroValidationInfo,
+      };
     });
-    const totalSectionsToValidate = macroRows.reduce((acc, row) => acc + row.sections, 0);
-    const validatedSectionsTotal = macroRows.reduce((acc, row) => acc + row.validatedSections, 0);
+    const validationRows = allRelevantMacros.map((m) => {
+      const sects = allRelevantSections.filter((s) => s.macro === m.id);
+      return {
+        id: m.id,
+        sections: sects.length,
+        validatedSections: sects.filter((s) => sectionValidations[s.id]).length,
+      };
+    });
+    const totalSectionsToValidate = validationRows.reduce((acc, row) => acc + row.sections, 0);
+    const validatedSectionsTotal = validationRows.reduce((acc, row) => acc + row.validatedSections, 0);
+    const validatedCount = validationRows.filter((row) => row.sections > 0 && row.validatedSections === row.sections).length;
     const canFinalValidate =
       isClient
       && Boolean(user?.superOwner)
       && !finalValidation
-      && filteredMacros.length > 0
-      && validatedCount === filteredMacros.length
       && totalSectionsToValidate > 0
       && validatedSectionsTotal === totalSectionsToValidate;
-    const sectionCards = dashboardSections;
+    const sectionCards = sections.filter(sectionMatchesDashboardFilter);
 
     return (
       <div className="space-y-6">
@@ -1997,10 +2038,19 @@ export default function PreassessmentPage() {
           {isClient && user?.superOwner && (
             <div className="mt-4 flex flex-wrap items-center gap-3">
               {finalValidation ? (
-                <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 text-xs font-semibold text-white">
-                  <ShieldCheck className="h-4 w-4" />
-                  Checkup validato il {new Date(finalValidation.at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                </div>
+                <>
+                  <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 text-xs font-semibold text-white">
+                    <ShieldCheck className="h-4 w-4" />
+                    Checkup chiuso e validato il {new Date(finalValidation.at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleReopenFinalValidation}
+                    className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/25"
+                  >
+                    Riapri checkup
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"
@@ -2013,15 +2063,15 @@ export default function PreassessmentPage() {
                   }`}
                 >
                   <ShieldCheck className="h-4 w-4" />
-                  Valida checkup
+                  Chiudi e valida checkup
                 </button>
               )}
               <span className="text-xs text-white/75">
                 {finalValidation
                   ? `Validazione finale registrata da ${finalValidation.by.name}.`
                   : canFinalValidate
-                    ? 'Tutte le sezioni e le macro aree sono validate: puoi procedere con la validazione finale.'
-                    : 'La validazione finale sarà disponibile quando tutte le sezioni e le macro aree saranno validate.'}
+                    ? 'Tutte le sezioni rilevanti sono validate: puoi chiudere e validare il checkup.'
+                    : 'La chiusura finale sarà disponibile quando tutte le sezioni rilevanti saranno validate.'}
               </span>
             </div>
           )}
@@ -2051,8 +2101,8 @@ export default function PreassessmentPage() {
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
           {[
-            { label: 'Macro Aree', value: macroAreas.length, detail: 'aree tematiche' },
-            { label: 'Sezioni', value: sections.length, detail: `${completedSections} completate` },
+            { label: 'Macro Aree', value: countedMacroAreas.length, detail: 'aree tematiche' },
+            { label: 'Sezioni', value: countedSections.length, detail: `${completedSections} completate` },
             { label: 'Sezioni validate', value: validatedSectionsTotal, detail: `su ${totalSectionsToValidate}` },
             { label: 'Campi', value: totalFields, detail: `${totalReq} obbligatori` },
             { label: 'Compilati', value: totalFilled, detail: `su ${totalReq}` },
@@ -2071,7 +2121,7 @@ export default function PreassessmentPage() {
             <h3 className="text-lg font-semibold text-slate-900">Stato per Macro Area</h3>
             {validatedCount > 0 && (
               <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                {validatedCount}/{filteredMacros.length} validate
+                {validatedCount}/{allRelevantMacros.length} validate
               </span>
             )}
           </div>
@@ -2144,7 +2194,9 @@ export default function PreassessmentPage() {
                     <td className="px-3 py-3">
                       <span
                         className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
-                          row.pctMacro === 0
+                          row.excluded
+                            ? 'bg-slate-100 text-slate-600'
+                            : row.pctMacro === 0
                             ? 'bg-slate-100 text-slate-500'
                             : row.pctMacro === 100 && row.validated
                               ? 'bg-emerald-100 text-emerald-600'
@@ -2153,7 +2205,9 @@ export default function PreassessmentPage() {
                                 : 'bg-blue-100 text-blue-600'
                         }`}
                       >
-                        {row.pctMacro === 0
+                        {row.excluded
+                          ? 'Esclusa dal calcolo'
+                          : row.pctMacro === 0
                           ? 'Da iniziare'
                           : row.pctMacro === 100 && row.validated
                             ? 'Completo'
@@ -2166,7 +2220,7 @@ export default function PreassessmentPage() {
                       <div className="flex items-center gap-2">
                         <div className="h-2 w-24 rounded-full bg-slate-100">
                           <div
-                            className={`h-full rounded-full ${row.pctMacro === 100 && !row.validated ? 'bg-amber-400' : 'bg-blue-500'}`}
+                            className={`h-full rounded-full ${row.excluded ? 'bg-slate-300' : row.pctMacro === 100 && !row.validated ? 'bg-amber-400' : 'bg-blue-500'}`}
                             style={{ width: `${row.pctMacro}%` }}
                           />
                         </div>
@@ -2174,13 +2228,21 @@ export default function PreassessmentPage() {
                       </div>
                     </td>
                     <td className="px-3 py-3">
-                      {macroValidations[row.id] ? (
+                      {row.excluded ? (
+                        <span className="text-[10px] font-semibold text-slate-500">Esclusa dal checkup</span>
+                      ) : row.validated ? (
                         <div className="flex items-center gap-2">
                           <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Validata</span>
-                          <span className="text-[10px] text-slate-400">
-                            {macroValidations[row.id].by.name} • {new Date(macroValidations[row.id].at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                          {assessmentStatus !== 'concluso' && isOwnerForMacro(row.id) && (
+                          {row.macroValidationInfo ? (
+                            <span className="text-[10px] text-slate-400">
+                              {row.macroValidationInfo.by.name} • {new Date(row.macroValidationInfo.at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">
+                              Tutte le sezioni risultano validate
+                            </span>
+                          )}
+                          {!isFinalClosed && row.explicitMacroValidation && isOwnerForMacro(row.id) && (
                             <button
                               onClick={() => handleRevokeValidation(row.id)}
                               className="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600"
@@ -2191,18 +2253,9 @@ export default function PreassessmentPage() {
                         </div>
                       ) : (
                         <div>
-                          {assessmentStatus !== 'concluso' && isOwnerForMacro(row.id) && row.pctMacro === 100 ? (
-                            <button
-                              onClick={() => handleValidateMacro(row.id)}
-                              className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"
-                            >
-                              Valida
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-slate-400">
-                              {row.pctMacro === 100 ? 'Non validata' : 'Completare'}
-                            </span>
-                          )}
+                          <span className="text-[10px] text-slate-400">
+                            {row.pctMacro === 100 ? 'In attesa della chiusura finale del Super-owner' : 'Completare'}
+                          </span>
                         </div>
                       )}
                     </td>
@@ -2374,7 +2427,7 @@ export default function PreassessmentPage() {
     const isOwnerSection = activeSection.fields.some((f) => /^owner_[a-j]_/.test(f.id));
     return (
       <div className="space-y-4">
-        {readOnly && (
+        {!isClient && readOnly && (
           <div className="wow-panel border-amber-200 bg-amber-50/80 p-3 text-xs font-semibold text-amber-800 flex items-center gap-2">
             <Eye className="h-4 w-4" />
             Modalità sola lettura — L'ambiente è esclusivo del cliente
@@ -2514,7 +2567,7 @@ export default function PreassessmentPage() {
                   <span>
                     Sezione validata • {sectionValidations[activeSection.id].by.name} • {new Date(sectionValidations[activeSection.id].at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                   </span>
-                  {assessmentStatus !== 'concluso' && (
+                  {!isFinalClosed && (
                     <button
                       type="button"
                       onClick={() => handleRevokeSectionValidation(activeSection.id)}
@@ -2639,10 +2692,10 @@ export default function PreassessmentPage() {
               {!panel && view === 'dashboard' && (
                 <div>Filtro dashboard: {dashFilterLabel}</div>
               )}
-              {readOnly && (
+              {!isClient && readOnly && (
                 <div className="text-amber-700 font-semibold">Sola lettura • Modifiche non autorizzate dal cliente</div>
               )}
-              {assessmentStatus === 'concluso' && (
+              {isFinalClosed && (
                 <div className="text-emerald-700 font-semibold">Checkup concluso</div>
               )}
               {finalValidation && (

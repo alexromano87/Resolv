@@ -1,6 +1,6 @@
 // apps/checkup-frontend/src/pages/PreassessmentTicketsPage.tsx
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Ticket as TicketIcon,
   Plus,
@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Archive,
   Printer,
+  Search,
 } from 'lucide-react';
 import {
   preassessmentTicketApi,
@@ -60,7 +61,10 @@ export function PreassessmentTicketsPage() {
   const { clientId } = useParams<{ clientId?: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isCliente = user?.ruolo === 'cliente';
+  const scopedClientId = clientId ?? searchParams.get('clientId') ?? undefined;
+  const isGlobalStaffView = !isCliente && !scopedClientId;
 
   const [preassessmentId, setPreassessmentId] = useState<string | null>(null);
   const [clientNome, setClientNome] = useState<string>('');
@@ -71,6 +75,8 @@ export function PreassessmentTicketsPage() {
   const [filtroStato, setFiltroStato] = useState<StatusFilter>('tutti');
   const [showArchived, setShowArchived] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState(searchParams.get('search') ?? '');
 
   // Create modal (cliente only)
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -94,12 +100,13 @@ export function PreassessmentTicketsPage() {
         if (isCliente) {
           const pre = await preassessmentApi.get();
           setPreassessmentId(pre.id);
-        } else if (clientId) {
-          const data = await preassessmentApi.getClient(clientId);
+        } else if (scopedClientId) {
+          const data = await preassessmentApi.getClient(scopedClientId);
           setPreassessmentId(data.preassessment.id);
           setClientNome(data.client.azienda || data.client.nome || '');
         } else {
-          setError('Pre-assessment non trovato');
+          setPreassessmentId(null);
+          setClientNome('');
           setLoading(false);
         }
       } catch (err: any) {
@@ -108,16 +115,26 @@ export function PreassessmentTicketsPage() {
       }
     };
     load();
-  }, [isCliente, clientId]);
+  }, [isCliente, scopedClientId]);
 
   useEffect(() => {
-    if (preassessmentId) {
+    if (preassessmentId || isGlobalStaffView) {
       loadTickets();
-      // Mark tickets as seen to reset unread badges for all users
-      threadsUnreadApi.markSeen(preassessmentId, 'tickets').catch(() => {});
+      if (preassessmentId) {
+        threadsUnreadApi.markSeen(preassessmentId, 'tickets').catch(() => {});
+      } else if (isGlobalStaffView) {
+        preassessmentApi.listClients()
+          .then((entries) => Promise.all(
+            entries
+              .map((entry) => entry.preassessment?.id)
+              .filter((id): id is string => !!id)
+              .map((id) => threadsUnreadApi.markSeen(id, 'tickets').catch(() => {})),
+          ))
+          .catch(() => {});
+      }
       window.dispatchEvent(new CustomEvent('checkup:mark-seen', { detail: 'tickets' }));
     }
-  }, [preassessmentId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [preassessmentId, isGlobalStaffView, appliedSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -128,11 +145,14 @@ export function PreassessmentTicketsPage() {
 
   // ── Data loading ────────────────────────────────────────────────────────────
   const loadTickets = async () => {
-    if (!preassessmentId) return;
     try {
       setLoading(true);
       setError(null);
-      const data = await preassessmentTicketApi.list(preassessmentId);
+      const data = isGlobalStaffView
+        ? await preassessmentTicketApi.listAll(appliedSearch || undefined)
+        : preassessmentId
+          ? await preassessmentTicketApi.list(preassessmentId)
+          : [];
       setTickets(data);
       // If a ticket was selected, update it from the fresh list
       if (selectedTicket) {
@@ -294,7 +314,7 @@ export function PreassessmentTicketsPage() {
   const handlePrint = () => {
     const lines: string[] = [
       'ESPORTAZIONE TICKET',
-      `Cliente: ${clientNome || 'Non specificato'}`,
+      `Cliente: ${clientNome || (isGlobalStaffView ? 'Tutti i clienti' : 'Non specificato')}`,
       `Generato il: ${formatDateTime(new Date().toISOString())}`,
       `Numero ticket: ${filteredTickets.length}`,
       '',
@@ -362,7 +382,9 @@ export function PreassessmentTicketsPage() {
           <p className="max-w-xl text-sm text-slate-500 dark:text-slate-400">
             {isCliente
               ? 'Apri richieste di supporto verso il tuo consulente e monitora il loro stato.'
-              : 'Gestisci e rispondi alle richieste di supporto dei clienti.'}
+              : isGlobalStaffView
+                ? 'Gestisci e ricerca tutti i ticket aperti verso lo studio o l’utente loggato.'
+                : 'Gestisci e rispondi alle richieste di supporto dei clienti.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -403,7 +425,57 @@ export function PreassessmentTicketsPage() {
 
       {/* Filters */}
       <div className="wow-panel p-4 relative z-20 no-print">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-1 items-center gap-2">
+              <div className="relative flex-1 md:max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      setAppliedSearch(search.trim());
+                      setCurrentPage(1);
+                    }
+                  }}
+                  placeholder="Cerca cliente, ticket o utente"
+                  className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  setAppliedSearch(search.trim());
+                  setCurrentPage(1);
+                }}
+                className="wow-button"
+              >
+                <Search className="h-4 w-4" />
+                Cerca
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setShowArchived(!showArchived); setCurrentPage(1); }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition ${
+                  showArchived
+                    ? 'bg-slate-700 text-white'
+                    : 'bg-white/80 text-slate-600 hover:bg-white dark:bg-slate-800 dark:text-slate-300'
+                }`}
+              >
+                <Archive className="h-3 w-3" />
+                Archiviati{archivedCount > 0 && !showArchived ? ` (${archivedCount})` : ''}
+              </button>
+              <button
+                onClick={loadTickets}
+                disabled={loading}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white/80 rounded-full hover:bg-white dark:text-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Aggiorna
+              </button>
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-600 dark:text-slate-400">Stato:</span>
             <div className="flex flex-wrap gap-1.5">
@@ -421,27 +493,6 @@ export function PreassessmentTicketsPage() {
                 </button>
               ))}
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => { setShowArchived(!showArchived); setCurrentPage(1); }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition ${
-                showArchived
-                  ? 'bg-slate-700 text-white'
-                  : 'bg-white/80 text-slate-600 hover:bg-white dark:bg-slate-800 dark:text-slate-300'
-              }`}
-            >
-              <Archive className="h-3 w-3" />
-              Archiviati{archivedCount > 0 && !showArchived ? ` (${archivedCount})` : ''}
-            </button>
-            <button
-              onClick={loadTickets}
-              disabled={loading}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white/80 rounded-full hover:bg-white dark:text-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-              Aggiorna
-            </button>
           </div>
         </div>
       </div>
@@ -484,6 +535,12 @@ export function PreassessmentTicketsPage() {
                   <p className="text-xs text-slate-600 dark:text-slate-400 mb-2 line-clamp-2">
                     {ticket.body}
                   </p>
+
+                  {!isCliente && ticket.client?.label && (
+                    <p className="mb-2 text-xs font-medium text-slate-500">
+                      Cliente: {ticket.client.label}
+                    </p>
+                  )}
 
                   <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
                     <span className="flex items-center gap-1">

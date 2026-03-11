@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { KeyRound, Pencil, X } from 'lucide-react';
+import { KeyRound, Pencil, RefreshCcw, Trash2, X } from 'lucide-react';
 import { checkupAdminApi, type CheckupLicense, type CheckupSublicense } from '../api/checkupAdmin';
 import * as questionApi from '../api/checkupQuestions';
 import { CustomSelect } from '../components/ui/CustomSelect';
@@ -38,6 +38,8 @@ export default function AdminCheckupSublicensesPage() {
 
   const inputClassName =
     'mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200';
+  const [renewSublicenseId, setRenewSublicenseId] = useState<string | null>(null);
+  const [renewForm, setRenewForm] = useState({ dataInizioValidita: '', dataScadenza: '' });
 
   const loadData = async () => {
     setLoading(true);
@@ -104,6 +106,54 @@ export default function AdminCheckupSublicensesPage() {
       allowDocuments: sublicense.allowDocuments ?? true,
     });
     setShowModal(true);
+  };
+
+  const handleOpenRenew = (sublicense: CheckupSublicense) => {
+    setRenewSublicenseId(sublicense.id);
+    setRenewForm({
+      dataInizioValidita: sublicense.dataInizioValidita || '',
+      dataScadenza: sublicense.dataScadenza || '',
+    });
+  };
+
+  const handleRenewSublicense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renewSublicenseId || !renewForm.dataInizioValidita || !renewForm.dataScadenza) {
+      toastError('Compila tutte le date di rinnovo');
+      return;
+    }
+    const confirmed = await confirm({
+      title: 'Confermare rinnovo sublicenza?',
+      message: 'Vuoi aggiornare la validita della sublicenza selezionata?',
+      confirmText: 'Rinnova sublicenza',
+      variant: 'info',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.renewSublicense(renewSublicenseId, renewForm);
+      success('Sublicenza rinnovata');
+      setRenewSublicenseId(null);
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante il rinnovo');
+    }
+  };
+
+  const handleDeleteSublicense = async (sublicense: CheckupSublicense) => {
+    const confirmed = await confirm({
+      title: 'Confermare eliminazione sublicenza?',
+      message: `Vuoi eliminare la sublicenza ${sublicense.numeroSublicenza ? `#${sublicense.numeroSublicenza}` : ''}?`,
+      confirmText: 'Elimina sublicenza',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.deleteSublicense(sublicense.id);
+      success('Sublicenza eliminata');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || "Errore durante l'eliminazione");
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -315,13 +365,33 @@ export default function AdminCheckupSublicensesPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      <button
-                        onClick={() => handleOpenEdit(s)}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:text-slate-800"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        Modifica
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => handleOpenEdit(s)}
+                          title="Modifica sublicenza"
+                          aria-label="Modifica sublicenza"
+                          className="inline-flex items-center justify-center rounded-full border border-slate-200 p-2 text-slate-600 hover:border-slate-300 hover:text-slate-800"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleOpenRenew(s)}
+                          title="Rinnova sublicenza"
+                          aria-label="Rinnova sublicenza"
+                          className="inline-flex items-center justify-center rounded-full border border-indigo-200 p-2 text-indigo-600 hover:border-indigo-300 hover:text-indigo-700"
+                        >
+                          <RefreshCcw className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteSublicense(s)}
+                          disabled={Boolean(s.clientId || s.clienteStudioId)}
+                          title={s.clientId || s.clienteStudioId ? 'Puoi eliminare solo sublicenze non assegnate' : 'Elimina sublicenza'}
+                          aria-label="Elimina sublicenza"
+                          className="inline-flex items-center justify-center rounded-full border border-rose-200 p-2 text-rose-600 hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -329,6 +399,35 @@ export default function AdminCheckupSublicensesPage() {
             </table>
           )}
         </div>
+      )}
+
+      {renewSublicenseId && (
+        <BodyPortal>
+          <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                <h2 className="text-lg font-semibold text-slate-900">Rinnova sublicenza</h2>
+                <button onClick={() => setRenewSublicenseId(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <form onSubmit={handleRenewSublicense} className="space-y-4 p-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Data inizio validità</label>
+                  <DateField value={renewForm.dataInizioValidita} onChange={(v) => setRenewForm((p) => ({ ...p, dataInizioValidita: v }))} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Data scadenza</label>
+                  <DateField value={renewForm.dataScadenza} onChange={(v) => setRenewForm((p) => ({ ...p, dataScadenza: v }))} />
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={() => setRenewSublicenseId(null)} className="wow-button-ghost">Annulla</button>
+                  <button type="submit" className="wow-button">Salva rinnovo</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </BodyPortal>
       )}
 
       {showModal && (

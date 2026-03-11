@@ -36,13 +36,23 @@ export class CheckupPreassessmentService {
     private readonly validationService: CheckupPreassessmentValidationService,
   ) {}
 
+  private async normalizeLegacyClosedState(record: CheckupPreassessment): Promise<CheckupPreassessment> {
+    if (record.status !== CheckupPreassessmentStatus.CONCLUSO || record.finalValidation) {
+      return record;
+    }
+    record.status = CheckupPreassessmentStatus.IN_PROGRESS;
+    record.completedAt = null;
+    record.completedById = null;
+    return this.preassessmentRepository.save(record);
+  }
+
   private async getOrCreateByClientId(clientId: string, currentUser: CheckupCurrentUserData): Promise<CheckupPreassessment> {
     const clientExists = await this.clientRepository.findOne({ where: { id: clientId, attivo: true } });
     if (!clientExists) {
       throw new NotFoundException('Cliente non trovato');
     }
     const existing = await this.preassessmentRepository.findOne({ where: { clientId, isLatest: true } });
-    if (existing) return existing;
+    if (existing) return this.normalizeLegacyClosedState(existing);
 
     const created = this.preassessmentRepository.create({
       userId: currentUser.id,
@@ -155,7 +165,7 @@ export class CheckupPreassessmentService {
   async update(user: CheckupCurrentUserData, dto: UpdatePreassessmentDto): Promise<CheckupPreassessment> {
     const record = await this.getOrCreate(user);
 
-    if (user.ruolo === 'cliente' && record.status === CheckupPreassessmentStatus.CONCLUSO) {
+    if (user.ruolo === 'cliente' && record.status === CheckupPreassessmentStatus.CONCLUSO && record.finalValidation) {
       throw new ForbiddenException('Il checkup è concluso e non può più essere modificato');
     }
 
@@ -241,12 +251,10 @@ export class CheckupPreassessmentService {
       record.macroValidations = next;
     }
 
-    let completionStudioId: string | null = null;
     if (dto.sectionValidations !== undefined && user.ruolo === 'cliente') {
       const prev = record.sectionValidations || {};
       const next = dto.sectionValidations || {};
       const resolved = await this.resolveModelIdForClient(record.clientId);
-      const studioId = resolved.studioId;
       if (!sectionMeta) {
         sectionMeta = await vs.getSectionMetaByModel(resolved.modelId);
       }
@@ -278,7 +286,7 @@ export class CheckupPreassessmentService {
 
       const newlyValidated = Object.keys(next).filter((k) => !prev[k] && next[k]);
       if (newlyValidated.length > 0) {
-        const notificationContext = await this.buildNotificationContext(record.clientId, record.id, completionStudioId);
+        const notificationContext = await this.buildNotificationContext(record.clientId, record.id, resolved.studioId);
         this.auditLogService.log({
           userId: user.id,
           userEmail: user.email,
@@ -300,30 +308,11 @@ export class CheckupPreassessmentService {
           },
         }).catch(() => {});
       }
-
-      const sectionsToValidate = Array.from(sectionMeta.entries())
-        .filter(([_, m]) => !vs.isOwnerMacroArea(m.macroId))
-        .map(([sectionId]) => sectionId);
-      if (sectionsToValidate.length > 0 && sectionsToValidate.every((s) => next[s]) && record.status !== CheckupPreassessmentStatus.CONCLUSO) {
-        record.status = CheckupPreassessmentStatus.CONCLUSO;
-        record.completedAt = new Date();
-        record.completedById = user.id;
-        completionStudioId = studioId;
-      }
     }
 
     if (dto.studioCanEdit !== undefined) record.studioCanEdit = dto.studioCanEdit;
 
     const saved = await this.preassessmentRepository.save(record);
-
-    if (completionStudioId) {
-      const client = await this.clientRepository.findOne({ where: { id: record.clientId } });
-      if (client) {
-        this.preassessmentNotificationsService.notifyCompletion(saved, client, user, completionStudioId).catch((err) =>
-          this.logger.error(`notifyCompletion failed: ${err?.message}`),
-        );
-      }
-    }
 
     return saved;
   }
@@ -364,37 +353,7 @@ export class CheckupPreassessmentService {
 
 
   async complete(user: CheckupCurrentUserData) {
-    if (user.ruolo !== 'cliente') {
-      throw new ForbiddenException('Solo il cliente può concludere il checkup');
-    }
-    if (!user.clientId) {
-      throw new ForbiddenException('Cliente non associato');
-    }
-
-    const record = await this.getOrCreate(user);
-    if (record.status === CheckupPreassessmentStatus.CONCLUSO) {
-      return record;
-    }
-
-    const { modelId, studioId } = await this.resolveModelIdForClient(user.clientId);
-    const expectedMacros = await this.validationService.getNonOwnerMacroCodes(modelId);
-    const validations = record.macroValidations || {};
-    const missing = expectedMacros.filter((m) => !validations[m]);
-    if (missing.length > 0) {
-      throw new ConflictException('Non tutte le macro aree sono validate');
-    }
-
-    record.status = CheckupPreassessmentStatus.CONCLUSO;
-    record.completedAt = new Date();
-    record.completedById = user.id;
-    const saved = await this.preassessmentRepository.save(record);
-
-    const client = await this.clientRepository.findOne({ where: { id: user.clientId } });
-    if (client) {
-      await this.preassessmentNotificationsService.notifyCompletion(saved, client, user, studioId);
-    }
-
-    return saved;
+    return this.finalValidate(user);
   }
 
   async finalValidate(user: CheckupCurrentUserData) {
@@ -405,44 +364,99 @@ export class CheckupPreassessmentService {
       throw new ForbiddenException('Solo il Super-owner può validare il checkup');
     }
 
-    const record = await this.getOrCreate(user);
-    if (record.finalValidation) {
-      throw new ConflictException('Il checkup è già stato validato dal Super-owner');
-    }
-
+    // Resolve structure before the transaction (read-only lookups)
     const { modelId, studioId } = await this.resolveModelIdForClient(user.clientId);
     const vs = this.validationService;
-    const expectedMacros = await vs.getNonOwnerMacroCodes(modelId);
     const structureMeta = await vs.getStructureMetaByModel(modelId);
     const expectedSections = Array.from(structureMeta.sectionMeta.entries())
       .filter(([_, meta]) => !vs.isOwnerMacroArea(meta.macroId))
       .map(([sectionId]) => sectionId);
 
-    const missingMacros = expectedMacros.filter((macroId) => !(record.macroValidations || {})[macroId]);
-    if (missingMacros.length > 0) {
-      throw new ConflictException('Per la validazione finale tutte le macro aree devono essere validate');
-    }
+    // Atomic read-modify-write with pessimistic write lock to prevent concurrent final validations
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    const missingSections = expectedSections.filter((sectionId) => !(record.sectionValidations || {})[sectionId]);
-    if (missingSections.length > 0) {
-      throw new ConflictException('Per la validazione finale tutte le sezioni devono essere validate');
-    }
+    let saved: CheckupPreassessment;
+    try {
+      const record = await queryRunner.manager.findOne(CheckupPreassessment, {
+        where: { clientId: user.clientId, isLatest: true },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    const name = `${user.nome} ${user.cognome}`.trim() || user.email;
-    record.status = CheckupPreassessmentStatus.CONCLUSO;
-    record.finalValidation = {
-      by: { id: user.id, name, ruolo: user.ruolo },
-      at: new Date().toISOString(),
-    };
-    if (!record.completedAt) {
-      record.completedAt = new Date();
-      record.completedById = user.id;
+      if (!record) throw new NotFoundException('Checkup non trovato');
+
+      if (record.finalValidation) {
+        throw new ConflictException('Il checkup è già stato validato dal Super-owner');
+      }
+
+      const missingSections = expectedSections.filter((sectionId) => !(record.sectionValidations || {})[sectionId]);
+      if (missingSections.length > 0) {
+        throw new ConflictException('Per la validazione finale tutte le sezioni devono essere validate');
+      }
+
+      const name = `${user.nome} ${user.cognome}`.trim() || user.email;
+      record.status = CheckupPreassessmentStatus.CONCLUSO;
+      record.finalValidation = {
+        by: { id: user.id, name, ruolo: user.ruolo },
+        at: new Date().toISOString(),
+      };
+      if (!record.completedAt) {
+        record.completedAt = new Date();
+        record.completedById = user.id;
+      }
+      saved = await queryRunner.manager.save(record);
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
     }
-    const saved = await this.preassessmentRepository.save(record);
 
     const client = await this.clientRepository.findOne({ where: { id: user.clientId } });
     if (client) {
       await this.preassessmentNotificationsService.notifyFinalValidation(saved, client, user, studioId);
+    }
+
+    return saved;
+  }
+
+  async reopenFinalValidation(user: CheckupCurrentUserData) {
+    if (user.ruolo !== 'cliente' || !user.clientId) {
+      throw new ForbiddenException('Solo un utente cliente può riaprire il checkup');
+    }
+    if (!user.superOwner) {
+      throw new ForbiddenException('Solo il Super-owner può riaprire il checkup');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    let saved: CheckupPreassessment;
+    try {
+      const record = await queryRunner.manager.findOne(CheckupPreassessment, {
+        where: { clientId: user.clientId, isLatest: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!record) throw new NotFoundException('Checkup non trovato');
+      if (!record.finalValidation && record.status !== CheckupPreassessmentStatus.CONCLUSO) {
+        throw new ConflictException('Il checkup non risulta chiuso');
+      }
+
+      record.status = CheckupPreassessmentStatus.IN_PROGRESS;
+      record.finalValidation = null;
+      record.completedAt = null;
+      record.completedById = null;
+      saved = await queryRunner.manager.save(record);
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
     }
 
     return saved;
@@ -627,6 +641,7 @@ export class CheckupPreassessmentService {
             studioCanEdit: pre.studioCanEdit,
             status: pre.status,
             data: pre.data,
+            naFields: pre.naFields,
             sectionValidationsCount: Object.keys(pre.sectionValidations || {}).length,
             finalValidationAt: pre.finalValidation?.at || null,
           }

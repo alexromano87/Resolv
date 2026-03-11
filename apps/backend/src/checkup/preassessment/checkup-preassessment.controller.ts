@@ -1,5 +1,7 @@
 import * as fs from 'fs';
-import { Controller, Get, Put, Post, Body, UseGuards, Param, BadRequestException, Res } from '@nestjs/common';
+import { Controller, Get, Put, Post, Body, UseGuards, Param, BadRequestException, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { RateLimit } from '../../common/rate-limit.decorator';
 import type { Response } from 'express';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
@@ -11,6 +13,8 @@ import { UpdatePreassessmentDto } from './dto/update-preassessment.dto';
 import { CheckupStaffGuard } from '../auth/checkup-staff.guard';
 import { CheckupPreassessmentReportsService } from './checkup-preassessment-reports.service';
 import { CheckupPreassessmentExportJobsService } from './checkup-preassessment-export-jobs.service';
+import { CheckupPreassessmentExcelExportService } from './checkup-preassessment-excel-export.service';
+import { CheckupPreassessmentExcelImportService } from './checkup-preassessment-excel-import.service';
 
 @Controller('checkup/preassessment')
 @UseGuards(CheckupJwtAuthGuard)
@@ -20,6 +24,8 @@ export class CheckupPreassessmentController {
     private readonly presenceService: CheckupPreassessmentPresenceService,
     private readonly reportsService: CheckupPreassessmentReportsService,
     private readonly exportJobsService: CheckupPreassessmentExportJobsService,
+    private readonly excelExportService: CheckupPreassessmentExcelExportService,
+    private readonly excelImportService: CheckupPreassessmentExcelImportService,
   ) {}
 
   @Get()
@@ -43,6 +49,11 @@ export class CheckupPreassessmentController {
   @Post('final-validate')
   finalValidate(@CheckupCurrentUser() user: CheckupCurrentUserData) {
     return this.preassessmentService.finalValidate(user);
+  }
+
+  @Post('final-reopen')
+  reopenFinalValidation(@CheckupCurrentUser() user: CheckupCurrentUserData) {
+    return this.preassessmentService.reopenFinalValidation(user);
   }
 
   @UseGuards(CheckupStaffGuard)
@@ -86,6 +97,49 @@ export class CheckupPreassessmentController {
     @CheckupCurrentUser() user: CheckupCurrentUserData,
   ) {
     return this.preassessmentService.getHistory(clientId, user);
+  }
+
+  @UseGuards(CheckupStaffGuard)
+  @Get('excel/export')
+  @RateLimit({ limit: 5, windowMs: 60 * 1000 })
+  async downloadExcel(
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.excelExportService.generateExcel(user);
+    const filename = `pre_assessment_export_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  }
+
+  @UseGuards(CheckupStaffGuard)
+  @Post('excel/import')
+  @RateLimit({ limit: 5, windowMs: 60 * 1000 })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+      fileFilter: (_req, file, cb) => {
+        const allowed = [
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-excel',
+        ];
+        if (allowed.includes(file.mimetype) || file.originalname.endsWith('.xlsx')) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException('Sono accettati solo file Excel (.xlsx)'), false);
+        }
+      },
+    }),
+  )
+  async importExcel(
+    @UploadedFile() file: Express.Multer.File,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    if (!file) throw new BadRequestException('File mancante');
+    return this.excelImportService.importExcel(file.buffer, user);
   }
 
   @Post('pdf/jobs')

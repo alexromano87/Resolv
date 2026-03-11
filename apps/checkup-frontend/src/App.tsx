@@ -15,6 +15,7 @@ import { PreassessmentTicketsPage } from './pages/PreassessmentTicketsPage';
 import { PreassessmentAlertsPage } from './pages/PreassessmentAlertsPage';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { SystemNotificationsPage } from './pages/SystemNotificationsPage';
+import { StudioChatPage } from './pages/StudioChatPage';
 import { useAuth } from './contexts/AuthContext';
 import { CheckupAppLayout } from './layout/CheckupAppLayout';
 
@@ -190,9 +191,20 @@ export default function App() {
 
       {/* Tickets — cliente (own preassessment) */}
       <Route
+        path="/checkup/chat"
+        element={
+          <ProtectedRoute requiredRole={['cliente', 'admin_studio', 'segreteria', 'collaboratore']}>
+            <CheckupAppLayout>
+              <StudioChatPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/checkup/tickets"
         element={
-          <ProtectedRoute requiredRole="cliente">
+          <ProtectedRoute requiredRole={['cliente', 'admin_studio', 'segreteria', 'collaboratore']}>
             <CheckupAppLayout>
               <PreassessmentTicketsPage />
             </CheckupAppLayout>
@@ -216,7 +228,7 @@ export default function App() {
       <Route
         path="/checkup/alerts"
         element={
-          <ProtectedRoute requiredRole="cliente">
+          <ProtectedRoute requiredRole={['cliente', 'admin_studio', 'segreteria', 'collaboratore']}>
             <CheckupAppLayout>
               <PreassessmentAlertsPage />
             </CheckupAppLayout>

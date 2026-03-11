@@ -13,12 +13,28 @@ import { UpdatePreassessmentAlertDto } from './dto/update-preassessment-alert.dt
 export class CheckupPreassessmentThreadsController {
   constructor(private readonly threadsService: CheckupPreassessmentThreadsService) {}
 
+  @Get('tickets')
+  listAllTickets(
+    @Query('search') search: string | undefined,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.threadsService.listAllTickets(user, search);
+  }
+
   @Get(':preassessmentId/tickets')
   listTickets(
     @Param('preassessmentId') preassessmentId: string,
     @CheckupCurrentUser() user: CheckupCurrentUserData,
   ) {
     return this.threadsService.listTickets(preassessmentId, user);
+  }
+
+  @Get('alerts')
+  listAllAlerts(
+    @Query('search') search: string | undefined,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.threadsService.listAllAlerts(user, search);
   }
 
   @Post(':preassessmentId/tickets')
@@ -160,6 +176,14 @@ export class CheckupPreassessmentThreadsController {
     @CheckupCurrentUser() user: CheckupCurrentUserData,
   ) {
     return this.threadsService.restoreAlert(alertId, user);
+  }
+
+  @Get('chat/conversations')
+  listChatConversations(
+    @Query('search') search: string | undefined,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.threadsService.listChatConversations(user, search);
   }
 
   // ─── Unread counts ───────────────────────────────────────────────────────

@@ -60,6 +60,9 @@ export interface CheckupLicense {
   } | null;
   studio?: CheckupStudio | null;
   sublicenses?: CheckupSublicense[];
+  activeSublicensesCount?: number;
+  inactiveSublicensesCount?: number;
+  isActivated?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -80,6 +83,9 @@ export interface CheckupSublicense {
   license?: CheckupLicense | null;
   clienteStudio?: CheckupStudio | null;
   client?: CheckupClient | null;
+  activeSublicensesCount?: number;
+  inactiveSublicensesCount?: number;
+  isActivated?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -364,12 +370,28 @@ export const checkupAdminApi = {
     return api.post<CheckupLicense>('/admin/checkup/licenses', dto);
   },
 
+  renewLicense: async (id: string, dto: { dataInizioValidita: string; dataScadenza: string }): Promise<CheckupLicense> => {
+    return api.patch<CheckupLicense>(`/admin/checkup/licenses/${id}/renew`, dto);
+  },
+
+  deleteLicense: async (id: string): Promise<{ success: true }> => {
+    return api.delete<{ success: true }>(`/admin/checkup/licenses/${id}`);
+  },
+
   getSublicenses: async (): Promise<CheckupSublicense[]> => {
     return api.get<CheckupSublicense[]>('/admin/checkup/sublicenses');
   },
 
   upsertSublicense: async (dto: UpsertCheckupSublicenseDto): Promise<CheckupSublicense> => {
     return api.post<CheckupSublicense>('/admin/checkup/sublicenses', dto);
+  },
+
+  renewSublicense: async (id: string, dto: { dataInizioValidita: string; dataScadenza: string }): Promise<CheckupSublicense> => {
+    return api.patch<CheckupSublicense>(`/admin/checkup/sublicenses/${id}/renew`, dto);
+  },
+
+  deleteSublicense: async (id: string): Promise<{ success: true }> => {
+    return api.delete<{ success: true }>(`/admin/checkup/sublicenses/${id}`);
   },
 
   getDashboardStats: async (): Promise<CheckupDashboardStats> => {

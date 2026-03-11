@@ -52,6 +52,7 @@ export default function AdminCheckupQuestionsPage() {
   const [macroForm, setMacroForm] = useState<Partial<MacroArea>>({});
   const [sectionForm, setSectionForm] = useState<Partial<Section>>({});
   const [fieldForm, setFieldForm] = useState<Partial<Field>>({});
+  const [fieldOptionsText, setFieldOptionsText] = useState('');
 
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -328,6 +329,7 @@ export default function AdminCheckupQuestionsPage() {
   const startEditField = (sectionId: number, field?: Field) => {
     if (field) {
       setFieldForm(field);
+      setFieldOptionsText((field.options || []).join('\n'));
       setEditState({ mode: 'field', id: field.id, isNew: false });
     } else {
       const section = macroAreas
@@ -344,6 +346,7 @@ export default function AdminCheckupQuestionsPage() {
         sectionId,
         sortOrder,
       });
+      setFieldOptionsText('');
       setEditState({ mode: 'field', id: null, isNew: true });
     }
   };
@@ -414,6 +417,7 @@ export default function AdminCheckupQuestionsPage() {
     setMacroForm({});
     setSectionForm({});
     setFieldForm({});
+    setFieldOptionsText('');
     setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} });
   };
 
@@ -683,8 +687,10 @@ export default function AdminCheckupQuestionsPage() {
                         Opzioni (una per riga)
                       </label>
                       <textarea
-                        value={(fieldForm.options || []).join('\n')}
+                        value={fieldOptionsText}
                         onChange={(e) => {
+                          const nextText = e.target.value;
+                          setFieldOptionsText(nextText);
                           const nextOptions = e.target.value
                             .split('\n')
                             .map((o) => o.trim())

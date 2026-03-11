@@ -135,7 +135,7 @@ export class CheckupUsersService {
   }
 
   private async getOrCreatePreassessment(clientId: string, ownerUserId: string) {
-    const existing = await this.preassessmentRepository.findOne({ where: { clientId } });
+    const existing = await this.preassessmentRepository.findOne({ where: { clientId, isLatest: true } });
     if (existing) return existing;
     const created = this.preassessmentRepository.create({
       userId: ownerUserId,
@@ -177,7 +177,7 @@ export class CheckupUsersService {
   private async clearMacroOwnerData(clientId: string, macroIds: string[]) {
     const normalized = this.normalizeMacroList(macroIds);
     if (!normalized.length) return;
-    const record = await this.preassessmentRepository.findOne({ where: { clientId } });
+    const record = await this.preassessmentRepository.findOne({ where: { clientId, isLatest: true } });
     if (!record) return;
     const data = { ...(record.data || {}) };
     normalized.forEach((macroId) => {
@@ -569,7 +569,6 @@ export class CheckupUsersService {
 
     if (nextRole === 'cliente' && nextClientId) {
       const removed = prevMacroOwner.filter((macro) => !nextMacroOwner.includes(macro));
-      const added = nextMacroOwner.filter((macro) => !prevMacroOwner.includes(macro));
 
       if (removed.length > 0) {
         const otherUsers = await this.userRepository.find({
@@ -589,8 +588,8 @@ export class CheckupUsersService {
         }
       }
 
-      if (added.length > 0) {
-        await this.updateMacroOwnerData(nextClientId, added, saved);
+      if (nextMacroOwner.length > 0) {
+        await this.updateMacroOwnerData(nextClientId, nextMacroOwner, saved);
       }
     }
 

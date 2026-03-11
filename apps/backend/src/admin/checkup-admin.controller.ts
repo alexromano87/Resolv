@@ -23,6 +23,7 @@ import { QuestionManagementService } from '../checkup/services/question-manageme
 import { CreateCheckupStudioDto } from './dto/create-checkup-studio.dto';
 import { CreateCheckupLicenseDto } from './dto/create-checkup-license.dto';
 import { CreateCheckupSublicenseDto } from './dto/create-checkup-sublicense.dto';
+import { RenewCheckupValidityDto } from './dto/renew-checkup-validity.dto';
 import { UpdateCheckupStudioDto } from './dto/update-checkup-studio.dto';
 import { CreateCheckupUserDto } from '../checkup/users/dto/create-checkup-user.dto';
 import { UpdateCheckupUserDto } from '../checkup/users/dto/update-checkup-user.dto';
@@ -1098,18 +1099,13 @@ export class CheckupAdminController {
       relations: ['studio', 'model', 'sublicenses', 'sublicenses.clienteStudio', 'sublicenses.client'],
       order: { updatedAt: 'DESC' },
     });
-    const activeCounts = await this.sublicenseRepository
-      .createQueryBuilder('sublicense')
-      .select('sublicense.licenseId', 'licenseId')
-      .addSelect('COUNT(*)', 'count')
-      .where('sublicense.attiva = :attiva', { attiva: true })
-      .groupBy('sublicense.licenseId')
-      .getRawMany<{ licenseId: string; count: string }>();
-    const countMap = new Map(activeCounts.map((row) => [row.licenseId, Number(row.count)]));
     return licenses.map((license) => {
-      const fallbackCount = license.sublicenses?.filter((s) => s.attiva).length ?? 0;
-      license.numeroSottolicenze = countMap.get(license.id) ?? fallbackCount;
-      return license;
+      license.numeroSottolicenze = license.sublicenses?.filter((s) => s.attiva).length ?? 0;
+      return Object.assign(license, {
+        activeSublicensesCount: license.sublicenses?.filter((s) => s.attiva).length ?? 0,
+        inactiveSublicensesCount: license.sublicenses?.filter((s) => !s.attiva).length ?? 0,
+        isActivated: Boolean(license.studioId),
+      });
     });
   }
 
@@ -1227,6 +1223,30 @@ export class CheckupAdminController {
     }
   }
 
+  @Patch('licenses/:id/renew')
+  async renewLicense(@Param('id') id: string, @Body() dto: RenewCheckupValidityDto): Promise<CheckupLicense> {
+    const license = await this.licenseRepository.findOne({ where: { id } });
+    if (!license) {
+      throw new NotFoundException('Licenza non trovata');
+    }
+    license.dataInizioValidita = dto.dataInizioValidita;
+    license.dataScadenza = dto.dataScadenza;
+    return this.licenseRepository.save(license);
+  }
+
+  @Delete('licenses/:id')
+  async deleteLicense(@Param('id') id: string): Promise<{ success: true }> {
+    const license = await this.licenseRepository.findOne({ where: { id }, relations: ['sublicenses'] });
+    if (!license) {
+      throw new NotFoundException('Licenza non trovata');
+    }
+    if (license.studioId) {
+      throw new ConflictException('Non puoi eliminare una licenza associata a uno studio');
+    }
+    await this.licenseRepository.remove(license);
+    return { success: true };
+  }
+
   @Post('sublicenses')
   async upsertSublicense(@Body() dto: CreateCheckupSublicenseDto): Promise<CheckupSublicense> {
     const license = await this.licenseRepository.findOne({ where: { id: dto.licenseId } });
@@ -1305,6 +1325,39 @@ export class CheckupAdminController {
       const exists = await this.sublicenseRepository.findOne({ where: { numeroSublicenza: code } });
       if (!exists) return code;
     }
+  }
+
+  @Patch('sublicenses/:id/renew')
+  async renewSublicense(@Param('id') id: string, @Body() dto: RenewCheckupValidityDto): Promise<CheckupSublicense> {
+    const sublicense = await this.sublicenseRepository.findOne({ where: { id } });
+    if (!sublicense) {
+      throw new NotFoundException('Sublicenza non trovata');
+    }
+    sublicense.dataInizioValidita = dto.dataInizioValidita;
+    sublicense.dataScadenza = dto.dataScadenza;
+    sublicense.attiva = true;
+    const saved = await this.sublicenseRepository.save(sublicense);
+    await this.refreshLicenseSublicenseCount(sublicense.licenseId);
+    return saved;
+  }
+
+  @Delete('sublicenses/:id')
+  async deleteSublicense(@Param('id') id: string): Promise<{ success: true }> {
+    const sublicense = await this.sublicenseRepository.findOne({ where: { id } });
+    if (!sublicense) {
+      throw new NotFoundException('Sublicenza non trovata');
+    }
+    if (sublicense.clientId || sublicense.clienteStudioId) {
+      throw new ConflictException('Non puoi eliminare una sublicenza già assegnata a un cliente');
+    }
+    const activeUsers = await this.userRepository.count({ where: { sublicenseId: id, attivo: true } });
+    if (activeUsers > 0) {
+      throw new ConflictException('Non puoi eliminare una sublicenza con utenti attivi associati');
+    }
+    const licenseId = sublicense.licenseId;
+    await this.sublicenseRepository.remove(sublicense);
+    await this.refreshLicenseSublicenseCount(licenseId);
+    return { success: true };
   }
 
   // ==================== QUESTION MANAGEMENT ====================

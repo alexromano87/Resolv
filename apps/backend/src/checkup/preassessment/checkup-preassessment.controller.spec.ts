@@ -5,6 +5,7 @@ import { CheckupPreassessmentService } from './checkup-preassessment.service';
 import { CheckupPreassessmentPresenceService } from './checkup-preassessment-presence.service';
 import { CheckupPreassessmentReportsService } from './checkup-preassessment-reports.service';
 import { CheckupPreassessmentExportJobsService } from './checkup-preassessment-export-jobs.service';
+import { CheckupPreassessmentExcelExportService } from './checkup-preassessment-excel-export.service';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupStaffGuard } from '../auth/checkup-staff.guard';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
@@ -47,6 +48,7 @@ describe('CheckupPreassessmentController', () => {
     update: jest.Mock;
     complete: jest.Mock;
     finalValidate: jest.Mock;
+    reopenFinalValidation: jest.Mock;
     listClients: jest.Mock;
     getClient: jest.Mock;
     updateClient: jest.Mock;
@@ -75,12 +77,17 @@ describe('CheckupPreassessmentController', () => {
     getJobFile: jest.Mock;
   };
 
+  let excelExportService: {
+    generateExcel: jest.Mock;
+  };
+
   beforeEach(async () => {
     preassessmentService = {
       getOrCreate: jest.fn().mockResolvedValue(makePreassessment()),
       update: jest.fn().mockResolvedValue(makePreassessment()),
       complete: jest.fn().mockResolvedValue(makePreassessment({ status: 'concluso' })),
       finalValidate: jest.fn().mockResolvedValue(makePreassessment({ status: 'concluso' })),
+      reopenFinalValidation: jest.fn().mockResolvedValue(makePreassessment({ status: 'in_progress', finalValidation: null })),
       listClients: jest.fn().mockResolvedValue([]),
       getClient: jest.fn().mockResolvedValue({ client: {}, preassessment: makePreassessment() }),
       updateClient: jest.fn().mockResolvedValue(makePreassessment()),
@@ -109,6 +116,10 @@ describe('CheckupPreassessmentController', () => {
       getJobFile: jest.fn().mockResolvedValue({ path: '/tmp/file.pdf', filename: 'export.pdf', mimeType: 'application/pdf' }),
     };
 
+    excelExportService = {
+      generateExcel: jest.fn().mockResolvedValue(Buffer.from('excel')),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CheckupPreassessmentController],
       providers: [
@@ -116,6 +127,7 @@ describe('CheckupPreassessmentController', () => {
         { provide: CheckupPreassessmentPresenceService, useValue: presenceService },
         { provide: CheckupPreassessmentReportsService, useValue: reportsService },
         { provide: CheckupPreassessmentExportJobsService, useValue: exportJobsService },
+        { provide: CheckupPreassessmentExcelExportService, useValue: excelExportService },
       ],
     })
       .overrideGuard(CheckupJwtAuthGuard).useValue(alwaysAllow)
@@ -167,6 +179,14 @@ describe('CheckupPreassessmentController', () => {
       const user = makeClienteUser();
       await controller.finalValidate(user);
       expect(preassessmentService.finalValidate).toHaveBeenCalledWith(user);
+    });
+  });
+
+  describe('reopenFinalValidation()', () => {
+    it('delega a preassessmentService.reopenFinalValidation', async () => {
+      const user = makeClienteUser();
+      await controller.reopenFinalValidation(user);
+      expect(preassessmentService.reopenFinalValidation).toHaveBeenCalledWith(user);
     });
   });
 

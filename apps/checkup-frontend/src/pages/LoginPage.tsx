@@ -38,7 +38,8 @@ export default function LoginPage() {
   const forceClientDashboard = (user: { ruolo?: string; clientId?: string | null }) => {
     if (user?.ruolo !== 'cliente' || !user.clientId) return;
     const key = `checkup_preassessment_view_${user.clientId}`;
-    localStorage.setItem(key, JSON.stringify({ view: 'dashboard', panel: null }));
+    sessionStorage.setItem(key, JSON.stringify({ view: 'dashboard', panel: null }));
+    localStorage.removeItem(key);
   };
 
   const handleSubmit = async (e: FormEvent) => {

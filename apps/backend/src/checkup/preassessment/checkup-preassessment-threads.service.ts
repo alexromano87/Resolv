@@ -1,6 +1,6 @@
 import { Injectable, ForbiddenException, NotFoundException, Inject, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository, LessThan, In } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
 import type Redis from 'ioredis';
 import { CheckupPreassessment } from './checkup-preassessment.entity';
@@ -75,6 +75,29 @@ export class CheckupPreassessmentThreadsService {
     }
 
     return { pre, clientId: pre.clientId };
+  }
+
+  private async getAccessibleClientIdsForStaff(user: CheckupCurrentUserData): Promise<string[]> {
+    if (!user.studioId || user.ruolo === 'cliente') return [];
+    const license = await this.licenseRepository.findOne({ where: { studioId: user.studioId } });
+    if (!license) return [];
+    const sublicenses = await this.sublicenseRepository.find({
+      where: { licenseId: license.id, attiva: true },
+      select: ['clientId'],
+    });
+    return sublicenses
+      .map((entry) => entry.clientId)
+      .filter((clientId): clientId is string => !!clientId);
+  }
+
+  private async getAccessibleLatestPreassessmentsForStaff(user: CheckupCurrentUserData): Promise<CheckupPreassessment[]> {
+    const clientIds = await this.getAccessibleClientIdsForStaff(user);
+    if (clientIds.length === 0) return [];
+    return this.preassessmentRepository.find({
+      where: { clientId: In(clientIds), isLatest: true },
+      relations: ['client'],
+      order: { updatedAt: 'DESC' },
+    });
   }
 
   // ─── Email helpers ─────────────────────────────────────────────────────────
@@ -253,6 +276,68 @@ export class CheckupPreassessmentThreadsService {
     });
 
     return tickets;
+  }
+
+  async listAllTickets(user: CheckupCurrentUserData, search?: string) {
+    if (user.ruolo === 'cliente') {
+      throw new ForbiddenException('Solo lo studio può consultare tutti i ticket');
+    }
+
+    const preassessments = await this.getAccessibleLatestPreassessmentsForStaff(user);
+    if (preassessments.length === 0) return [];
+
+    const preassessmentIds = preassessments.map((entry) => entry.id);
+    const preassessmentById = new Map(preassessments.map((entry) => [entry.id, entry]));
+    const normalizedSearch = search?.trim().toLowerCase();
+
+    const tickets = await this.ticketRepository.find({
+      where: { preassessmentId: In(preassessmentIds) },
+      relations: [
+        'createdBy',
+        'assignedTo',
+        'closeRequestedBy',
+        'closedBy',
+        'messages',
+        'messages.user',
+      ],
+      order: { createdAt: 'DESC' },
+    });
+
+    tickets.forEach((ticket) => {
+      if (ticket.messages) {
+        ticket.messages.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      }
+    });
+
+    return tickets
+      .map((ticket) => {
+        const pre = preassessmentById.get(ticket.preassessmentId);
+        const clientName = pre?.client?.ragioneSociale || pre?.client?.nome || 'Cliente';
+        return {
+          ...ticket,
+          client: {
+            id: pre?.clientId ?? null,
+            nome: pre?.client?.nome ?? null,
+            ragioneSociale: pre?.client?.ragioneSociale ?? null,
+            label: clientName,
+            preassessmentId: ticket.preassessmentId,
+          },
+        };
+      })
+      .filter((ticket) => {
+        if (!normalizedSearch) return true;
+        const haystack = [
+          ticket.subject,
+          ticket.body,
+          ticket.createdBy ? `${ticket.createdBy.nome} ${ticket.createdBy.cognome}` : '',
+          ticket.createdBy?.email ?? '',
+          ticket.assignedTo ? `${ticket.assignedTo.nome} ${ticket.assignedTo.cognome}` : '',
+          ticket.client?.label ?? '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(normalizedSearch);
+      });
   }
 
   async createTicket(
@@ -607,6 +692,63 @@ export class CheckupPreassessmentThreadsService {
     return qb.orderBy('alert.createdAt', 'DESC').getMany();
   }
 
+  async listAllAlerts(user: CheckupCurrentUserData, search?: string) {
+    if (user.ruolo === 'cliente') {
+      throw new ForbiddenException('Solo lo studio può consultare tutti gli alert');
+    }
+
+    const preassessments = await this.getAccessibleLatestPreassessmentsForStaff(user);
+    if (preassessments.length === 0) return [];
+
+    const preassessmentIds = preassessments.map((entry) => entry.id);
+    const preassessmentById = new Map(preassessments.map((entry) => [entry.id, entry]));
+    const normalizedSearch = search?.trim().toLowerCase();
+
+    const qb = this.alertRepository
+      .createQueryBuilder('alert')
+      .leftJoinAndSelect('alert.createdBy', 'createdBy')
+      .leftJoinAndSelect('createdBy.client', 'createdByClient')
+      .leftJoinAndSelect('alert.targetUser', 'targetUser')
+      .leftJoinAndSelect('targetUser.client', 'targetUserClient')
+      .where('alert.preassessmentId IN (:...preassessmentIds)', { preassessmentIds })
+      .andWhere('(alert.targetUserId IS NULL OR alert.targetUserId = :userId OR alert.createdById = :userId)', {
+        userId: user.id,
+      })
+      .orderBy('alert.createdAt', 'DESC');
+
+    const alerts = await qb.getMany();
+
+    return alerts
+      .map((alert) => {
+        const pre = preassessmentById.get(alert.preassessmentId);
+        const clientName = pre?.client?.ragioneSociale || pre?.client?.nome || 'Cliente';
+        return {
+          ...alert,
+          client: {
+            id: pre?.clientId ?? null,
+            nome: pre?.client?.nome ?? null,
+            ragioneSociale: pre?.client?.ragioneSociale ?? null,
+            label: clientName,
+            preassessmentId: alert.preassessmentId,
+          },
+        };
+      })
+      .filter((alert) => {
+        if (!normalizedSearch) return true;
+        const haystack = [
+          alert.messaggio,
+          alert.createdBy ? `${alert.createdBy.nome} ${alert.createdBy.cognome}` : '',
+          alert.createdBy?.email ?? '',
+          alert.targetUser ? `${alert.targetUser.nome} ${alert.targetUser.cognome}` : '',
+          alert.targetUser?.email ?? '',
+          alert.client?.label ?? '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(normalizedSearch);
+      });
+  }
+
   async createAlert(
     preassessmentId: string,
     dto: CreatePreassessmentAlertDto,
@@ -783,7 +925,10 @@ export class CheckupPreassessmentThreadsService {
 
     await this.ensureAccess(alert.preassessmentId, user);
 
-    const canClose = alert.createdById === user.id || alert.targetUserId === user.id;
+    const canClose =
+      user.ruolo !== 'cliente'
+      || alert.createdById === user.id
+      || alert.targetUserId === user.id;
     if (!canClose) {
       throw new ForbiddenException('Puoi chiudere solo alert creati da te o assegnati a te');
     }
@@ -887,6 +1032,101 @@ export class CheckupPreassessmentThreadsService {
     await this.ensureAccess(alert.preassessmentId, user);
     alert.taciuto = false;
     return this.alertRepository.save(alert);
+  }
+
+  async listChatConversations(user: CheckupCurrentUserData, search?: string) {
+    if (user.ruolo === 'cliente') {
+      throw new ForbiddenException('Solo lo studio può consultare l’elenco chat');
+    }
+
+    const preassessments = await this.getAccessibleLatestPreassessmentsForStaff(user);
+    if (preassessments.length === 0) return [];
+
+    const preassessmentIds = preassessments.map((entry) => entry.id);
+    const [clientUsers, messages, unreadRows] = await Promise.all([
+      this.userRepository.find({
+        where: { clientId: In(preassessments.map((entry) => entry.clientId)), ruolo: 'cliente', attivo: true },
+        select: ['id', 'clientId', 'nome', 'cognome', 'email', 'azienda'],
+      }),
+      this.chatMessageRepository.find({
+        where: { preassessmentId: In(preassessmentIds), sectionId: 'general' },
+        relations: ['user'],
+        order: { createdAt: 'DESC' },
+      }),
+      this.chatMessageRepository
+        .createQueryBuilder('m')
+        .select('m.preassessmentId', 'preassessmentId')
+        .addSelect('COUNT(*)', 'count')
+        .where('m.preassessmentId IN (:...preassessmentIds)', { preassessmentIds })
+        .andWhere('m.sectionId = :sectionId', { sectionId: 'general' })
+        .andWhere('m.letto = false')
+        .andWhere('m.userId != :userId', { userId: user.id })
+        .groupBy('m.preassessmentId')
+        .getRawMany<{ preassessmentId: string; count: string }>(),
+    ]);
+
+    const unreadByPre = new Map(unreadRows.map((row) => [row.preassessmentId, Number(row.count)]));
+    const latestMessageByPre = new Map<string, CheckupPreassessmentMessage>();
+    messages.forEach((message) => {
+      if (!latestMessageByPre.has(message.preassessmentId)) {
+        latestMessageByPre.set(message.preassessmentId, message);
+      }
+    });
+    const primaryUserByClient = new Map<string, CheckupUser>();
+    clientUsers.forEach((entry) => {
+      if (!primaryUserByClient.has(entry.clientId!)) {
+        primaryUserByClient.set(entry.clientId!, entry);
+      }
+    });
+
+    const normalizedSearch = search?.trim().toLowerCase();
+    return preassessments
+      .map((pre) => {
+        const primaryUser = primaryUserByClient.get(pre.clientId);
+        const clientLabel = pre.client?.ragioneSociale || primaryUser?.azienda || pre.client?.nome || `${primaryUser?.nome ?? ''} ${primaryUser?.cognome ?? ''}`.trim() || 'Cliente';
+        const lastMessage = latestMessageByPre.get(pre.id);
+        return {
+          preassessmentId: pre.id,
+          clientId: pre.clientId,
+          clientLabel,
+          participant: primaryUser
+            ? {
+                id: primaryUser.id,
+                nome: primaryUser.nome,
+                cognome: primaryUser.cognome,
+                email: primaryUser.email,
+                azienda: primaryUser.azienda ?? pre.client?.ragioneSociale ?? pre.client?.nome ?? null,
+              }
+            : null,
+          lastMessage: lastMessage
+            ? {
+                id: lastMessage.id,
+                messaggio: lastMessage.messaggio,
+                createdAt: lastMessage.createdAt,
+                user: {
+                  id: lastMessage.user.id,
+                  nome: lastMessage.user.nome,
+                  cognome: lastMessage.user.cognome,
+                  ruolo: lastMessage.user.ruolo,
+                },
+              }
+            : null,
+          unreadCount: unreadByPre.get(pre.id) ?? 0,
+        };
+      })
+      .filter((entry) => {
+        if (!normalizedSearch) return true;
+        const haystack = [
+          entry.clientLabel,
+          entry.participant ? `${entry.participant.nome} ${entry.participant.cognome}` : '',
+          entry.participant?.email ?? '',
+          entry.participant?.azienda ?? '',
+          entry.lastMessage?.messaggio ?? '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(normalizedSearch);
+      });
   }
 
   /** Cron: ogni notte alle 2:00 segna come 'scaduto' gli alert aperti con dataScadenza passata */

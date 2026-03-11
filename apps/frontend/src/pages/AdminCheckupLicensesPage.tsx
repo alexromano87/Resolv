@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { KeyRound, X, Pencil } from 'lucide-react';
+import { KeyRound, X, Pencil, RefreshCcw, Trash2 } from 'lucide-react';
 import { checkupAdminApi, type CheckupLicense } from '../api/checkupAdmin';
 import * as questionApi from '../api/checkupQuestions';
 import { BodyPortal } from '../components/ui/BodyPortal';
@@ -30,6 +30,8 @@ export default function AdminCheckupLicensesPage() {
     dataInizioValidita: '',
     dataScadenza: '',
   });
+  const [renewLicenseId, setRenewLicenseId] = useState<string | null>(null);
+  const [renewForm, setRenewForm] = useState({ dataInizioValidita: '', dataScadenza: '' });
   const inputClassName =
     'mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100';
 
@@ -107,6 +109,54 @@ export default function AdminCheckupLicensesPage() {
     });
     setEditingLicenseId(license.id);
     setShowLicenseModal(true);
+  };
+
+  const handleOpenRenew = (license: CheckupLicense) => {
+    setRenewLicenseId(license.id);
+    setRenewForm({
+      dataInizioValidita: license.dataInizioValidita || '',
+      dataScadenza: license.dataScadenza || '',
+    });
+  };
+
+  const handleRenewLicense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renewLicenseId || !renewForm.dataInizioValidita || !renewForm.dataScadenza) {
+      toastError('Compila tutte le date di rinnovo');
+      return;
+    }
+    const confirmed = await confirm({
+      title: 'Confermare rinnovo licenza?',
+      message: 'Vuoi aggiornare la validita della licenza selezionata?',
+      confirmText: 'Rinnova licenza',
+      variant: 'info',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.renewLicense(renewLicenseId, renewForm);
+      success('Licenza rinnovata');
+      setRenewLicenseId(null);
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante il rinnovo');
+    }
+  };
+
+  const handleDeleteLicense = async (license: CheckupLicense) => {
+    const confirmed = await confirm({
+      title: 'Confermare eliminazione licenza?',
+      message: `Vuoi eliminare la licenza ${license.numeroLicenza ? `#${license.numeroLicenza}` : ''}?`,
+      confirmText: 'Elimina licenza',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.deleteLicense(license.id);
+      success('Licenza eliminata');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || "Errore durante l'eliminazione");
+    }
   };
 
   const editingLicense = editingLicenseId ? licenses.find((license) => license.id === editingLicenseId) : null;
@@ -206,7 +256,9 @@ export default function AdminCheckupLicensesPage() {
                   <th className="px-4 py-3 text-left">Modello</th>
                   <th className="px-4 py-3 text-left">Tipo</th>
                   <th className="px-4 py-3 text-left">Utenze</th>
-                  <th className="px-4 py-3 text-left">Sublicenze</th>
+                  <th className="px-4 py-3 text-left">Stato</th>
+                  <th className="px-4 py-3 text-left">Sublicenze attive</th>
+                  <th className="px-4 py-3 text-left">Sublicenze disattive</th>
                   <th className="px-4 py-3 text-left">Validità</th>
                   <th className="px-4 py-3 text-left">Azioni</th>
                 </tr>
@@ -228,7 +280,13 @@ export default function AdminCheckupLicensesPage() {
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{license.tipo}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{license.numeroUtenze}</td>
-                    <td className="px-4 py-3 text-sm text-slate-600">{license.numeroSottolicenze ?? 0}</td>
+                    <td className="px-4 py-3 text-sm">
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${license.isActivated ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                        {license.isActivated ? 'Attivata' : 'Disattivata'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">{license.activeSublicensesCount ?? license.numeroSottolicenze ?? 0}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600">{license.inactiveSublicensesCount ?? 0}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">
                       {license.dataInizioValidita || '—'} → {license.dataScadenza || '—'}
                     </td>
@@ -236,10 +294,28 @@ export default function AdminCheckupLicensesPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           onClick={() => handleEditLicense(license)}
-                          className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:text-slate-800"
+                          title="Modifica licenza"
+                          aria-label="Modifica licenza"
+                          className="inline-flex items-center justify-center rounded-full border border-slate-200 p-2 text-slate-600 hover:border-slate-300 hover:text-slate-800"
                         >
                           <Pencil className="h-3.5 w-3.5" />
-                          Modifica
+                        </button>
+                        <button
+                          onClick={() => handleOpenRenew(license)}
+                          title="Rinnova licenza"
+                          aria-label="Rinnova licenza"
+                          className="inline-flex items-center justify-center rounded-full border border-indigo-200 p-2 text-indigo-600 hover:border-indigo-300 hover:text-indigo-700"
+                        >
+                          <RefreshCcw className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteLicense(license)}
+                          disabled={Boolean(license.studioId)}
+                          aria-label="Elimina licenza"
+                          className="inline-flex items-center justify-center rounded-full border border-rose-200 p-2 text-rose-600 hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          title={license.studioId ? 'Puoi eliminare solo licenze non associate a uno studio' : 'Elimina licenza'}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     </td>
@@ -250,6 +326,35 @@ export default function AdminCheckupLicensesPage() {
           )}
         </div>
         </>
+      )}
+
+      {renewLicenseId && (
+        <BodyPortal>
+          <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                <h2 className="text-lg font-semibold text-slate-900">Rinnova licenza</h2>
+                <button onClick={() => setRenewLicenseId(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <form onSubmit={handleRenewLicense} className="space-y-4 p-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Data inizio validità</label>
+                  <DateField value={renewForm.dataInizioValidita} onChange={(v) => setRenewForm((p) => ({ ...p, dataInizioValidita: v }))} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Data scadenza</label>
+                  <DateField value={renewForm.dataScadenza} onChange={(v) => setRenewForm((p) => ({ ...p, dataScadenza: v }))} />
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={() => setRenewLicenseId(null)} className="wow-button-ghost">Annulla</button>
+                  <button type="submit" className="wow-button">Salva rinnovo</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </BodyPortal>
       )}
 
       {showLicenseModal && (

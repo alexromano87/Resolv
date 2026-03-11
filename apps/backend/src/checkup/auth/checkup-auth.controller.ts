@@ -56,7 +56,8 @@ export class CheckupAuthController {
     @Body() dto: CheckupTwoFactorLoginVerifyDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.verifyTwoFactorLogin(dto.userId, dto.code);
+    // [M-02] challengeToken opaco — non espone l'UUID interno dell'utente
+    const result = await this.authService.verifyTwoFactorLogin(dto.challengeToken, dto.code);
     this.setRefreshCookie(res, result.refresh_token);
     const { refresh_token, ...body } = result;
     return body;

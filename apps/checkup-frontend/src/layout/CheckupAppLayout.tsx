@@ -7,7 +7,7 @@ import { usePreassessmentNav } from '../contexts/PreassessmentNavContext';
 import { useStudio } from '../contexts/StudioContext';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { meApi, type SystemNotificationItem } from '../api/me';
-import { preassessmentApi, threadsUnreadApi, preassessmentAlertApi, type PreassessmentClientEntry } from '../api/preassessment';
+import { preassessmentApi, threadsUnreadApi, preassessmentAlertApi, preassessmentStaffChatApi, type PreassessmentClientEntry } from '../api/preassessment';
 import { ToastNotification, type AlertToast } from '../components/ui/ToastNotification';
 import { ActivityToastNotification, type ActivityToast } from '../components/ui/ActivityToastNotification';
 
@@ -37,10 +37,17 @@ interface StaffNotificationSnapshot {
   clientLabel: string;
   preassessmentId: string;
   tickets: number;
+  alerts: number;
   chat: number;
   status: 'in_progress' | 'concluso';
   sectionValidationsCount: number;
   finalValidationAt: string | null;
+}
+
+interface StaffUnreadTotals {
+  tickets: number;
+  alerts: number;
+  chat: number;
 }
 
 
@@ -90,6 +97,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   const [systemNotificationsError, setSystemNotificationsError] = useState('');
   const [systemNotificationsOpen, setSystemNotificationsOpen] = useState(false);
   const [systemNotificationsUnread, setSystemNotificationsUnread] = useState(0);
+  const [staffUnreadTotals, setStaffUnreadTotals] = useState<StaffUnreadTotals>({ tickets: 0, alerts: 0, chat: 0 });
 
   const initials = useMemo(() => {
     const name = `${user?.nome || ''} ${user?.cognome || ''}`.trim();
@@ -119,6 +127,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     if (location.pathname.startsWith('/checkup/utenti')) return 'Amministrazione';
     if (location.pathname.startsWith('/checkup/help')) return 'Help';
     if (location.pathname.startsWith('/checkup/impostazioni')) return 'Impostazioni';
+    if (location.pathname.startsWith('/checkup/chat')) return 'Chat';
     if (location.pathname.startsWith('/checkup/tickets')) return 'Ticket';
     if (location.pathname.startsWith('/checkup/alerts')) return 'Alert';
     if (location.pathname.startsWith('/checkup/notifiche-sistema')) return 'Notifiche di sistema';
@@ -132,7 +141,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   }, [location.pathname, user?.ruolo]);
   const { logoUrl: studioLogoUrl, nome: studioNome } = useStudio();
   const isStaff = user ? user.ruolo !== 'cliente' : false;
-  const isClientChatRoute = !isStaff && (location.pathname === '/checkup' || location.pathname === '/checkup/') && new URLSearchParams(location.search).get('panel') === 'chat';
+  const isClientChatRoute = !isStaff && location.pathname.startsWith('/checkup/chat');
   const dashboardPath = isStaff ? '/checkup/dashboard-studio' : '/checkup';
   const lastSeenNotificationsKey = useMemo(
     () => (user?.id ? `checkup_system_notifications_seen:${user.id}` : ''),
@@ -222,8 +231,11 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     const fetchUnread = async () => {
       try {
         const pre = await preassessmentApi.get();
-        const counts = await threadsUnreadApi.getCounts(pre.id);
-        setUnread(counts);
+        const [counts, chatCounts] = await Promise.all([
+          threadsUnreadApi.getCounts(pre.id),
+          preassessmentStaffChatApi.getUnreadCount(),
+        ]);
+        setUnread({ ...counts, chat: chatCounts.unread });
       } catch {
         // silently ignore
       }
@@ -240,6 +252,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     const handler = (e: Event) => {
       const type = (e as CustomEvent<'tickets' | 'alerts' | 'chat'>).detail;
       setUnread((prev) => ({ ...prev, [type]: 0 }));
+      setStaffUnreadTotals((prev) => ({ ...prev, [type]: 0 }));
       setNavState((prev) => {
         if (!prev) return prev;
         if (type === 'tickets') return { ...prev, ticketCount: 0 };
@@ -264,13 +277,14 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
 
   const alertsPagePath = useMemo(() => {
     if (!user) return '/checkup/alerts';
-    return user.ruolo === 'cliente' ? '/checkup/alerts' : '/checkup/dashboard-studio';
+    return '/checkup/alerts';
   }, [user?.ruolo]);
 
   useEffect(() => {
     if (!user || user.ruolo === 'cliente') {
       previousStaffNotificationsRef.current = null;
       setActivityToasts([]);
+      setStaffUnreadTotals({ tickets: 0, alerts: 0, chat: 0 });
       return;
     }
 
@@ -281,7 +295,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
       });
     };
 
-    const buildSnapshot = async (entries: PreassessmentClientEntry[]): Promise<Record<string, StaffNotificationSnapshot>> => {
+      const buildSnapshot = async (entries: PreassessmentClientEntry[]): Promise<Record<string, StaffNotificationSnapshot>> => {
       const withPre = entries.filter((entry) => entry.preassessment?.id);
       const counts = await Promise.allSettled(
         withPre.map(async (entry) => ({
@@ -306,6 +320,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
           clientLabel,
           preassessmentId: pre.id,
           tickets: count.tickets,
+          alerts: count.alerts,
           chat: count.chat,
           status: pre.status,
           sectionValidationsCount: pre.sectionValidationsCount || 0,
@@ -319,6 +334,16 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
       try {
         const entries = await preassessmentApi.listClients();
         const next = await buildSnapshot(entries);
+        const directChatUnread = await preassessmentStaffChatApi.getUnreadCount().catch(() => ({ unread: 0 }));
+        const totals = Object.values(next).reduce(
+          (acc, current) => ({
+            tickets: acc.tickets + current.tickets,
+            alerts: acc.alerts + current.alerts,
+            chat: acc.chat + current.chat,
+          }),
+          { tickets: 0, alerts: 0, chat: 0 },
+        );
+        setStaffUnreadTotals({ ...totals, chat: directChatUnread.unread });
         const previous = previousStaffNotificationsRef.current;
 
         if (!previous) {
@@ -349,6 +374,17 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
               titolo: delta > 1 ? 'Nuove attività sui ticket' : 'Nuova attività su ticket',
               messaggio: `${current.clientLabel}: ${delta > 1 ? `ci sono ${delta} nuove attività sui ticket` : "c'è un nuovo ticket o una nuova risposta"}.`,
               ctaLabel: 'Apri ticket',
+            });
+          }
+
+          if (current.alerts > prev.alerts) {
+            const delta = current.alerts - prev.alerts;
+            enqueueActivityToast({
+              id: `alert:${current.preassessmentId}:${current.alerts}`,
+              kind: 'alert',
+              titolo: delta > 1 ? 'Nuovi alert' : 'Nuovo alert',
+              messaggio: `${current.clientLabel}: ${delta > 1 ? `ci sono ${delta} nuovi alert` : 'hai ricevuto un nuovo alert'}.`,
+              ctaLabel: 'Apri alert',
             });
           }
 
@@ -389,6 +425,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
           return prev && (
             current.chat > prev.chat
             || current.tickets > prev.tickets
+            || current.alerts > prev.alerts
             || (prev.status !== 'concluso' && current.status === 'concluso')
             || current.sectionValidationsCount > prev.sectionValidationsCount
             || (!prev.finalValidationAt && !!current.finalValidationAt)
@@ -599,6 +636,124 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                   )}
                 </NavLink>
               )}
+              {isStaff && (
+                <>
+                  <NavLink
+                    to="/checkup/chat"
+                    className={({ isActive }) =>
+                      [
+                        'group flex items-center rounded-2xl transition-colors',
+                        sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                        'text-sm font-medium',
+                        isActive
+                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                          : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                      ].join(' ')
+                    }
+                    title="Chat"
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {!sidebarCollapsed && (
+                          <span
+                            className={[
+                              'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                              isActive
+                                ? 'opacity-100 translate-x-0'
+                                : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                            ].join(' ')}
+                          />
+                        )}
+                        <MessageCircle size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
+                        <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                          Chat
+                        </span>
+                        {!sidebarCollapsed && staffUnreadTotals.chat > 0 && (
+                          <span className="ml-auto rounded-full bg-indigo-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
+                            {staffUnreadTotals.chat > 99 ? '99+' : staffUnreadTotals.chat}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                  <NavLink
+                    to="/checkup/tickets"
+                    className={({ isActive }) =>
+                      [
+                        'group flex items-center rounded-2xl transition-colors',
+                        sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                        'text-sm font-medium',
+                        isActive
+                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                          : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                      ].join(' ')
+                    }
+                    title="Ticket"
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {!sidebarCollapsed && (
+                          <span
+                            className={[
+                              'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                              isActive
+                                ? 'opacity-100 translate-x-0'
+                                : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                            ].join(' ')}
+                          />
+                        )}
+                        <Ticket size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
+                        <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                          Ticket
+                        </span>
+                        {!sidebarCollapsed && staffUnreadTotals.tickets > 0 && (
+                          <span className="ml-auto rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
+                            {staffUnreadTotals.tickets > 99 ? '99+' : staffUnreadTotals.tickets}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                  <NavLink
+                    to="/checkup/alerts"
+                    className={({ isActive }) =>
+                      [
+                        'group flex items-center rounded-2xl transition-colors',
+                        sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                        'text-sm font-medium',
+                        isActive
+                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                          : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                      ].join(' ')
+                    }
+                    title="Alert"
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {!sidebarCollapsed && (
+                          <span
+                            className={[
+                              'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                              isActive
+                                ? 'opacity-100 translate-x-0'
+                                : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                            ].join(' ')}
+                          />
+                        )}
+                        <Bell size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
+                        <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                          Alert
+                        </span>
+                        {!sidebarCollapsed && staffUnreadTotals.alerts > 0 && (
+                          <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
+                            {staffUnreadTotals.alerts > 99 ? '99+' : staffUnreadTotals.alerts}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                </>
+              )}
               {isStaff && navState?.hasAssessment && navState.clientId && (
                 <>
                   <button
@@ -629,106 +784,6 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                       Panoramica Checkup
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/checkup/clienti/${navState.clientId}?panel=chat`)}
-                    className={[
-                      'group flex w-full items-center rounded-2xl transition-colors',
-                      sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                      'text-sm font-medium',
-                      location.pathname === `/checkup/clienti/${navState.clientId}` && new URLSearchParams(location.search).get('panel') === 'chat'
-                        ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                        : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                    ].join(' ')}
-                    title="Chat"
-                  >
-                    {!sidebarCollapsed && <span className="h-7 w-1 rounded-full bg-indigo-400 opacity-0 -translate-x-1 transition-all duration-300 group-hover:opacity-80 group-hover:translate-x-0" />}
-                    <MessageCircle size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
-                    <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                      Chat
-                    </span>
-                    {!sidebarCollapsed && navState.chatCount > 0 && (
-                      <span className="ml-auto rounded-full bg-indigo-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
-                        {navState.chatCount > 99 ? '99+' : navState.chatCount}
-                      </span>
-                    )}
-                  </button>
-                  <NavLink
-                    to={`/checkup/clienti/${navState.clientId}/tickets`}
-                    className={({ isActive }) =>
-                      [
-                        'group flex items-center rounded-2xl transition-colors',
-                        sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                        'text-sm font-medium',
-                        isActive
-                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                          : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                      ].join(' ')
-                    }
-                    title="Ticket"
-                  >
-                    {({ isActive }) => (
-                      <>
-                        {!sidebarCollapsed && (
-                          <span
-                            className={[
-                              'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                              isActive
-                                ? 'opacity-100 translate-x-0'
-                                : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                            ].join(' ')}
-                          />
-                        )}
-                        <Ticket size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
-                        <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                          Ticket
-                        </span>
-                        {!sidebarCollapsed && navState.ticketCount > 0 && (
-                          <span className="ml-auto rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
-                            {navState.ticketCount > 99 ? '99+' : navState.ticketCount}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </NavLink>
-                  <NavLink
-                    to={`/checkup/clienti/${navState.clientId}/alerts`}
-                    className={({ isActive }) =>
-                      [
-                        'group flex items-center rounded-2xl transition-colors',
-                        sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
-                        'text-sm font-medium',
-                        isActive
-                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
-                          : 'text-slate-300 hover:bg-white/5 hover:text-white',
-                      ].join(' ')
-                    }
-                    title="Alert"
-                  >
-                    {({ isActive }) => (
-                      <>
-                        {!sidebarCollapsed && (
-                          <span
-                            className={[
-                              'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
-                              isActive
-                                ? 'opacity-100 translate-x-0'
-                                : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
-                            ].join(' ')}
-                          />
-                        )}
-                        <Bell size={18} className="text-slate-400 group-hover:text-white transition-all duration-200" />
-                        <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                          Alert
-                        </span>
-                        {!sidebarCollapsed && navState.alertCount > 0 && (
-                          <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
-                            {navState.alertCount > 99 ? '99+' : navState.alertCount}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </NavLink>
                 </>
               )}
               {!isStaff && (
@@ -736,7 +791,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                   {navState?.hasAssessment && (
                     <button
                       type="button"
-                      onClick={() => navigate('/checkup?panel=chat')}
+                      onClick={() => navigate('/checkup/chat')}
                       className={[
                         'group flex w-full items-center rounded-2xl transition-colors',
                         sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
@@ -1498,7 +1553,15 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
           const snapshot = preassessmentId ? previousStaffNotificationsRef.current?.[preassessmentId] : null;
           if (!snapshot) return;
           if (toast.kind === 'ticket') {
-            navigate(`/checkup/clienti/${snapshot.clientId}/tickets`);
+            navigate(`/checkup/tickets?clientId=${snapshot.clientId}`);
+            return;
+          }
+          if (toast.kind === 'alert') {
+            navigate(`/checkup/alerts?clientId=${snapshot.clientId}`);
+            return;
+          }
+          if (toast.kind === 'chat') {
+            navigate(`/checkup/chat?clientId=${snapshot.clientId}`);
             return;
           }
           navigate(`/checkup/clienti/${snapshot.clientId}`);

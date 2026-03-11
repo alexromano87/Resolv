@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CheckupLoginDto {
   @IsEmail()
@@ -7,6 +7,10 @@ export class CheckupLoginDto {
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(6)
+  // [M-03] Min 8 caratteri (NIST SP 800-63B / OWASP).
+  // Max 72: bcrypt tronca a 72 byte — due password che differiscono oltre il
+  // byte 72 produrrebbero lo stesso hash (hash collision silenzioso).
+  @MinLength(8)
+  @MaxLength(72)
   password: string;
 }

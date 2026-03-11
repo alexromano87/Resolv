@@ -61,6 +61,14 @@ describe('CheckupPreassessmentService', () => {
   let clientRepository: ReturnType<typeof mockRepository>;
   let notificationsService: { notifyCompletion: jest.Mock; notifyFinalValidation: jest.Mock };
   let validationService: CheckupPreassessmentValidationService;
+  let mockQueryRunner: {
+    connect: jest.Mock;
+    startTransaction: jest.Mock;
+    commitTransaction: jest.Mock;
+    rollbackTransaction: jest.Mock;
+    release: jest.Mock;
+    manager: { findOne: jest.Mock; save: jest.Mock; create: jest.Mock };
+  };
 
   const baseUser = {
     id: 'user-1',
@@ -116,6 +124,20 @@ describe('CheckupPreassessmentService', () => {
     };
     validationService = makeValidationServiceMock();
 
+    // QueryRunner mock — used by complete() and finalValidate() transactions
+    mockQueryRunner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      startTransaction: jest.fn().mockResolvedValue(undefined),
+      commitTransaction: jest.fn().mockResolvedValue(undefined),
+      rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      manager: {
+        findOne: jest.fn().mockResolvedValue({ ...baseRecord }),
+        save: jest.fn().mockImplementation(async (entity: any) => entity),
+        create: jest.fn((_: any, data: any) => data),
+      },
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CheckupPreassessmentService,
@@ -127,7 +149,7 @@ describe('CheckupPreassessmentService', () => {
         { provide: CheckupAuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
         { provide: CheckupPreassessmentNotificationsService, useValue: notificationsService },
         { provide: CheckupPreassessmentRenderService, useValue: { renderHtmlToPdf: jest.fn() } },
-        { provide: DataSource, useValue: { createQueryRunner: jest.fn() } },
+        { provide: DataSource, useValue: { createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner) } },
         { provide: CheckupPreassessmentValidationService, useValue: validationService },
       ],
     }).compile();
@@ -207,19 +229,16 @@ describe('CheckupPreassessmentService', () => {
     })).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('allows final validation by the super-owner when all areas and sections are validated', async () => {
-    preassessmentRepository.findOne.mockResolvedValue({
+  it('allows final validation by the super-owner when all relevant sections are validated', async () => {
+    // finalValidate() ora usa queryRunner.manager.findOne (transazione con write lock)
+    mockQueryRunner.manager.findOne.mockResolvedValue({
       ...baseRecord,
       macroAreaAssignments: ['a'],
-      macroValidations: {
-        a: { by: { id: 'user-1', name: 'Mario Rossi', ruolo: 'cliente' }, at: '2026-03-07T12:00:00.000Z' },
-        b: { by: { id: 'user-2', name: 'Giulia Bianchi', ruolo: 'cliente' }, at: '2026-03-07T12:01:00.000Z' },
-      },
       sectionValidations: {
         sec_a: { by: { id: 'user-1', name: 'Mario Rossi', ruolo: 'cliente' }, at: '2026-03-07T12:00:00.000Z' },
         sec_b: { by: { id: 'user-2', name: 'Giulia Bianchi', ruolo: 'cliente' }, at: '2026-03-07T12:01:00.000Z' },
       },
-      status: 'concluso',
+      status: 'in_progress',
     });
     clientRepository.findOne.mockResolvedValue({ id: 'client-1', nome: 'Cliente Demo', ragioneSociale: 'Cliente Demo' });
     userRepository.find.mockResolvedValue([{ id: 'admin-1', email: 'admin@studio.it', ruolo: 'admin_studio', attivo: true }]);
@@ -241,12 +260,9 @@ describe('CheckupPreassessmentService', () => {
   });
 
   it('rejects final validation if not all sections are validated', async () => {
-    preassessmentRepository.findOne.mockResolvedValue({
+    // finalValidate() ora usa queryRunner.manager.findOne (transazione con write lock)
+    mockQueryRunner.manager.findOne.mockResolvedValue({
       ...baseRecord,
-      macroValidations: {
-        a: { by: { id: 'user-1', name: 'Mario Rossi', ruolo: 'cliente' }, at: '2026-03-07T12:00:00.000Z' },
-        b: { by: { id: 'user-2', name: 'Giulia Bianchi', ruolo: 'cliente' }, at: '2026-03-07T12:01:00.000Z' },
-      },
       sectionValidations: {
         sec_a: { by: { id: 'user-1', name: 'Mario Rossi', ruolo: 'cliente' }, at: '2026-03-07T12:00:00.000Z' },
       },
@@ -257,5 +273,28 @@ describe('CheckupPreassessmentService', () => {
       superOwner: true,
       macroAreaAssignments: ['a', 'b'],
     } as any)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('allows the super-owner to reopen a checkup already closed', async () => {
+    mockQueryRunner.manager.findOne.mockResolvedValue({
+      ...baseRecord,
+      status: 'concluso',
+      finalValidation: {
+        by: { id: 'user-1', name: 'Mario Rossi', ruolo: 'cliente' },
+        at: '2026-03-07T12:00:00.000Z',
+      },
+      completedAt: new Date('2026-03-07T12:00:00.000Z'),
+      completedById: 'user-1',
+    });
+
+    const result = await service.reopenFinalValidation({
+      ...baseUser,
+      superOwner: true,
+    } as any);
+
+    expect(result.status).toBe('in_progress');
+    expect(result.finalValidation).toBeNull();
+    expect(result.completedAt).toBeNull();
+    expect(result.completedById).toBeNull();
   });
 });

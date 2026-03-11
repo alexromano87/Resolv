@@ -57,3 +57,6 @@ docs/
 # Test
 test-resutls/
 apps/frontend/playwright-report/
+
+# Varie
+apps/backend/generate-preassessment-excel.js

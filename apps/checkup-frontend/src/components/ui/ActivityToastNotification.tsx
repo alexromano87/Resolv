@@ -1,6 +1,6 @@
-import { MessageCircle, Ticket, ClipboardCheck, CheckCircle2, X } from 'lucide-react';
+import { MessageCircle, Ticket, ClipboardCheck, CheckCircle2, Bell, X } from 'lucide-react';
 
-export type ActivityToastKind = 'chat' | 'ticket' | 'validation' | 'completed' | 'approved';
+export type ActivityToastKind = 'chat' | 'ticket' | 'alert' | 'validation' | 'completed' | 'approved';
 
 export interface ActivityToast {
   id: string;
@@ -26,6 +26,11 @@ const TOAST_STYLES: Record<ActivityToastKind, { box: string; icon: string; Icon:
     box: 'bg-amber-50 border-amber-300 text-amber-900',
     icon: 'text-amber-600',
     Icon: Ticket,
+  },
+  alert: {
+    box: 'bg-rose-50 border-rose-300 text-rose-900',
+    icon: 'text-rose-600',
+    Icon: Bell,
   },
   validation: {
     box: 'bg-indigo-50 border-indigo-300 text-indigo-900',

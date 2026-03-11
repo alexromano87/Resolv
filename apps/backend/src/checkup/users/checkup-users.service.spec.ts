@@ -86,6 +86,14 @@ describe('CheckupUsersService', () => {
       numeroUtenze: 5,
       license: { studioId: 'studio-1' },
     });
+    sublicenseRepository.find.mockResolvedValue([
+      {
+        id: 'sub-1',
+        clientId: 'client-1',
+        licenseId: 'lic-1',
+        numeroUtenze: 5,
+      },
+    ]);
     licenseRepository.findOne.mockResolvedValue({
       id: 'lic-1',
       studioId: 'studio-1',
@@ -199,5 +207,79 @@ describe('CheckupUsersService', () => {
     }, currentUser)).rejects.toThrow(
       'Esiste gia un Super-owner attivo per questo cliente: Laura Verdi.',
     );
+  });
+
+  it('writes owner fields on the latest preassessment record', async () => {
+    preassessmentRepository.findOne.mockResolvedValue({
+      id: 'pre-latest',
+      clientId: 'client-1',
+      isLatest: true,
+      data: {},
+    });
+
+    await service.create({
+      email: 'cliente.owner@example.com',
+      password: 'Password123!',
+      nome: 'Mario',
+      cognome: 'Rossi',
+      ruolo: 'cliente',
+      clientId: 'client-1',
+      sublicenseId: 'sub-1',
+      macroAreaAssignments: ['a'],
+      macroAreaOwner: ['a'],
+    }, currentUser);
+
+    expect(preassessmentRepository.findOne).toHaveBeenCalledWith({ where: { clientId: 'client-1', isLatest: true } });
+    expect(preassessmentRepository.save).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'pre-latest',
+      data: expect.objectContaining({
+        owner_a_nome: 'Mario Rossi',
+        owner_a_ruolo: 'Cliente',
+        owner_a_email: 'cliente.owner@example.com',
+      }),
+    }));
+  });
+
+  it('refreshes owner fields on the latest preassessment when owner data changes', async () => {
+    userRepository.findOne.mockResolvedValue({
+      id: 'user-1',
+      email: 'ale@test.it',
+      nome: 'Ale',
+      cognome: 'Prima',
+      ruolo: 'cliente',
+      studioId: null,
+      clientId: 'client-1',
+      sublicenseId: 'sub-1',
+      macroAreaOwner: ['a'],
+      macroAreaAssignments: ['a'],
+      superOwner: false,
+      attivo: true,
+    });
+    userRepository.find.mockResolvedValue([]);
+    preassessmentRepository.findOne.mockResolvedValue({
+      id: 'pre-latest',
+      clientId: 'client-1',
+      isLatest: true,
+      data: {
+        owner_a_nome: 'Ale Prima',
+        owner_a_ruolo: 'Cliente',
+        owner_a_email: 'ale@test.it',
+      },
+    });
+
+    await service.update('user-1', {
+      nome: 'Alessandro',
+      cognome: 'Romano',
+    }, currentUser);
+
+    expect(preassessmentRepository.findOne).toHaveBeenCalledWith({ where: { clientId: 'client-1', isLatest: true } });
+    expect(preassessmentRepository.save).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'pre-latest',
+      data: expect.objectContaining({
+        owner_a_nome: 'Alessandro Romano',
+        owner_a_ruolo: 'Cliente',
+        owner_a_email: 'ale@test.it',
+      }),
+    }));
   });
 });

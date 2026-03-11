@@ -169,8 +169,20 @@ export class CheckupAuditLogService {
         .map((key) => {
           const value = (log as any)[key];
           if (value === null || value === undefined) return '';
-          const stringValue = String(value).replace(/"/g, '""');
-          return stringValue.includes(',') ? `"${stringValue}"` : stringValue;
+          let stringValue = String(value);
+
+          // [M-04] Formula injection: celle che iniziano con =, +, -, @, TAB o CR
+          // vengono interpretate come formule da Excel/LibreOffice. Prefissiamo
+          // con un apostrofo per forzare il trattamento come testo letterale.
+          if (/^[=+\-@\t\r]/.test(stringValue)) {
+            stringValue = `'${stringValue}`;
+          }
+
+          // Escape delle virgolette interne e quoting se necessario
+          const escaped = stringValue.replace(/"/g, '""');
+          return escaped.includes(',') || escaped.includes('"') || escaped.includes('\n')
+            ? `"${escaped}"`
+            : escaped;
         })
         .join(','),
     );

@@ -13,6 +13,19 @@ import { CheckupPreassessmentRenderService } from './checkup-preassessment-rende
 const EXPORT_DIR = path.resolve(process.cwd(), 'uploads', 'checkup-exports');
 const JOB_RETENTION_HOURS = 24;
 
+/**
+ * [L-02] Verifica che filePath sia all'interno di EXPORT_DIR.
+ * Impedisce path traversal nel caso in cui job.resultPath fosse manipolato
+ * (es. via bug nell'upsert o injection SQL teorica).
+ */
+function assertSafeExportPath(filePath: string): void {
+  const resolved = path.resolve(filePath);
+  const safeBase = EXPORT_DIR + path.sep;
+  if (!resolved.startsWith(safeBase) && resolved !== EXPORT_DIR) {
+    throw new Error(`[L-02] Path traversal bloccato: percorso fuori dalla directory di export consentita.`);
+  }
+}
+
 @Injectable()
 export class CheckupPreassessmentExportJobsService implements OnModuleInit {
   private readonly logger = new Logger(CheckupPreassessmentExportJobsService.name);
@@ -132,6 +145,9 @@ export class CheckupPreassessmentExportJobsService implements OnModuleInit {
     if (job.status !== 'completed' || !job.resultPath || !job.filename || !job.mimeType) {
       throw new BadRequestException("Il file esportato non e' ancora disponibile");
     }
+    // [L-02] Verifica path traversal prima di esporre il percorso al controller
+    assertSafeExportPath(job.resultPath);
+
     if (!fs.existsSync(job.resultPath)) {
       throw new NotFoundException('File esportato non trovato');
     }
@@ -203,6 +219,8 @@ export class CheckupPreassessmentExportJobsService implements OnModuleInit {
     for (const job of jobs) {
       if (job.resultPath && fs.existsSync(job.resultPath)) {
         try {
+          // [L-02] Verifica path traversal anche in fase di cleanup
+          assertSafeExportPath(job.resultPath);
           await fsp.unlink(job.resultPath);
         } catch (error: any) {
           this.logger.warn(`Impossibile rimuovere il file del job ${job.id}: ${error?.message || 'errore sconosciuto'}`);

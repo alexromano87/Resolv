@@ -15,6 +15,8 @@ import { CheckupQuestionnaire } from './questionnaires/checkup-questionnaire.ent
 import { CheckupAnswer } from './answers/checkup-answer.entity';
 import { CheckupDocument } from './documents/checkup-document.entity';
 import { CheckupChatMessage } from './chat/checkup-chat-message.entity';
+import { CheckupDirectChatConversation } from './direct-chat/checkup-direct-chat-conversation.entity';
+import { CheckupDirectChatMessage } from './direct-chat/checkup-direct-chat-message.entity';
 import { CheckupPreassessment } from './preassessment/checkup-preassessment.entity';
 import { CheckupPreassessmentMessage } from './preassessment/checkup-preassessment-message.entity';
 import { CheckupPreassessmentTicket } from './preassessment/checkup-preassessment-ticket.entity';
@@ -55,6 +57,8 @@ import { CheckupDocumentsController } from './documents/checkup-documents.contro
 // Chat
 import { CheckupChatService } from './chat/checkup-chat.service';
 import { CheckupChatController } from './chat/checkup-chat.controller';
+import { CheckupDirectChatService } from './direct-chat/checkup-direct-chat.service';
+import { CheckupDirectChatController } from './direct-chat/checkup-direct-chat.controller';
 import { CheckupPreassessmentService } from './preassessment/checkup-preassessment.service';
 import { CheckupPreassessmentController } from './preassessment/checkup-preassessment.controller';
 import { CheckupPreassessmentChatService } from './preassessment/checkup-preassessment-chat.service';
@@ -70,6 +74,8 @@ import { CheckupPreassessmentRetentionService } from './preassessment/checkup-pr
 import { CheckupPreassessmentPresenceService } from './preassessment/checkup-preassessment-presence.service';
 import { CheckupPreassessmentValidationService } from './preassessment/checkup-preassessment-validation.service';
 import { CheckupPreassessmentExportJobsService } from './preassessment/checkup-preassessment-export-jobs.service';
+import { CheckupPreassessmentExcelExportService } from './preassessment/checkup-preassessment-excel-export.service';
+import { CheckupPreassessmentExcelImportService } from './preassessment/checkup-preassessment-excel-import.service';
 import { CheckupStudiosService } from './studios/checkup-studios.service';
 import { CheckupStudiosController } from './studios/checkup-studios.controller';
 import { CheckupClient } from './clients/checkup-client.entity';
@@ -106,6 +112,8 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
       CheckupAnswer,
       CheckupDocument,
       CheckupChatMessage,
+      CheckupDirectChatConversation,
+      CheckupDirectChatMessage,
       CheckupPreassessment,
       CheckupPreassessmentMessage,
       CheckupPreassessmentTicket,
@@ -149,6 +157,7 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
     CheckupAnswersController,
     CheckupDocumentsController,
     CheckupChatController,
+    CheckupDirectChatController,
     CheckupPreassessmentController,
     CheckupPreassessmentChatController,
     CheckupPreassessmentThreadsController,
@@ -183,6 +192,7 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
     CheckupAnswersService,
     CheckupDocumentsService,
     CheckupChatService,
+    CheckupDirectChatService,
     CheckupPreassessmentService,
     CheckupPreassessmentNotificationsService,
     CheckupPreassessmentRenderService,
@@ -194,6 +204,8 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
     CheckupPreassessmentPresenceService,
     CheckupPreassessmentValidationService,
     CheckupPreassessmentExportJobsService,
+    CheckupPreassessmentExcelExportService,
+    CheckupPreassessmentExcelImportService,
     CheckupStudiosService,
     QuestionManagementService,
     QuestionSeedService,

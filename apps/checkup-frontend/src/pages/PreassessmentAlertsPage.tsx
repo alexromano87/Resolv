@@ -1,6 +1,6 @@
 // apps/checkup-frontend/src/pages/PreassessmentAlertsPage.tsx
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Bell,
   BellOff,
@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Archive,
   Printer,
+  Search,
 } from 'lucide-react';
 import {
   preassessmentAlertApi,
@@ -134,7 +135,10 @@ export function PreassessmentAlertsPage() {
   const { clientId } = useParams<{ clientId?: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isCliente = user?.ruolo === 'cliente';
+  const scopedClientId = clientId ?? searchParams.get('clientId') ?? undefined;
+  const isGlobalStaffView = !isCliente && !scopedClientId;
 
   const [preassessmentId, setPreassessmentId] = useState<string | null>(null);
   const [clientUserId, setClientUserId] = useState<string | null>(null);
@@ -150,6 +154,8 @@ export function PreassessmentAlertsPage() {
   const [filtroStato, setFiltroStato] = useState<StatoFilter>('tutti');
   const [showArchived, setShowArchived] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [search, setSearch] = useState(searchParams.get('search') ?? '');
+  const [appliedSearch, setAppliedSearch] = useState(searchParams.get('search') ?? '');
 
   // Create modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -174,13 +180,15 @@ export function PreassessmentAlertsPage() {
         if (isCliente) {
           const pre = await preassessmentApi.get();
           setPreassessmentId(pre.id);
-        } else if (clientId) {
-          const data = await preassessmentApi.getClient(clientId);
+        } else if (scopedClientId) {
+          const data = await preassessmentApi.getClient(scopedClientId);
           setPreassessmentId(data.preassessment.id);
           setClientUserId(data.client.id);
           setClientNome(data.client.azienda || data.client.nome || '');
         } else {
-          setError('Pre-assessment non trovato');
+          setPreassessmentId(null);
+          setClientUserId(null);
+          setClientNome('');
           setLoading(false);
         }
       } catch (err: any) {
@@ -189,16 +197,26 @@ export function PreassessmentAlertsPage() {
       }
     };
     load();
-  }, [isCliente, clientId]);
+  }, [isCliente, scopedClientId]);
 
   useEffect(() => {
-    if (preassessmentId) {
+    if (preassessmentId || isGlobalStaffView) {
       loadAlerts();
-      // Mark alerts as seen to reset the badge for all users
-      threadsUnreadApi.markSeen(preassessmentId, 'alerts').catch(() => {});
+      if (preassessmentId) {
+        threadsUnreadApi.markSeen(preassessmentId, 'alerts').catch(() => {});
+      } else if (isGlobalStaffView) {
+        preassessmentApi.listClients()
+          .then((entries) => Promise.all(
+            entries
+              .map((entry) => entry.preassessment?.id)
+              .filter((id): id is string => !!id)
+              .map((id) => threadsUnreadApi.markSeen(id, 'alerts').catch(() => {})),
+          ))
+          .catch(() => {});
+      }
       window.dispatchEvent(new CustomEvent('checkup:mark-seen', { detail: 'alerts' }));
     }
-  }, [preassessmentId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [preassessmentId, isGlobalStaffView, appliedSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Fetch studio colleagues and client users (staff only) ──────────────────
   useEffect(() => {
@@ -232,11 +250,14 @@ export function PreassessmentAlertsPage() {
 
   // ── Data loading ────────────────────────────────────────────────────────────
   const loadAlerts = async () => {
-    if (!preassessmentId) return;
     try {
       setLoading(true);
       setError(null);
-      const data = await preassessmentAlertApi.list(preassessmentId);
+      const data = isGlobalStaffView
+        ? await preassessmentAlertApi.listAll(appliedSearch || undefined)
+        : preassessmentId
+          ? await preassessmentAlertApi.list(preassessmentId)
+          : [];
       setAlerts(data);
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Errore nel caricamento degli alert');
@@ -474,7 +495,7 @@ export function PreassessmentAlertsPage() {
   const handlePrint = () => {
     const lines: string[] = [
       'ESPORTAZIONE ALERT',
-      `Cliente: ${clientNome || 'Non specificato'}`,
+      `Cliente: ${clientNome || (isGlobalStaffView ? 'Tutti i clienti' : 'Non specificato')}`,
       `Generato il: ${formatExportDateTime(new Date().toISOString())}`,
       `Numero alert: ${filteredAlerts.length}`,
       '',
@@ -531,7 +552,9 @@ export function PreassessmentAlertsPage() {
           <p className="max-w-xl text-sm text-slate-500 dark:text-slate-400">
             {isCliente
               ? 'Visualizza gli alert ricevuti dal tuo consulente e invia notifiche.'
-              : 'Invia alert al cliente e visualizza le notifiche ricevute.'}
+              : isGlobalStaffView
+                ? 'Gestisci gli alert aperti verso lo studio o l’utente loggato.'
+                : 'Invia alert al cliente e visualizza le notifiche ricevute.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -543,10 +566,12 @@ export function PreassessmentAlertsPage() {
             <Printer className="h-4 w-4" />
             Stampa
           </button>
-          <button onClick={openCreateModal} className="wow-button">
-            <Plus className="h-4 w-4" />
-            Nuovo Alert
-          </button>
+          {!isGlobalStaffView && (
+            <button onClick={openCreateModal} className="wow-button">
+              <Plus className="h-4 w-4" />
+              Nuovo Alert
+            </button>
+          )}
         </div>
       </div>
       {/* Success/Error banners */}
@@ -564,6 +589,56 @@ export function PreassessmentAlertsPage() {
       {/* Filters */}
       <div className="wow-panel p-4 relative z-20 no-print">
         <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-1 items-center gap-2">
+              <div className="relative flex-1 md:max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      setAppliedSearch(search.trim());
+                      setCurrentPage(1);
+                    }
+                  }}
+                  placeholder="Cerca cliente, alert o utente"
+                  className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  setAppliedSearch(search.trim());
+                  setCurrentPage(1);
+                }}
+                className="wow-button"
+              >
+                <Search className="h-4 w-4" />
+                Cerca
+              </button>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => { setShowArchived(!showArchived); setCurrentPage(1); }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition ${
+                  showArchived
+                    ? 'bg-slate-700 text-white'
+                    : 'bg-white/80 text-slate-600 hover:bg-white'
+                }`}
+              >
+                <Archive className="h-3 w-3" />
+                Archiviati{archivedCount > 0 && !showArchived ? ` (${archivedCount})` : ''}
+              </button>
+              <button
+                onClick={loadAlerts}
+                disabled={loading}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white/80 rounded-full hover:bg-white"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Aggiorna
+              </button>
+            </div>
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-slate-600 w-14">Stato:</span>
             <div className="flex flex-wrap gap-1.5">
@@ -601,27 +676,7 @@ export function PreassessmentAlertsPage() {
                 ))}
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button
-                onClick={() => { setShowArchived(!showArchived); setCurrentPage(1); }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition ${
-                  showArchived
-                    ? 'bg-slate-700 text-white'
-                    : 'bg-white/80 text-slate-600 hover:bg-white'
-                }`}
-              >
-                <Archive className="h-3 w-3" />
-                Archiviati{archivedCount > 0 && !showArchived ? ` (${archivedCount})` : ''}
-              </button>
-              <button
-                onClick={loadAlerts}
-                disabled={loading}
-                className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white/80 rounded-full hover:bg-white"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-                Aggiorna
-              </button>
-            </div>
+            <div />
           </div>
         </div>
       </div>
@@ -643,7 +698,7 @@ export function PreassessmentAlertsPage() {
             const warning = isInWarningWindow(alert);
             const expired = isExpiredOrClose(alert);
             const canEdit = isMyAlert(alert) && (alert.stato ?? 'aperto') === 'aperto';
-            const canClose = (isMyAlert(alert) || alert.targetUserId === user?.id) && (alert.stato ?? 'aperto') === 'aperto';
+            const canClose = ((isMyAlert(alert) || alert.targetUserId === user?.id || !isCliente) && (alert.stato ?? 'aperto') === 'aperto');
             const canDelete = isMyAlert(alert);
             const canArchive = (alert.stato ?? 'aperto') !== 'aperto' && !alert.archiviato;
             const isPrivate = alert.targetUserId != null && alert.targetUserId === alert.createdById;
@@ -699,6 +754,12 @@ export function PreassessmentAlertsPage() {
                     <p className="text-sm text-slate-700 whitespace-pre-wrap mb-2">
                       {alert.messaggio}
                     </p>
+
+                    {!isCliente && alert.client?.label && (
+                      <p className="mb-2 text-xs font-medium text-slate-500">
+                        Cliente: {alert.client.label}
+                      </p>
+                    )}
 
                     {/* Expiry info */}
                     {alert.dataScadenza && (

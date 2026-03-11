@@ -127,10 +127,27 @@ export class CheckupPreassessmentDocumentsService {
     }
   }
 
-  private canEdit(preassessment: { clientId: string; studioCanEdit: boolean }, user: CheckupCurrentUserData) {
-    if (user.clientId && user.clientId === preassessment.clientId) return true;
-    if (user.ruolo !== 'cliente') return true;
-    return false;
+  /**
+   * [M-06] Verifica se l'utente è autorizzato a modificare i documenti.
+   *
+   * L'accesso al preassessment è già garantito da getPreassessmentForDocuments →
+   * ensureAccess (che verifica la catena studio → licenza → sublicenza → cliente).
+   * Questa funzione aggiunge solo il controllo di ruolo per i clienti:
+   * - cliente: può modificare solo il proprio preassessment
+   * - staff (non-cliente): accesso già verificato da ensureAccess, consentito
+   *
+   * La condizione generica `user.ruolo !== 'cliente'` è stata rimossa perché
+   * potenzialmente ambigua; la protezione cross-studio è delegata interamente
+   * a ensureAccess che è chiamato prima di canEdit in tutti i flussi.
+   */
+  private canEdit(preassessment: { clientId: string; studioCanEdit: boolean }, user: CheckupCurrentUserData): boolean {
+    if (user.ruolo === 'cliente') {
+      // Il cliente può modificare solo il preassessment associato al proprio clientId
+      return Boolean(user.clientId && user.clientId === preassessment.clientId);
+    }
+    // Staff (admin_studio, segreteria, collaboratore): autorizzazione già verificata
+    // da ensureAccess nella chiamata upstream; qui diamo il via libera.
+    return true;
   }
 
   async upload(

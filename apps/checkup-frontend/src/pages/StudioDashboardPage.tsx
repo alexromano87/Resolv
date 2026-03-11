@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight,
@@ -23,8 +23,6 @@ import type { CheckupUser } from '../api/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { SECTIONS } from '../data/preassessment';
 
-const requiredFields = SECTIONS.flatMap((s) => s.fields.filter((f) => f.required).map((f) => f.id));
-
 const formatPercent = (value: number) => `${Math.round(value)}%`;
 
 export default function StudioDashboardPage() {
@@ -45,7 +43,12 @@ export default function StudioDashboardPage() {
   const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
   const [unreadCounts, setUnreadCounts] = useState<Record<string, { tickets: number; alerts: number; chat: number }>>({});
 
-  const fetchUnreadCounts = async (clientList: PreassessmentClientEntry[]) => {
+  const isOwnerSection = useCallback(
+    (section: (typeof SECTIONS)[number]) => section.macro === 'k' || section.fields.some((field) => /^owner_[a-j]_/.test(field.id)),
+    [],
+  );
+
+  const fetchUnreadCounts = useCallback(async (clientList: PreassessmentClientEntry[]) => {
     const withPre = clientList.filter((e) => e.preassessment?.id);
     const results = await Promise.allSettled(
       withPre.map((e) =>
@@ -59,28 +62,58 @@ export default function StudioDashboardPage() {
       }
     });
     setUnreadCounts(counts);
-  };
+  }, []);
+
+  const loadDashboardData = useCallback(async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
+      const [clientEntries, usersData, profileData, sublicensesData, usageData] = await Promise.all([
+        preassessmentApi.listClients(),
+        usersApi.getAll(undefined, true),
+        studiosApi.getMyStudio(),
+        studiosApi.listSublicenses(),
+        usersApi.getUsage(),
+      ]);
+      setClients(clientEntries);
+      setUsers(usersData);
+      setProfile(profileData);
+      setSublicenses(sublicensesData);
+      setUsage(usageData);
+      setError('');
+      await fetchUnreadCounts(clientEntries);
+    } catch (err) {
+      if (!silent) {
+        setError(err instanceof Error ? err.message : 'Errore nel caricamento');
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [fetchUnreadCounts]);
 
   useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      preassessmentApi.listClients(),
-      usersApi.getAll(undefined, true),
-      studiosApi.getMyStudio(),
-      studiosApi.listSublicenses(),
-      usersApi.getUsage(),
-    ])
-      .then(([clientEntries, usersData, profileData, sublicensesData, usageData]) => {
-        setClients(clientEntries);
-        setUsers(usersData);
-        setProfile(profileData);
-        setSublicenses(sublicensesData);
-        setUsage(usageData);
-        fetchUnreadCounts(clientEntries);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Errore nel caricamento'))
-      .finally(() => setLoading(false));
-  }, []);
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadDashboardData(true);
+    }, 30_000);
+    const handleFocus = () => {
+      loadDashboardData(true);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadDashboardData(true);
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [loadDashboardData]);
 
   useEffect(() => {
     if (clients.length === 0) return;
@@ -118,8 +151,11 @@ export default function StudioDashboardPage() {
 
   const getCompletion = (entry: PreassessmentClientEntry) => {
     const data = entry.preassessment?.data || {};
-    const total = requiredFields.length;
-    const filled = requiredFields.filter((id) => data[id]?.trim()).length;
+    const naFields = entry.preassessment?.naFields || {};
+    const countedSections = SECTIONS.filter((section) => !isOwnerSection(section));
+    const fields = countedSections.flatMap((section) => section.fields.filter((field) => field.required));
+    const total = fields.length;
+    const filled = fields.filter((field) => !!naFields[field.id] || !!data[field.id]?.trim()).length;
     return total > 0 ? Math.round((filled / total) * 100) : 0;
   };
 

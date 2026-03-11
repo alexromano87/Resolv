@@ -145,27 +145,18 @@ export class RedisRateLimitGuard implements CanActivate {
   }
 
   /**
-   * Estrae IP del client considerando proxy e load balancer
+   * Estrae l'IP del client in modo sicuro.
+   *
+   * [H-03] NON leggiamo più X-Forwarded-For manualmente: un client malevolo
+   * potrebbe inviare header arbitrari (es. "X-Forwarded-For: 1.1.1.1") per
+   * presentarsi sempre con un IP diverso e aggirare il rate limiting.
+   * Express risolve request.ip correttamente quando "trust proxy" è attivo in
+   * main.ts (app.set('trust proxy', 1)): l'IP viene derivato dal socket reale
+   * + il numero di hop di proxy fidati, rendendo il valore non spoofabile da
+   * client esterni alla catena di proxy controllata.
    */
   private extractClientIp(request: any): string {
-    // X-Forwarded-For: client, proxy1, proxy2
-    // Prendi il primo IP (client reale)
-    const forwardedFor = request.headers['x-forwarded-for'];
-    if (forwardedFor) {
-      const ips = Array.isArray(forwardedFor)
-        ? forwardedFor[0]
-        : forwardedFor.split(',')[0];
-      return ips.trim();
-    }
-
-    // X-Real-IP header (Nginx)
-    const realIp = request.headers['x-real-ip'];
-    if (realIp) {
-      return Array.isArray(realIp) ? realIp[0] : realIp;
-    }
-
-    // Fallback a request.ip
-    return request.ip || request.connection?.remoteAddress || 'unknown';
+    return request.ip || request.socket?.remoteAddress || 'unknown';
   }
 
   /**

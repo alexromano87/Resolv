@@ -27,6 +27,11 @@ async function bootstrap() {
   const nodeEnv = configService.get<string>('NODE_ENV', 'development');
   const isProduction = nodeEnv === 'production';
 
+  // [H-03] Trust proxy: Express calcola request.ip usando il socket reale +
+  // 1 hop di proxy fidato (nginx). Impedisce a client esterni di iniettare
+  // X-Forwarded-For arbitrari per aggirare il rate limiting.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   app.use(cookieParser());
   app.use(helmet({
     // crossOriginEmbedderPolicy disabled — needed for embedded iframes / PDF viewer
