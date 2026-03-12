@@ -56,7 +56,7 @@ export default function LoginPage() {
         const target = isLicenziatario ? '/checkup/dashboard-studio' : '/checkup/';
         navigate(target, { replace: true });
       } else {
-        setTwoFactorUserId(res.userId);
+        setTwoFactorUserId(res.challengeToken);
         setTwoFactorChannel(res.channel);
       }
     } catch (err) {

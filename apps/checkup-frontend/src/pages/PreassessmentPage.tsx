@@ -2010,8 +2010,6 @@ export default function PreassessmentPage() {
       && !finalValidation
       && totalSectionsToValidate > 0
       && validatedSectionsTotal === totalSectionsToValidate;
-    const sectionCards = sections.filter(sectionMatchesDashboardFilter);
-
     return (
       <div className="space-y-6">
         <div className="wow-card p-6 md:p-8 bg-gradient-to-br from-indigo-700 via-blue-600 to-cyan-500 text-white">
@@ -2439,49 +2437,6 @@ export default function PreassessmentPage() {
           </div>
         </div>
 
-        {sectionCards.length === 0 ? (
-          <div className="wow-panel p-6 text-sm text-slate-500">
-            Nessuna sezione corrisponde al filtro selezionato.
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {sectionCards.map((s) => {
-              const done = sDone(s);
-              const total = sTotal(s);
-              const sp = total > 0 ? Math.round((done / total) * 100) : 0;
-              const macro = macroAreas.find((m) => m.id === s.macro);
-              const isValidated = !!sectionValidations[s.id];
-              const realIndex = sections.findIndex((sec) => sec.id === s.id);
-              return (
-              <button
-                key={s.id}
-                onClick={() => {
-                  if (realIndex < 0) return;
-                  setView(realIndex);
-                  setPanel(null);
-                }}
-                className={`wow-card p-4 text-left transition hover:border-blue-300 ${isValidated ? 'border-emerald-200' : ''}`}
-              >
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: macro?.color }}>{macro?.label}</span>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-                    {isValidated ? (
-                      <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                    ) : (
-                      <span className="h-2 w-2 rounded-full bg-amber-400" />
-                    )}
-                    <span>{done}/{total}</span>
-                  </div>
-                </div>
-                <div className="text-sm font-semibold text-slate-900">{s.title}</div>
-                <div className="mt-3 h-2 rounded-full bg-slate-100">
-                  <div className="h-full rounded-full" style={{ width: `${sp}%`, background: sp === 100 ? '#10b981' : macro?.color }} />
-                </div>
-              </button>
-            );
-            })}
-          </div>
-        )}
       </div>
     );
   };

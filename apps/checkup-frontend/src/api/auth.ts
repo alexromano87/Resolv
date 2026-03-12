@@ -55,7 +55,7 @@ export interface RefreshResponse {
 
 export interface TwoFactorRequiredResponse {
   requiresTwoFactor: true;
-  userId: string;
+  challengeToken: string;
   channel: 'email' | 'sms';
 }
 
@@ -75,8 +75,8 @@ export const authApi = {
   login: (email: string, password: string) =>
     api.post<LoginResult>('/checkup/auth/login', { email, password }, { skipAuthRedirect: true, credentials: 'include' }),
 
-  verifyTwoFactorLogin: (userId: string, code: string) =>
-    api.post<LoginResponse>('/checkup/auth/login/2fa', { userId, code }, { skipAuthRedirect: true, credentials: 'include' }),
+  verifyTwoFactorLogin: (challengeToken: string, code: string) =>
+    api.post<LoginResponse>('/checkup/auth/login/2fa', { token: challengeToken, code }, { skipAuthRedirect: true, credentials: 'include' }),
 
   requestTwoFactorEnable: (channel: 'email' | 'sms', telefono?: string) =>
     api.post('/checkup/auth/2fa/enable/request', { channel, telefono }),
