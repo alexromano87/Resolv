@@ -28,6 +28,8 @@ RUN apk add --no-cache \
     harfbuzz \
     ca-certificates \
     ttf-freefont \
+    font-noto \
+    font-noto-extra \
     su-exec
 
 # Tell Puppeteer to use the installed Chromium

@@ -1091,9 +1091,10 @@ export default function PreassessmentPage() {
     // Single source of truth for the cover header band background.
     // The logo transparency is flattened against the exact same color,
     // so no darker rectangle remains visible around the logo in the PDF.
-    const coverCardBg = 'rgb(25, 46, 104)';
+    // Cover background is white — flatten against white so transparent pixels
+    // blend seamlessly with the page (no coloured halo around the logo).
     const logoForCover = studioLogoUrl
-      ? await flattenLogoTransparency(studioLogoUrl, coverCardBg)
+      ? await flattenLogoTransparency(studioLogoUrl, '#ffffff')
       : logoUrl;
     const sanitize = (value?: string) => (value || '').replace(/[✅✔️✔🟢🟩]/g, '').trim();
 
@@ -1113,24 +1114,22 @@ export default function PreassessmentPage() {
     const excludeNA = exportMode === 'excludeNA';
     const includeNotes = exportIncludeConsultantNotes;
 
-    let html = `<!doctype html><html lang="it"><head><meta charset="utf-8">
-    <title>Report Pre-Assessment — ${ragione}</title>
-    <style>
-      @page { size: A4; margin: 10mm; }
+    let html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><style>
+      @page { size: A4; margin: 0mm; }
       * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       html, body { height: auto; }
       body {
-        font-family: 'Arial', 'Helvetica', sans-serif;
+        font-family: 'Noto Sans', system-ui, Helvetica, Arial, FreeSans, sans-serif;
         background: #f6f8fb;
         color: #1c2738;
         font-size: 11pt;
         line-height: 1.5;
       }
       .pdf-page {
-        width: 190mm;
-        height: 277mm;
+        width: 210mm;
+        height: 297mm;
         padding: 0;
-        margin: 0 auto;
+        margin: 0;
         box-sizing: border-box;
         background: #f6f8fb;
         page-break-after: always;
@@ -1142,113 +1141,83 @@ export default function PreassessmentPage() {
         break-after: auto;
       }
 
-      .cover-page {
-        padding: 0;
-        background: #f6f8fb;
+      /* ================================================================
+         COVER — "Diagonal Blueprint"
+         White background with geometric diagonal blue stripe corners,
+         echoing the style of modern annual report covers.
+         ================================================================ */
+      .cover-page { padding: 0; background: #ffffff; }
+      .cover { height: 100%; width: 100%; position: relative; overflow: hidden; box-sizing: border-box; }
+
+      /* ---- Corner stripe containers ---- */
+      /* Each div fills its container; clip-path carves out the stripe shape */
+      .cv-tr, .cv-bl { position: absolute; overflow: hidden; z-index: 2; }
+      .cv-tr { top: 0; right: 0; width: 120mm; height: 120mm; }
+      .cv-bl { bottom: 0; left: 0; width: 120mm; height: 120mm; }
+      .cv-s { position: absolute; inset: 0; }
+
+      /* Top-right stripes — 7 bands, each 12 mm wide, 2 mm gap, 45° angle.
+         Formula: distance d from corner → top-edge x=(100-d/120*100)%, right-edge y=d/120*100%
+         Stripe i: d1=i*14mm, d2=d1+12mm → d_pct = d/120*100 */
+      .cv-tr .s0 { clip-path: polygon(90%   0%, 100%  0%, 100%  10%); background: #0f2461; }
+      .cv-tr .s1 { clip-path: polygon(78.3% 0%, 88.3% 0%, 100% 21.7%, 100% 11.7%); background: #1e3a8a; }
+      .cv-tr .s2 { clip-path: polygon(66.7% 0%, 76.7% 0%, 100% 33.3%, 100% 23.3%); background: #2563eb; }
+      .cv-tr .s3 { clip-path: polygon(55%   0%, 65%   0%, 100% 45%,   100% 35%  ); background: #bfdbfe; }
+      .cv-tr .s4 { clip-path: polygon(43.3% 0%, 53.3% 0%, 100% 56.7%, 100% 46.7%); background: #1e40af; }
+      .cv-tr .s5 { clip-path: polygon(31.7% 0%, 41.7% 0%, 100% 68.3%, 100% 58.3%); background: #3b82f6; }
+      .cv-tr .s6 { clip-path: polygon(20%   0%, 30%   0%, 100% 80%,   100% 70%  ); background: #93c5fd; }
+
+      /* Bottom-left stripes — exact mirror of the top-right set */
+      .cv-bl .s0 { clip-path: polygon(0%    100%, 10%   100%, 0%  90%                ); background: #0f2461; }
+      .cv-bl .s1 { clip-path: polygon(11.7% 100%, 21.7% 100%, 0%  78.3%, 0%  88.3%  ); background: #1e3a8a; }
+      .cv-bl .s2 { clip-path: polygon(23.3% 100%, 33.3% 100%, 0%  66.7%, 0%  76.7%  ); background: #2563eb; }
+      .cv-bl .s3 { clip-path: polygon(35%   100%, 45%   100%, 0%  55%,   0%  65%    ); background: #bfdbfe; }
+      .cv-bl .s4 { clip-path: polygon(46.7% 100%, 56.7% 100%, 0%  43.3%, 0%  53.3%  ); background: #1e40af; }
+      .cv-bl .s5 { clip-path: polygon(58.3% 100%, 68.3% 100%, 0%  31.7%, 0%  41.7%  ); background: #3b82f6; }
+      .cv-bl .s6 { clip-path: polygon(70%   100%, 80%   100%, 0%  20%,   0%  30%    ); background: #93c5fd; }
+
+      /* ---- Logo — top-left on white background ---- */
+      .cover-logo-zone {
+        position: absolute; top: 28px; left: 28px; z-index: 10;
+        display: flex; align-items: center; gap: 10px;
       }
-      .cover {
-        height: 100%;
-        width: 100%;
-        padding: 40px 36px;
-        border-radius: 18px;
-        color: #eef2ff;
-        background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 45%, #0f172a 100%);
-        box-shadow: none;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        position: relative;
-        overflow: hidden;
+      .cover-logo-zone img { display: block; max-height: 36px; max-width: 118px; object-fit: contain; }
+      .cover-logo-fallback { font-size: 13px; font-weight: 800; color: #0f2461; letter-spacing: 0.06em; }
+      .cover-brand-label {
+        font-size: 7.5px; font-weight: 700; letter-spacing: 0.3em;
+        text-transform: uppercase; color: #64748b;
       }
-      .cover::before {
-        content: '';
-        position: absolute;
-        top: -120px;
-        right: -120px;
-        width: 380px;
-        height: 380px;
-        border-radius: 999px;
-        background: rgba(6, 182, 212, 0.2);
-        filter: blur(10px);
+
+      /* ---- Main title — center-left ---- */
+      .cover-text-zone {
+        position: absolute; top: 94mm; left: 0;
+        padding: 0 24px 0 28px; z-index: 10;
       }
-      .cover::after {
-        content: '';
-        position: absolute;
-        bottom: -140px;
-        left: -120px;
-        width: 360px;
-        height: 360px;
-        border-radius: 999px;
-        background: rgba(37, 99, 235, 0.2);
-        filter: blur(12px);
+      .cover-accent-bar { width: 48px; height: 4px; background: #2563eb; border-radius: 2px; margin-bottom: 18px; }
+      .cover-title-pre  { font-size: 32px; font-weight: 500; color: #64748b; line-height: 1.1; letter-spacing: 0.04em; }
+      .cover-title-main { font-size: 64px; font-weight: 900; color: #0f172a; line-height: 0.88; letter-spacing: -0.025em; }
+
+      /* ---- Client info — bottom-left ---- */
+      .cover-info-zone {
+        position: absolute; bottom: 68mm; left: 0;
+        padding: 0 24px 0 28px; z-index: 10;
       }
-      .cover-top { display: flex; align-items: center; gap: 16px; background: ${coverCardBg}; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; padding: 12px 14px; }
-      .cover-top img { height: 64px; width: auto; max-width: 200px; object-fit: contain; }
-      .cover-title { font-size: 28px; font-weight: 700; letter-spacing: 0.02em; }
-      .cover-subtitle { font-size: 14px; opacity: 0.85; margin-top: 6px; }
-      .cover-center { margin-top: 22px; }
-      .cover-kicker { font-size: 12px; letter-spacing: 0.3em; text-transform: uppercase; opacity: 0.8; }
-      .cover-heading { font-size: 36px; font-weight: 700; margin-top: 10px; color: #ffffff; }
-      .cover-company { font-size: 18px; color: #dbeafe; margin-top: 12px; }
-      .cover-meta { margin-top: 12px; font-size: 12px; color: #c7d2fe; }
-      .cover-detail {
-        margin-top: 14px;
-        max-width: 520px;
-        color: #dbeafe;
-        font-size: 12px;
-        line-height: 1.7;
+      .cover-info-rule { width: 88mm; height: 1px; background: #e2e8f0; margin-bottom: 11px; }
+      .cover-client-name { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 4px; line-height: 1.3; }
+      .cover-client-date { font-size: 8.5px; color: #94a3b8; letter-spacing: 0.06em; }
+
+      /* ---- Report label — bottom-right (like "ANNUAL REPORT" in reference) ---- */
+      .cover-report-zone {
+        position: absolute; bottom: 66mm; right: 28px;
+        z-index: 10; text-align: right;
       }
-      .cover-features {
-        margin-top: 10px;
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px 18px;
-      }
-      .cover-feature {
-        display: flex;
-        gap: 8px;
-        align-items: flex-start;
-        font-size: 11px;
-        color: #e2e8f0;
-      }
-      .cover-feature .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        background: #22d3ee;
-        margin-top: 5px;
-        flex: none;
-      }
-      .cover-footer {
-        display: flex;
-        gap: 16px;
-        align-items: center;
-        font-size: 11px;
-        color: #cbd5f5;
-      }
-      .cover-chip {
-        background: rgba(255, 255, 255, 0.16);
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-      }
-      .cover-content { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 12px; }
-      .cover-band {
-        margin-top: 14px;
-        background: rgba(15, 23, 42, 0.35);
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        border-radius: 12px;
-        padding: 12px 14px;
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 12px;
-      }
-      .cover-band .item { display: flex; flex-direction: column; gap: 4px; }
-      .cover-band .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.18em; color: #cbd5f5; }
-      .cover-band .value { font-size: 16px; font-weight: 700; color: #ffffff; }
+      .cover-report-sup  { font-size: 8.5px; font-weight: 400; letter-spacing: 0.22em; text-transform: uppercase; color: #94a3b8; margin-bottom: 1px; }
+      .cover-report-name { font-size: 22px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; color: #1e3a8a; line-height: 1.1; }
+
+      /* ---- Page corner accent (echoes cover on every content page) ---- */
+      /* Applied inside .macro-hdr (position:relative; overflow:hidden) */
+      .mac-corner { position: absolute; top: 0; right: 0; width: 34px; height: 100%; pointer-events: none; }
+      .mac-cs { position: absolute; inset: 0; }
 
       .intro-page { }
 
@@ -1295,91 +1264,94 @@ export default function PreassessmentPage() {
         color: #0f172a;
         margin-bottom: 12px;
       }
-      .index-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
-      .index-group { margin-bottom: 8px; }
+      .index-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 16px; align-items: start; }
+      .index-col { display: flex; flex-direction: column; }
+      .index-group { margin-bottom: 10px; }
       .index-group-title {
-        font-size: 11px;
-        letter-spacing: 0.18em;
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
-        color: #64748b;
-        margin-bottom: 6px;
+        margin-bottom: 5px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid #e2e8f0;
       }
       .index-item {
-        font-size: 11px;
+        font-size: 10px;
         color: #1f2937;
-        margin-bottom: 4px;
+        padding: 2px 0 2px 9px;
+        border-left: 2px solid #e2e8f0;
+        margin-bottom: 3px;
+        line-height: 1.4;
       }
 
-      .section {
-        margin-bottom:16px;
-        padding-bottom:10px;
-        border-bottom:1px solid #e2e8f0;
-      }
-      .section:last-child { border-bottom: none; }
-      .section h3 {
-        font-size:13px;
-        color:#1c2a44;
-        margin-bottom:8px;
-      }
-      .macro-label {
-        font-size: 10px;
-        letter-spacing: 0.22em;
-        text-transform: uppercase;
-        color: #64748b;
-        margin-bottom: 6px;
-      }
-      .field {
-        display:grid;
-        grid-template-columns: minmax(200px, 42%) 1fr;
-        column-gap: 12px;
-        padding:6px 0;
-        border-bottom:1px dashed #eef2f7;
-        align-items: start;
-      }
-      .field:last-child { border-bottom: none; }
-      .field-label { font-weight:600; color:#334155; font-size:10.5px; word-break: break-word; }
-      .field-value { color:#1e293b; font-size:10.5px; white-space: pre-wrap; word-break: break-word; }
-      .field-value svg, .field-value .icon, .field-value .status-icon { display: none !important; }
-      .field-note {
-        font-size:9.5px;
-        font-style:italic;
-        margin-top:4px;
-        padding-left:8px;
-        line-height:1.4;
-      }
-      .field-note .note-label { font-weight:700; margin-right:4px; }
-      .field-note.user { color:#475569; border-left:2px solid #e2e8f0; }
-      .field-note.user .note-label { color:#334155; }
-      .field-note.consultant { color:#1e40af; border-left:2px solid #c7d2fe; }
-      .field-note.consultant .note-label { color:#1e3a8a; }
-      .empty { color:#94a3b8; font-style:italic; }
-      .section-note {
-        margin-top:8px;
-        padding:8px 12px;
-        background:#fefce8;
-        border:1px solid #fef08a;
-        border-radius:8px;
-        font-size:10px;
-        color:#713f12;
-      }
-      .section-page { display: block; }
-      .section-page.last {
+      /* === MACRO AREA PAGES === */
+      .section-page { padding: 5mm; box-sizing: border-box; }
+      .section-page.last { display: flex; flex-direction: column; padding: 5mm; box-sizing: border-box; }
+      .macro-frame {
+        height: 100%;
         display: flex;
         flex-direction: column;
+        border-radius: 6px;
+        overflow: hidden;
+        box-sizing: border-box;
+        border: 1.5px solid #3b82f6;
       }
-      .section-body { flex: 1; }
-      .doc-list {
-        margin-top: 8px;
-        padding: 8px 12px;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
+      .section-page.last .macro-frame { flex: 1; height: auto; }
+      .macro-hdr { display: flex; align-items: center; padding: 7px 14px; flex-shrink: 0; position: relative; overflow: hidden; }
+      .macro-hdr-name { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #ffffff; }
+      .macro-hdr-page { margin-left: auto; font-size: 9px; color: rgba(255,255,255,0.8); }
+      .macro-col-hdr { display: grid; grid-template-columns: 1fr 1fr; flex-shrink: 0; }
+      .col-q, .col-a { padding: 5px 12px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
+      .col-q { border-right: 1px solid; }
+      .macro-grid { display: grid; grid-template-columns: 1fr 1fr; flex: 1; align-content: start; overflow: hidden; padding-bottom: 8px; }
+      .sec-hdr {
+        grid-column: 1 / -1;
+        padding: 6px 12px 5px;
+        font-size: 10.5px;
+        font-weight: 600;
+        background: #f4f7fb;
+        border-top: 1px solid #e8edf5;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      .sec-hdr:first-child { border-top: none; }
+      .fq {
+        padding: 6px 12px;
+        font-size: 10.5px;
+        font-weight: normal;
+        color: #334155;
+        border-right: 1px solid #e8edf5;
+        border-bottom: 1px solid #f1f5f9;
+        word-break: break-word;
+        line-height: 1.45;
+      }
+      .fa {
+        padding: 6px 12px;
+        font-size: 10.5px;
+        color: #1e293b;
+        border-bottom: 1px solid #f1f5f9;
+        white-space: pre-wrap;
+        word-break: break-word;
+        line-height: 1.45;
+      }
+      .empty-val { color: #94a3b8; font-style: italic; }
+      .fn { font-size: 9px; font-style: italic; margin-top: 3px; padding-left: 6px; line-height: 1.3; }
+      .fn .note-lbl { font-weight: 700; margin-right: 3px; }
+      .user-note { color: #475569; border-left: 2px solid #e2e8f0; }
+      .consultant-note { color: #1e40af; border-left: 2px solid #c7d2fe; }
+      .sec-note-row {
+        grid-column: 1 / -1;
+        margin: 3px 8px;
+        padding: 5px 10px;
+        background: #fefce8;
+        border: 1px solid #fef08a;
+        border-radius: 4px;
         font-size: 9.5px;
-        color: #475569;
+        color: #713f12;
       }
-      .doc-list-title { font-weight: 700; margin-bottom: 4px; color: #334155; }
-      .doc-item { padding: 2px 0; }
-      .doc-item::before { content: '📎 '; }
+      .doc-row { grid-column: 1 / -1; padding: 5px 10px; background: #f8fafc; border-top: 1px solid #e2e8f0; font-size: 9.5px; color: #475569; }
+      .doc-row .doc-title { font-weight: 700; margin-bottom: 2px; color: #334155; }
+      .doc-row .doc-item { padding: 1px 0; }
 
       .footer {
         margin-top: 26px;
@@ -1399,135 +1371,244 @@ export default function PreassessmentPage() {
 
           <div class="pdf-page cover-page">
             <div class="cover">
-              <div class="cover-content">
-                <div class="cover-top">
-                  <img src="${logoForCover}" alt="Logo" />
-                  <div>
-                    <div class="cover-title">CHECKUP</div>
-                    <div class="cover-subtitle">Checkup Governance • Pre-Assessment</div>
-                  </div>
-                </div>
-                <div class="cover-center">
-                  <div class="cover-kicker">Report Riservato</div>
-                  <div class="cover-heading">Pre-Assessment Tool</div>
-                  <div class="cover-company">${ragione}</div>
-                  <div class="cover-meta">Generato il ${nowLabel} · ${nowTime}</div>
-                  <div class="cover-detail">
-                    Gestione professionale del checkup governance per studi legali e aziende.
-                    Un report strutturato per decisioni rapide e tracciabilità completa.
-                  </div>
-                  <div class="cover-features">
-                    <div class="cover-feature"><span class="dot"></span><span>Tracking completo e stato avanzamento in tempo reale</span></div>
-                    <div class="cover-feature"><span class="dot"></span><span>Sicurezza, compliance e audit trail integrato</span></div>
-                    <div class="cover-feature"><span class="dot"></span><span>Dashboard e report con KPI immediati</span></div>
-                    <div class="cover-feature"><span class="dot"></span><span>Collaborazione studio-cliente con controllo accessi</span></div>
-                  </div>
-                </div>
-                <div class="cover-band">
-                  <div class="item"><div class="label">Sezioni</div><div class="value">${sections.length}</div></div>
-                  <div class="item"><div class="label">Obbligatori</div><div class="value">${totalReq}</div></div>
-                  <div class="item"><div class="label">Compilati</div><div class="value">${totalFilled}/${totalReq} (${pct}%)</div></div>
-                </div>
-                <div class="cover-footer">
-                  <span class="cover-chip">v6.0</span>
-                  <span>Documento ad uso interno e cliente</span>
+
+              <!-- Top-right diagonal stripe corner -->
+              <div class="cv-tr">
+                <div class="cv-s s0"></div><div class="cv-s s1"></div>
+                <div class="cv-s s2"></div><div class="cv-s s3"></div>
+                <div class="cv-s s4"></div><div class="cv-s s5"></div>
+                <div class="cv-s s6"></div>
+              </div>
+
+              <!-- Bottom-left diagonal stripe corner (mirror) -->
+              <div class="cv-bl">
+                <div class="cv-s s0"></div><div class="cv-s s1"></div>
+                <div class="cv-s s2"></div><div class="cv-s s3"></div>
+                <div class="cv-s s4"></div><div class="cv-s s5"></div>
+                <div class="cv-s s6"></div>
+              </div>
+
+              <!-- Logo + brand label — top-left -->
+              <div class="cover-logo-zone">
+                ${logoForCover
+                  ? `<img src="${logoForCover}" alt="Logo" />`
+                  : `<div class="cover-logo-fallback">STUDIO</div>`}
+                <div class="cover-brand-label">Checkup Governance</div>
+              </div>
+
+              <!-- Main title — center-left -->
+              <div class="cover-text-zone">
+                <div class="cover-accent-bar"></div>
+                <div class="cover-title-pre">Pre-</div>
+                <div class="cover-title-main">ASSESSMENT</div>
+              </div>
+
+              <!-- Client info — bottom-left -->
+              <div class="cover-info-zone">
+                <div class="cover-info-rule"></div>
+                <div class="cover-client-name">${ragione}</div>
+                <div class="cover-client-date">Generato il ${nowLabel} · ${nowTime}</div>
+              </div>
+
+              <!-- Report label — bottom-right (like "ANNUAL REPORT" in reference) -->
+              <div class="cover-report-zone">
+                <div class="cover-report-sup">Report</div>
+                <div class="cover-report-name">Checkup<br/>Governance</div>
+              </div>
+
+            </div>
+          </div>
+
+          <div class="pdf-page intro-page" style="padding: 5mm; box-sizing: border-box;">
+          <div style="border: 1.5px solid #1e3a8a; border-radius: 6px; height: 100%; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box;">
+            <div style="background: #1e3a8a; color: white; padding: 7px 14px; flex-shrink: 0; display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em;">RIEPILOGO DEL PREASSESSMENT</span>
+              <span style="margin-left: auto; font-size: 9px; color: rgba(255,255,255,0.75);">${ragione}</span>
+            </div>
+            <div style="flex: 1; overflow: hidden; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+              <div class="client-summary" style="margin: 0;">
+                <h3>Cliente</h3>
+                <div class="client-grid">
+                  ${clientNomeCompleto ? `<div class="client-item"><div class="label">Nominativo</div><div class="value">${clientNomeCompleto}</div></div>` : ''}
+                  ${clientEmail ? `<div class="client-item"><div class="label">Email</div><div class="value">${clientEmail}</div></div>` : ''}
+                  <div class="client-item"><div class="label">Ragione sociale</div><div class="value">${ragione}</div></div>
+                  <div class="client-item"><div class="label">Codice fiscale / Partita IVA</div><div class="value">${data.cf_piva || '-'}</div></div>
+                  <div class="client-item"><div class="label">Sede legale</div><div class="value">${data.sede_legale || '-'}</div></div>
                 </div>
               </div>
-            </div>
-          </div>
-
-          <div class="pdf-page intro-page">
-          <div class="client-summary">
-            <h3>Cliente</h3>
-            <div class="client-grid">
-              ${clientNomeCompleto ? `<div class="client-item"><div class="label">Nominativo</div><div class="value">${clientNomeCompleto}</div></div>` : ''}
-              ${clientEmail ? `<div class="client-item"><div class="label">Email</div><div class="value">${clientEmail}</div></div>` : ''}
-              <div class="client-item"><div class="label">Ragione sociale</div><div class="value">${ragione}</div></div>
-              <div class="client-item"><div class="label">Codice fiscale / Partita IVA</div><div class="value">${data.cf_piva || '-'}</div></div>
-              <div class="client-item"><div class="label">Sede legale</div><div class="value">${data.sede_legale || '-'}</div></div>
-            </div>
-          </div>
-
-          <div class="summary">
-            <div class="summary-grid">
-              <div class="summary-item"><div class="label">Sezioni</div><div class="value">${sections.length}</div></div>
-              <div class="summary-item"><div class="label">Campi obbligatori</div><div class="value">${totalReq}</div></div>
-              <div class="summary-item"><div class="label">Compilati</div><div class="value">${totalFilled}/${totalReq} (${pct}%)</div></div>
-            </div>
-          </div>`;
+              <div class="summary" style="margin: 0;">
+                <div class="summary-grid">
+                  <div class="summary-item"><div class="label">Sezioni</div><div class="value">${sections.length}</div></div>
+                  <div class="summary-item"><div class="label">Campi obbligatori</div><div class="value">${totalReq}</div></div>
+                  <div class="summary-item"><div class="label">Compilati</div><div class="value">${totalFilled}/${totalReq} (${pct}%)</div></div>
+                </div>
+              </div>`;
 
     const sectionsByMacro = macroAreas.map((m) => ({
       macro: m.label,
+      color: m.color,
       sections: sections.filter((s) => s.macro === m.id),
     })).filter((g) => g.sections.length > 0);
 
-    html += `<div class="index-page"><div class="index-title">Indice</div><div class="index-grid">`;
-    sectionsByMacro.forEach((g, gIdx) => {
-      html += `<div class="index-group"><div class="index-group-title">${g.macro}</div>`;
-      g.sections.forEach((s, sIdx) => {
-        html += `<div class="index-item">${gIdx + 1}.${sIdx + 1} ${s.title}</div>`;
+    // Build flat list of all index sections with sequential numbering
+    const allIdxSections: { num: number; title: string; color: string; macroLabel: string }[] = [];
+    let idxNum = 1;
+    sectionsByMacro.forEach((g) => {
+      g.sections.forEach((s) => {
+        allIdxSections.push({ num: idxNum, title: s.title, color: g.color, macroLabel: g.macro });
+        idxNum++;
       });
+    });
+    const idxTotal = allIdxSections.length;
+    const idxColSize = Math.ceil(idxTotal / 3);
+    const idxCols = [
+      allIdxSections.slice(0, idxColSize),
+      allIdxSections.slice(idxColSize, idxColSize * 2),
+      allIdxSections.slice(idxColSize * 2),
+    ];
+
+    html += `<div class="index-page" style="margin: 0; flex: 1;"><div class="index-title">Indice</div><div class="index-cols">`;
+    idxCols.forEach((colSections) => {
+      html += `<div class="index-col">`;
+      let curMacro = '';
+      colSections.forEach((s) => {
+        if (s.macroLabel !== curMacro) {
+          if (curMacro) html += `</div>`;
+          html += `<div class="index-group"><div class="index-group-title" style="color:${s.color};">${s.macroLabel}</div>`;
+          curMacro = s.macroLabel;
+        }
+        html += `<div class="index-item">${s.num}. ${s.title}</div>`;
+      });
+      if (colSections.length > 0) html += `</div>`;
       html += `</div>`;
     });
     html += `</div></div>`;
-    html += `</div>`;
+    html += `</div></div></div>`;
 
-    const macroLabelById = new Map(macroAreas.map((m) => [m.id, m.label]));
-    const FIELDS_PER_PAGE = 14;
-    const chunkFields = <T,>(arr: T[], size: number) => {
-      const chunks: T[][] = [];
-      for (let i = 0; i < arr.length; i += size) {
-        chunks.push(arr.slice(i, i + size));
-      }
-      return chunks;
-    };
+    // Build macro area groups with paginated items
+    type MacroItemType =
+      | { type: 'section_header'; title: string; sectionId: string }
+      | { type: 'field'; field: FieldSpec; sectionId: string }
+      | { type: 'section_note'; note: string }
+      | { type: 'docs'; docs: { nomeOriginale: string }[] };
 
-    const sectionPages = sections.flatMap((s) => {
-      const fields = excludeNA ? s.fields.filter((f) => !naFields[f.id]) : s.fields;
-      if (fields.length === 0) return [];
-      const chunks = chunkFields(fields, FIELDS_PER_PAGE);
-      return chunks.map((chunk, idx) => ({
-        section: s,
-        chunk,
-        chunkIndex: idx,
-        chunkCount: chunks.length,
-      }));
+    const macroGroups: { macro: MacroAreaSpec; items: MacroItemType[] }[] = [];
+    macroAreas.forEach((macro) => {
+      const macroSections = sections.filter((s) => s.macro === macro.id);
+      const items: MacroItemType[] = [];
+      macroSections.forEach((s) => {
+        const fields = excludeNA ? s.fields.filter((f) => !naFields[f.id]) : s.fields;
+        if (fields.length === 0) return;
+        items.push({ type: 'section_header', title: s.title, sectionId: s.id });
+        fields.forEach((f) => items.push({ type: 'field', field: f, sectionId: s.id }));
+        const sectionNote = sanitize(notes[s.id]);
+        if (sectionNote) items.push({ type: 'section_note', note: sectionNote });
+        if (documentsEnabled) {
+          const sectionDocs = s.fields.flatMap((f) => allDocsByField[f.id] || []);
+          if (sectionDocs.length > 0) items.push({ type: 'docs', docs: sectionDocs });
+        }
+      });
+      if (items.length > 0) macroGroups.push({ macro, items });
     });
 
-    sectionPages.forEach((page, pageIndex) => {
-      const { section, chunk, chunkIndex, chunkCount } = page;
-      const macroLabel = macroLabelById.get(section.macro) || '';
-      const isLastPage = pageIndex === sectionPages.length - 1;
-      const title = chunkIndex === 0 ? section.title : `${section.title} (continua)`;
-      html += `<div class="pdf-page section-page ${isLastPage ? 'last' : ''}"><div class="section-body"><div class="section">`;
-      html += `<div class="macro-label">${macroLabel}</div><h3>${title}</h3>`;
-      chunk.forEach((f) => {
-        const isNA = !!naFields[f.id];
-        const rawValue = isNA ? 'N/A' : sanitize(data[f.id]);
-        const v = rawValue.includes('||') ? rawValue.split('||').join(', ') : rawValue;
-        const un = !isNA ? sanitize(userFieldNotes[f.id]) : '';
-        const fn = includeNotes && !isNA ? sanitize(fieldNotes[f.id]) : '';
-        html += `<div class="field"><div class="field-label">${f.label}${f.required ? ' *' : ''}</div><div class="field-value">${v ? v.replace(/\n/g, '<br>') : '<span class="empty">—</span>'}`;
-        if (un) html += `<div class="field-note user"><span class="note-label">Nota utente:</span>${un.replace(/\n/g, '<br>')}</div>`;
-        if (fn) html += `<div class="field-note consultant"><span class="note-label">Nota consulente:</span>${fn.replace(/\n/g, '<br>')}</div>`;
-        html += `</div></div>`;
+    // Chunk items into pages per macro area — entire sections stay together
+    const ITEMS_PER_PAGE = 22;
+    type MacroPage = { macro: MacroAreaSpec; chunk: MacroItemType[]; pageNum: number; totalPages: number; };
+    const allMacroPages: MacroPage[] = [];
+
+    const itemCost = (item: MacroItemType) =>
+      item.type === 'section_header' ? 2
+      : item.type === 'section_note' ? 2
+      : item.type === 'docs' ? (item.docs?.length ?? 0) + 1.5
+      : 1;
+
+    macroGroups.forEach(({ macro, items }) => {
+      // Group flat items into logical sections: [header, ...fields, optional note/docs]
+      const sectionBlocks: MacroItemType[][] = [];
+      let curBlock: MacroItemType[] = [];
+      items.forEach((item) => {
+        if (item.type === 'section_header') {
+          if (curBlock.length > 0) sectionBlocks.push(curBlock);
+          curBlock = [item];
+        } else {
+          curBlock.push(item);
+        }
       });
-      const sectionNote = sanitize(notes[section.id]);
-      if (chunkIndex === chunkCount - 1 && sectionNote) {
-        html += `<div class="section-note"><strong>Note sezione:</strong> ${sectionNote.replace(/\n/g, '<br>')}</div>`;
-      }
-      // Documenti allegati alla sezione (ultimo chunk della sezione)
-      if (chunkIndex === chunkCount - 1 && documentsEnabled) {
-        const sectionDocs = section.fields.flatMap((f) => allDocsByField[f.id] || []);
-        if (sectionDocs.length > 0) {
-          html += `<div class="doc-list"><div class="doc-list-title">Documenti allegati (${sectionDocs.length})</div>`;
-          sectionDocs.forEach((d) => {
-            html += `<div class="doc-item">${d.nomeOriginale}</div>`;
-          });
+      if (curBlock.length > 0) sectionBlocks.push(curBlock);
+
+      // Fit whole section blocks onto pages
+      const chunks: MacroItemType[][] = [];
+      let current: MacroItemType[] = [];
+      let count = 0;
+
+      sectionBlocks.forEach((block) => {
+        const blockCost = block.reduce((s, i) => s + itemCost(i), 0);
+        if (count + blockCost > ITEMS_PER_PAGE && current.length > 0) {
+          // Section doesn't fit on current page — flush and start fresh
+          chunks.push(current);
+          current = [];
+          count = 0;
+        }
+        block.forEach((i) => current.push(i));
+        count += blockCost;
+      });
+      if (current.length > 0) chunks.push(current);
+
+      chunks.forEach((chunk, ci) =>
+        allMacroPages.push({ macro, chunk, pageNum: ci + 1, totalPages: chunks.length })
+      );
+    });
+
+    allMacroPages.forEach(({ macro, chunk, pageNum, totalPages }, pi) => {
+      const isLastPage = pi === allMacroPages.length - 1;
+      const c = macro.color;
+      const cLight = c + '14';
+      const cMid = c + '35';
+      html += `<div class="pdf-page section-page${isLastPage ? ' last' : ''}">`;
+      html += `<div class="macro-frame" style="border-color:${c};">`;
+      // Macro area header
+      html += `<div class="macro-hdr" style="background:${c};">`;
+      // Corner accent — 3 white diagonal stripes echoing the cover design
+      html += `<div class="mac-corner">`;
+      html += `<div class="mac-cs" style="clip-path:polygon(50% 0%,100% 0%,100% 50%);background:rgba(255,255,255,0.22);"></div>`;
+      html += `<div class="mac-cs" style="clip-path:polygon(15% 0%,40% 0%,100% 85%,100% 60%);background:rgba(255,255,255,0.15);"></div>`;
+      html += `<div class="mac-cs" style="clip-path:polygon(0% 0%,18% 0%,100% 100%,82% 100%);background:rgba(255,255,255,0.08);"></div>`;
+      html += `</div>`;
+      html += `<span class="macro-hdr-name">${macro.label.toUpperCase()}</span>`;
+      if (totalPages > 1) html += `<span class="macro-hdr-page">${pageNum} / ${totalPages}</span>`;
+      html += `</div>`;
+      // Column headers
+      html += `<div class="macro-col-hdr" style="background:${cLight};border-bottom:1px solid ${cMid};">`;
+      html += `<div class="col-q" style="color:${c};border-right-color:${cMid};">Domande</div>`;
+      html += `<div class="col-a" style="color:${c};">Risposte</div>`;
+      html += `</div>`;
+      // Fields grid
+      html += `<div class="macro-grid">`;
+      chunk.forEach((item) => {
+        if (item.type === 'section_header') {
+          html += `<div class="sec-hdr" style="color:${c};border-bottom-color:${cMid};">${item.title}</div>`;
+        } else if (item.type === 'field') {
+          const f = item.field;
+          const isNA = !!naFields[f.id];
+          const rawValue = isNA ? 'N/A' : sanitize(data[f.id]);
+          const v = rawValue.includes('||') ? rawValue.split('||').join(', ') : rawValue;
+          const un = !isNA ? sanitize(userFieldNotes[f.id]) : '';
+          const consultantNote = includeNotes && !isNA ? sanitize(fieldNotes[f.id]) : '';
+          html += `<div class="fq">${f.label}${f.required ? ' *' : ''}</div>`;
+          html += `<div class="fa">${v ? v.replace(/\n/g, '<br>') : '<span class="empty-val">—</span>'}`;
+          if (un) html += `<div class="fn user-note"><span class="note-lbl">Nota:</span>${un.replace(/\n/g, '<br>')}</div>`;
+          if (consultantNote) html += `<div class="fn consultant-note"><span class="note-lbl">Consulente:</span>${consultantNote.replace(/\n/g, '<br>')}</div>`;
+          html += `</div>`;
+        } else if (item.type === 'section_note') {
+          html += `<div class="sec-note-row"><strong>Note sezione:</strong> ${item.note.replace(/\n/g, '<br>')}</div>`;
+        } else if (item.type === 'docs' && item.docs) {
+          html += `<div class="doc-row"><div class="doc-title">Documenti allegati (${item.docs.length})</div>`;
+          item.docs.forEach((d) => { html += `<div class="doc-item">📎 ${d.nomeOriginale}</div>`; });
           html += `</div>`;
         }
-      }
-      html += `</div></div>`;
+      });
+      html += `</div>`; // end macro-grid
+      html += `</div>`; // end macro-frame
       if (isLastPage) {
         html += `
           <div class="footer">
@@ -1541,7 +1622,7 @@ export default function PreassessmentPage() {
             </div>
           </div>`;
       }
-      html += `</div>`;
+      html += `</div>`; // end pdf-page
     });
 
     html += `
