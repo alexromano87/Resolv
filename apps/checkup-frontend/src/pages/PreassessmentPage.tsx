@@ -73,7 +73,7 @@ export default function PreassessmentPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { setNavState, collapsed, setCollapsed, search, setSearch, registerSectionClick, unregisterSectionClick } = usePreassessmentNav();
-  const { logoUrl: studioLogoUrl } = useStudio();
+  const { logoUrl: studioLogoUrl, nome: studioNome } = useStudio();
   const isClient = user?.ruolo === 'cliente';
   const isStaff = !!user && user.ruolo !== 'cliente';
   const canChat = user?.ruolo === 'cliente'
@@ -1091,11 +1091,7 @@ export default function PreassessmentPage() {
     // Single source of truth for the cover header band background.
     // The logo transparency is flattened against the exact same color,
     // so no darker rectangle remains visible around the logo in the PDF.
-    // Cover background is white — flatten against white so transparent pixels
-    // blend seamlessly with the page (no coloured halo around the logo).
-    const logoForCover = studioLogoUrl
-      ? await flattenLogoTransparency(studioLogoUrl, '#ffffff')
-      : logoUrl;
+    const logoForCover = logoUrl;
     const sanitize = (value?: string) => (value || '').replace(/[✅✔️✔🟢🟩]/g, '').trim();
 
     // Carica tutti i documenti del preassessment per includerli nel report
@@ -1141,81 +1137,44 @@ export default function PreassessmentPage() {
         break-after: auto;
       }
 
-      /* ================================================================
-         COVER — "Diagonal Blueprint"
-         White background with geometric diagonal blue stripe corners,
-         echoing the style of modern annual report covers.
-         ================================================================ */
-      .cover-page { padding: 0; background: #ffffff; }
-      .cover { height: 100%; width: 100%; position: relative; overflow: hidden; box-sizing: border-box; }
-
-      /* ---- Corner stripe containers ---- */
-      /* Each div fills its container; clip-path carves out the stripe shape */
-      .cv-tr, .cv-bl { position: absolute; overflow: hidden; z-index: 2; }
-      .cv-tr { top: 0; right: 0; width: 120mm; height: 120mm; }
-      .cv-bl { bottom: 0; left: 0; width: 120mm; height: 120mm; }
-      .cv-s { position: absolute; inset: 0; }
-
-      /* Top-right stripes — 7 bands, each 12 mm wide, 2 mm gap, 45° angle.
-         Formula: distance d from corner → top-edge x=(100-d/120*100)%, right-edge y=d/120*100%
-         Stripe i: d1=i*14mm, d2=d1+12mm → d_pct = d/120*100 */
-      .cv-tr .s0 { clip-path: polygon(90%   0%, 100%  0%, 100%  10%); background: #0f2461; }
-      .cv-tr .s1 { clip-path: polygon(78.3% 0%, 88.3% 0%, 100% 21.7%, 100% 11.7%); background: #1e3a8a; }
-      .cv-tr .s2 { clip-path: polygon(66.7% 0%, 76.7% 0%, 100% 33.3%, 100% 23.3%); background: #2563eb; }
-      .cv-tr .s3 { clip-path: polygon(55%   0%, 65%   0%, 100% 45%,   100% 35%  ); background: #bfdbfe; }
-      .cv-tr .s4 { clip-path: polygon(43.3% 0%, 53.3% 0%, 100% 56.7%, 100% 46.7%); background: #1e40af; }
-      .cv-tr .s5 { clip-path: polygon(31.7% 0%, 41.7% 0%, 100% 68.3%, 100% 58.3%); background: #3b82f6; }
-      .cv-tr .s6 { clip-path: polygon(20%   0%, 30%   0%, 100% 80%,   100% 70%  ); background: #93c5fd; }
-
-      /* Bottom-left stripes — exact mirror of the top-right set */
-      .cv-bl .s0 { clip-path: polygon(0%    100%, 10%   100%, 0%  90%                ); background: #0f2461; }
-      .cv-bl .s1 { clip-path: polygon(11.7% 100%, 21.7% 100%, 0%  78.3%, 0%  88.3%  ); background: #1e3a8a; }
-      .cv-bl .s2 { clip-path: polygon(23.3% 100%, 33.3% 100%, 0%  66.7%, 0%  76.7%  ); background: #2563eb; }
-      .cv-bl .s3 { clip-path: polygon(35%   100%, 45%   100%, 0%  55%,   0%  65%    ); background: #bfdbfe; }
-      .cv-bl .s4 { clip-path: polygon(46.7% 100%, 56.7% 100%, 0%  43.3%, 0%  53.3%  ); background: #1e40af; }
-      .cv-bl .s5 { clip-path: polygon(58.3% 100%, 68.3% 100%, 0%  31.7%, 0%  41.7%  ); background: #3b82f6; }
-      .cv-bl .s6 { clip-path: polygon(70%   100%, 80%   100%, 0%  20%,   0%  30%    ); background: #93c5fd; }
-
-      /* ---- Logo — top-left on white background ---- */
-      .cover-logo-zone {
-        position: absolute; top: 28px; left: 28px; z-index: 10;
-        display: flex; align-items: center; gap: 10px;
+      /* === COVER (originale) === */
+      .cover-page { padding: 0; background: #f6f8fb; }
+      .cover {
+        height: 100%; width: 100%;
+        padding: 40px 36px;
+        border-radius: 18px;
+        color: #eef2ff;
+        background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 45%, #0f172a 100%);
+        border: 1px solid rgba(255,255,255,0.12);
+        display: flex; flex-direction: column; justify-content: space-between;
+        position: relative; overflow: hidden; box-sizing: border-box;
       }
-      .cover-logo-zone img { display: block; max-height: 36px; max-width: 118px; object-fit: contain; }
-      .cover-logo-fallback { font-size: 13px; font-weight: 800; color: #0f2461; letter-spacing: 0.06em; }
-      .cover-brand-label {
-        font-size: 7.5px; font-weight: 700; letter-spacing: 0.3em;
-        text-transform: uppercase; color: #64748b;
+      .cover-top { display: flex; align-items: center; gap: 16px; padding: 12px 14px; }
+      .cover-top img { height: 64px; width: auto; max-width: 200px; object-fit: contain; }
+      .cover-title { font-size: 28px; font-weight: 700; letter-spacing: 0.02em; }
+      .cover-subtitle { font-size: 14px; opacity: 0.85; margin-top: 6px; }
+      .cover-center { margin-top: 22px; }
+      .cover-kicker { font-size: 12px; letter-spacing: 0.3em; text-transform: uppercase; opacity: 0.8; }
+      .cover-heading { font-size: 36px; font-weight: 700; margin-top: 10px; color: #ffffff; }
+      .cover-company { font-size: 18px; color: #dbeafe; margin-top: 12px; }
+      .cover-meta { margin-top: 12px; font-size: 12px; color: #c7d2fe; }
+      .cover-detail { margin-top: 14px; max-width: 520px; color: #dbeafe; font-size: 12px; line-height: 1.7; }
+      .cover-features { margin-top: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+      .cover-feature { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; color: #e2e8f0; }
+      .cover-feature .dot { width: 8px; height: 8px; border-radius: 999px; background: #22d3ee; margin-top: 5px; flex: none; }
+      .cover-footer { display: flex; gap: 16px; align-items: center; font-size: 11px; color: #cbd5f5; }
+      .cover-chip { background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.18); padding: 6px 10px; border-radius: 999px; font-weight: 600; letter-spacing: 0.04em; }
+      .cover-content { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 12px; }
+      .cover-band {
+        margin-top: 14px; background: rgba(15,23,42,0.35); border: 1px solid rgba(255,255,255,0.16);
+        border-radius: 12px; padding: 12px 14px;
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
       }
+      .cover-band .item { display: flex; flex-direction: column; gap: 4px; }
+      .cover-band .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.18em; color: #cbd5f5; }
+      .cover-band .value { font-size: 16px; font-weight: 700; color: #ffffff; }
 
-      /* ---- Main title — center-left ---- */
-      .cover-text-zone {
-        position: absolute; top: 94mm; left: 0;
-        padding: 0 24px 0 28px; z-index: 10;
-      }
-      .cover-accent-bar { width: 48px; height: 4px; background: #2563eb; border-radius: 2px; margin-bottom: 18px; }
-      .cover-title-pre  { font-size: 32px; font-weight: 500; color: #64748b; line-height: 1.1; letter-spacing: 0.04em; }
-      .cover-title-main { font-size: 64px; font-weight: 900; color: #0f172a; line-height: 0.88; letter-spacing: -0.025em; }
-
-      /* ---- Client info — bottom-left ---- */
-      .cover-info-zone {
-        position: absolute; bottom: 68mm; left: 0;
-        padding: 0 24px 0 28px; z-index: 10;
-      }
-      .cover-info-rule { width: 88mm; height: 1px; background: #e2e8f0; margin-bottom: 11px; }
-      .cover-client-name { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 4px; line-height: 1.3; }
-      .cover-client-date { font-size: 8.5px; color: #94a3b8; letter-spacing: 0.06em; }
-
-      /* ---- Report label — bottom-right (like "ANNUAL REPORT" in reference) ---- */
-      .cover-report-zone {
-        position: absolute; bottom: 66mm; right: 28px;
-        z-index: 10; text-align: right;
-      }
-      .cover-report-sup  { font-size: 8.5px; font-weight: 400; letter-spacing: 0.22em; text-transform: uppercase; color: #94a3b8; margin-bottom: 1px; }
-      .cover-report-name { font-size: 22px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; color: #1e3a8a; line-height: 1.1; }
-
-      /* ---- Page corner accent (echoes cover on every content page) ---- */
-      /* Applied inside .macro-hdr (position:relative; overflow:hidden) */
+      /* ---- Page corner accent (echoes cover style on every content page) ---- */
       .mac-corner { position: absolute; top: 0; right: 0; width: 34px; height: 100%; pointer-events: none; }
       .mac-cs { position: absolute; inset: 0; }
 
@@ -1371,51 +1330,38 @@ export default function PreassessmentPage() {
 
           <div class="pdf-page cover-page">
             <div class="cover">
-
-              <!-- Top-right diagonal stripe corner -->
-              <div class="cv-tr">
-                <div class="cv-s s0"></div><div class="cv-s s1"></div>
-                <div class="cv-s s2"></div><div class="cv-s s3"></div>
-                <div class="cv-s s4"></div><div class="cv-s s5"></div>
-                <div class="cv-s s6"></div>
+              <div class="cover-content">
+                <div class="cover-top">
+                  <img src="${logoForCover}" alt="Logo" />
+                  <div>
+                    <div class="cover-title">CHECKUP</div>
+                    <div class="cover-subtitle">Checkup Governance • Pre-Assessment</div>
+                  </div>
+                </div>
+                <div class="cover-center">
+                  <div class="cover-kicker">Report Riservato</div>
+                  <div class="cover-heading">Pre-Assessment Tool</div>
+                  <div class="cover-company" style="display:flex;align-items:center;gap:12px;">
+                    ${studioLogoUrl ? `<img src="${studioLogoUrl}" style="height:30px;width:auto;max-width:100px;object-fit:contain;flex-shrink:0;" alt="Studio" />` : ''}
+                    <span>${studioNome || ragione}</span>
+                  </div>
+                  <div class="cover-meta">Generato il ${nowLabel} · ${nowTime}</div>
+                  <div class="cover-detail">
+                    Gestione professionale del checkup governance per studi legali e aziende.
+                    Un report strutturato per decisioni rapide e tracciabilità completa.
+                  </div>
+                  <div class="cover-features">
+                    <div class="cover-feature"><span class="dot"></span><span>Tracking completo e stato avanzamento in tempo reale</span></div>
+                    <div class="cover-feature"><span class="dot"></span><span>Sicurezza, compliance e audit trail integrato</span></div>
+                    <div class="cover-feature"><span class="dot"></span><span>Dashboard e report con KPI immediati</span></div>
+                    <div class="cover-feature"><span class="dot"></span><span>Collaborazione studio-cliente con controllo accessi</span></div>
+                  </div>
+                </div>
+<div class="cover-footer">
+                  <span class="cover-chip">v6.0</span>
+                  <span>Documento ad uso interno e cliente</span>
+                </div>
               </div>
-
-              <!-- Bottom-left diagonal stripe corner (mirror) -->
-              <div class="cv-bl">
-                <div class="cv-s s0"></div><div class="cv-s s1"></div>
-                <div class="cv-s s2"></div><div class="cv-s s3"></div>
-                <div class="cv-s s4"></div><div class="cv-s s5"></div>
-                <div class="cv-s s6"></div>
-              </div>
-
-              <!-- Logo + brand label — top-left -->
-              <div class="cover-logo-zone">
-                ${logoForCover
-                  ? `<img src="${logoForCover}" alt="Logo" />`
-                  : `<div class="cover-logo-fallback">STUDIO</div>`}
-                <div class="cover-brand-label">Checkup Governance</div>
-              </div>
-
-              <!-- Main title — center-left -->
-              <div class="cover-text-zone">
-                <div class="cover-accent-bar"></div>
-                <div class="cover-title-pre">Pre-</div>
-                <div class="cover-title-main">ASSESSMENT</div>
-              </div>
-
-              <!-- Client info — bottom-left -->
-              <div class="cover-info-zone">
-                <div class="cover-info-rule"></div>
-                <div class="cover-client-name">${ragione}</div>
-                <div class="cover-client-date">Generato il ${nowLabel} · ${nowTime}</div>
-              </div>
-
-              <!-- Report label — bottom-right (like "ANNUAL REPORT" in reference) -->
-              <div class="cover-report-zone">
-                <div class="cover-report-sup">Report</div>
-                <div class="cover-report-name">Checkup<br/>Governance</div>
-              </div>
-
             </div>
           </div>
 
