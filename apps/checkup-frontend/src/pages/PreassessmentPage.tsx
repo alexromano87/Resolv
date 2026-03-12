@@ -1992,7 +1992,7 @@ export default function PreassessmentPage() {
         explicitMacroValidation,
         macroValidationInfo,
       };
-    });
+    }).filter((row) => !row.excluded);
     const validationRows = allRelevantMacros.map((m) => {
       const sects = allRelevantSections.filter((s) => s.macro === m.id);
       return {
@@ -2448,11 +2448,9 @@ export default function PreassessmentPage() {
             {sectionCards.map((s) => {
               const done = sDone(s);
               const total = sTotal(s);
-              const naCount = sNA(s);
               const sp = total > 0 ? Math.round((done / total) * 100) : 0;
               const macro = macroAreas.find((m) => m.id === s.macro);
               const isValidated = !!sectionValidations[s.id];
-              const ownerInfo = getOwnerInfo(data, s.macro);
               const realIndex = sections.findIndex((sec) => sec.id === s.id);
               return (
               <button
@@ -2476,16 +2474,6 @@ export default function PreassessmentPage() {
                   </div>
                 </div>
                 <div className="text-sm font-semibold text-slate-900">{s.title}</div>
-                <div className="mt-1 text-[11px] text-slate-500">
-                  Owner: {ownerInfo?.primary || '—'}
-                  {ownerInfo?.secondary && ` • ${ownerInfo.secondary}`}
-                </div>
-                <div className={`mt-1 text-[11px] font-semibold ${isValidated ? 'text-emerald-600' : 'text-amber-600'}`}>
-                  Validazione: {isValidated ? 'Sì' : 'No'}
-                </div>
-                {naCount > 0 && (
-                  <div className="mt-1 text-[11px] font-semibold text-rose-600">N/A: {naCount}</div>
-                )}
                 <div className="mt-3 h-2 rounded-full bg-slate-100">
                   <div className="h-full rounded-full" style={{ width: `${sp}%`, background: sp === 100 ? '#10b981' : macro?.color }} />
                 </div>

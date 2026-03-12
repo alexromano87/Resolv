@@ -201,6 +201,20 @@ services:
       timeout: 10s
       retries: 3
 
+  # Adminer — DB GUI (accessibile solo via SSH tunnel, non esposto pubblicamente)
+  adminer:
+    image: adminer:latest
+    container_name: resolv-adminer
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql
+    ports:
+      - "127.0.0.1:8282:8080"
+    depends_on:
+      - mysql
+    networks:
+      - resolv-network
+
   # Certbot for SSL certificates (Let's Encrypt)
   certbot:
     image: certbot/certbot

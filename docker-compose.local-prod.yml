@@ -176,6 +176,20 @@ services:
     networks:
       - resolv-local-network
 
+  # Adminer — DB GUI (http://localhost:8282)
+  adminer:
+    image: adminer:latest
+    container_name: resolv-adminer-local
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql
+    ports:
+      - "8282:8080"
+    depends_on:
+      - mysql
+    networks:
+      - resolv-local-network
+
   # Nginx Reverse Proxy (HTTP only for local)
   nginx:
     image: nginx:alpine
