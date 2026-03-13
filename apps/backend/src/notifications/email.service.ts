@@ -18,18 +18,19 @@ export class EmailService {
   private enabled = false;
 
   constructor(private readonly configService: ConfigService) {
-    const host = this.configService.get<string>('SMTP_HOST');
-    const port = Number(this.configService.get<string>('SMTP_PORT', '587'));
-    const user = this.configService.get<string>('SMTP_USER');
-    const pass =
-      this.configService.get<string>('SMTP_PASS') ||
-      this.configService.get<string>('SMTP_PASSWORD');
-    const secure = this.configService.get<string>('SMTP_SECURE', 'false') === 'true';
-    const from = this.configService.get<string>('SMTP_FROM');
-    const replyTo = this.configService.get<string>('SMTP_REPLY_TO');
+    const g = (key: string, def?: string) =>
+      this.configService.get<string>(key) ?? process.env[key] ?? def;
+
+    const host   = g('SMTP_HOST');
+    const port   = Number(g('SMTP_PORT', '587'));
+    const user   = g('SMTP_USER');
+    const pass   = g('SMTP_PASS') ?? g('SMTP_PASSWORD');
+    const secure = g('SMTP_SECURE', 'false') === 'true';
+    const from   = g('SMTP_FROM');
+    const replyTo = g('SMTP_REPLY_TO');
 
     if (!host || !from) {
-      this.logger.warn('SMTP non configurato. Invio email disabilitato.');
+      this.logger.warn('SMTP non configurato (SMTP_HOST o SMTP_FROM mancanti). Invio email disabilitato.');
       return;
     }
 
@@ -42,6 +43,7 @@ export class EmailService {
       auth: user ? { user, pass } : undefined,
     });
     this.enabled = true;
+    this.logger.log(`SMTP configurato correttamente. 📧 From: ${from}`);
   }
 
   async sendEmail(payload: SendEmailPayload): Promise<void> {

@@ -29,6 +29,7 @@ export class CheckupPreassessmentRenderService implements OnModuleDestroy {
 
   sanitizeHtmlForPdf(html: string): string {
     return sanitizeHtml(html, {
+      allowVulnerableTags: true,
       allowedTags: [
         'html', 'head', 'body', 'meta', 'style',
         'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',

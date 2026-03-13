@@ -76,7 +76,7 @@ export const authApi = {
     api.post<LoginResult>('/checkup/auth/login', { email, password }, { skipAuthRedirect: true, credentials: 'include' }),
 
   verifyTwoFactorLogin: (challengeToken: string, code: string) =>
-    api.post<LoginResponse>('/checkup/auth/login/2fa', { token: challengeToken, code }, { skipAuthRedirect: true, credentials: 'include' }),
+    api.post<LoginResponse>('/checkup/auth/login/2fa', { challengeToken, code }, { skipAuthRedirect: true, credentials: 'include' }),
 
   requestTwoFactorEnable: (channel: 'email' | 'sms', telefono?: string) =>
     api.post('/checkup/auth/2fa/enable/request', { channel, telefono }),
