@@ -801,13 +801,28 @@ export class CheckupPreassessmentThreadsService {
           // Self-target = private reminder
           targetUserId = user.id;
         } else {
-          // Must be another active cliente with the same clientId (co-participant)
-          if (!user.clientId) throw new ForbiddenException('Il cliente può targetizzare solo se stesso o altri partecipanti del proprio account');
-          const target = await this.userRepository.findOne({ where: { id: dto.targetUserId, attivo: true } });
-          if (!target || target.ruolo !== 'cliente' || target.clientId !== user.clientId) {
-            throw new ForbiddenException('Il cliente può targetizzare solo se stesso o altri partecipanti del proprio account');
+          if (!user.clientId) {
+            throw new ForbiddenException('Il cliente può targetizzare solo utenti del proprio sublicenziatario o dello studio collegato');
           }
-          targetUserId = target.id;
+          const target = await this.userRepository.findOne({ where: { id: dto.targetUserId, attivo: true } });
+          if (!target) {
+            throw new ForbiddenException('Destinatario non valido');
+          }
+          if (target.ruolo === 'cliente') {
+            if (target.clientId !== user.clientId) {
+              throw new ForbiddenException('Il cliente può targetizzare solo se stesso o altri partecipanti del proprio account');
+            }
+            targetUserId = target.id;
+          } else {
+            const currentSublicense = await this.sublicenseRepository.findOne({
+              where: { clientId: user.clientId, attiva: true },
+              relations: ['license'],
+            });
+            if (!currentSublicense?.license?.studioId || target.studioId !== currentSublicense.license.studioId) {
+              throw new ForbiddenException('Il cliente può targetizzare solo i consulenti del proprio studio licenziatario');
+            }
+            targetUserId = target.id;
+          }
         }
       } else {
         targetUserId = null;

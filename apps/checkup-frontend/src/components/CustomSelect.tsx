@@ -23,6 +23,7 @@ export interface CustomSelectProps {
   onOpen?: () => void;
   onClose?: () => void;
   allowClear?: boolean;
+  status?: 'default' | 'success' | 'error';
 }
 
 export function CustomSelect({
@@ -39,6 +40,7 @@ export function CustomSelect({
   onOpen,
   onClose,
   allowClear = false,
+  status = 'default',
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -55,6 +57,18 @@ export function CustomSelect({
         return haystack.includes(normalizedSearch);
       })
     : options;
+  const triggerStatusClass =
+    status === 'success'
+      ? 'border-emerald-300 focus:ring-emerald-500'
+      : status === 'error'
+        ? 'border-rose-300 focus:ring-rose-500'
+        : 'border-slate-200 focus:ring-primary-500';
+  const dropdownStatusClass =
+    status === 'success'
+      ? 'border-emerald-200'
+      : status === 'error'
+        ? 'border-rose-200'
+        : 'border-slate-200';
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -123,7 +137,8 @@ export function CustomSelect({
         disabled={disabled}
         onClick={() => setIsOpen((p) => !p)}
         className={[
-          'flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 shadow-sm transition focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-50',
+          'flex w-full items-center justify-between gap-2 rounded-xl border bg-white px-3 py-2 text-left text-sm text-slate-700 shadow-sm transition focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
+          triggerStatusClass,
           triggerClassName,
         ].join(' ')}
       >
@@ -159,7 +174,7 @@ export function CustomSelect({
         <div
           ref={dropdownRef}
           style={dropdownStyle}
-          className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+          className={`overflow-hidden rounded-xl border bg-white shadow-xl ${dropdownStatusClass}`}
         >
           {searchable && (
             <div className="border-b border-slate-100 p-2">

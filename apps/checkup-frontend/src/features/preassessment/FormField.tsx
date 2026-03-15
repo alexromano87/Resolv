@@ -58,6 +58,7 @@ type FormFieldProps = {
   onDownloadDocument?: (doc: PreassessmentDocument) => Promise<void> | void;
   onPreviewDocument?: (doc: PreassessmentDocument) => void;
   sectionId: string;
+  highlightCompletionState?: boolean;
 };
 
 export const FormField = memo(function FormField({
@@ -86,6 +87,7 @@ export const FormField = memo(function FormField({
   onDownloadDocument,
   onPreviewDocument,
   sectionId,
+  highlightCompletionState = false,
   ownerProtected = false,
 }: FormFieldProps) {
   const [showHelp, setShowHelp] = useState(false);
@@ -108,6 +110,25 @@ export const FormField = memo(function FormField({
     : null;
   const disabled = readOnly || ownerProtected || !!isEditingOther || naChecked;
   const consultantNoteDisabled = !!isEditingOther || naChecked;
+  const normalizedValue = (value || '').trim();
+  const hasResolvedValue = naChecked || (field.type === 'multiselect'
+    ? normalizedValue.split('||').filter(Boolean).length > 0
+    : normalizedValue.length > 0);
+  const shouldHighlightField = highlightCompletionState && !readOnly && !ownerProtected && !isEditingOther;
+  const completionBorderClass = shouldHighlightField
+    ? hasResolvedValue
+      ? 'border-emerald-300 focus:ring-emerald-500'
+      : field.required
+        ? 'border-rose-300 focus:ring-rose-500'
+        : 'border-slate-200 focus:ring-blue-500'
+    : 'border-slate-200 focus:ring-blue-500';
+  const multiSelectContainerClass = shouldHighlightField
+    ? hasResolvedValue
+      ? 'border-emerald-300 bg-emerald-50/30'
+      : field.required
+        ? 'border-rose-300 bg-rose-50/30'
+        : 'border-slate-200 bg-slate-50'
+    : 'border-slate-200 bg-slate-50';
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -260,7 +281,7 @@ export const FormField = memo(function FormField({
           onBlur={() => onFieldBlur?.(field.id)}
           rows={3}
           disabled={disabled}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+          className={`w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-400 ${completionBorderClass}`}
         />
       )}
 
@@ -275,7 +296,16 @@ export const FormField = memo(function FormField({
               : getAssettiOptionLabel(field, option),
           }))}
           placeholder="— Selezionare —"
-          triggerClassName="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm"
+          triggerClassName="rounded-xl bg-white px-3 py-2 text-sm"
+          status={
+            shouldHighlightField
+              ? hasResolvedValue
+                ? 'success'
+                : field.required
+                  ? 'error'
+                  : 'default'
+              : 'default'
+          }
           disabled={disabled}
           onOpen={() => onFieldFocus?.(field.id)}
           onClose={() => onFieldBlur?.(field.id)}
@@ -284,7 +314,7 @@ export const FormField = memo(function FormField({
       )}
 
       {field.type === 'multiselect' && (
-        <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+        <div className={`flex flex-wrap gap-2 rounded-xl border px-3 py-2 ${multiSelectContainerClass}`}>
           {(field.options || []).map((option) => {
             const selected = (value || '').split('||').filter(Boolean).includes(option);
             return (
@@ -320,7 +350,7 @@ export const FormField = memo(function FormField({
           onFocus={() => onFieldFocus?.(field.id)}
           onBlur={() => onFieldBlur?.(field.id)}
           disabled={disabled}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+          className={`w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-400 ${completionBorderClass}`}
         />
       )}
 
@@ -332,7 +362,7 @@ export const FormField = memo(function FormField({
           onFocus={() => onFieldFocus?.(field.id)}
           onBlur={() => onFieldBlur?.(field.id)}
           disabled={disabled}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+          className={`w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-400 ${completionBorderClass}`}
         />
       )}
 

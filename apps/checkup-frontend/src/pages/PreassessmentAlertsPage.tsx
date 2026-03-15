@@ -26,13 +26,11 @@ import {
 import {
   preassessmentAlertApi,
   preassessmentApi,
-  preassessmentCoParticipantsApi,
+  preassessmentStaffChatApi,
   threadsUnreadApi,
-  type CoParticipant,
+  type PreassessmentClientEntry,
   type PreassessmentAlert,
 } from '../api/preassessment';
-import { api } from '../api/config';
-import { usersApi } from '../api/users';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BodyPortal } from '../components/ui/BodyPortal';
@@ -91,28 +89,38 @@ interface ClientUser {
   id: string;
   nome: string;
   cognome: string;
+  email?: string;
+  ruolo?: string;
+  azienda?: string | null;
+}
+
+interface RecipientClient {
+  id: string;
+  label: string;
+  subtitle: string;
+  users: ClientUser[];
 }
 
 interface AlertFormData {
   messaggio: string;
   priority: 'info' | 'warning' | 'urgent';
-  destinatario: 'me' | 'interlocutore' | 'collega' | 'partecipante';
-  colleagueId: string;
-  /** 'tutti' or a specific CheckupUser.id for the client side (staff targeting clients) */
-  interlocutoreUserId: 'tutti' | string;
-  /** CheckupUser.id for a co-participant (cliente targeting another cliente same clientId) */
-  partecipanteId: string;
+  destinatario: 'me' | 'studio_user' | 'client_user';
+  studioUserId: string;
+  clientUserId: string;
+  contextClientId: string;
   dataScadenza: string;
   preavvisoGiorni: string;
 }
 
+type AlertEditFormData = Pick<AlertFormData, 'messaggio' | 'priority' | 'dataScadenza' | 'preavvisoGiorni'>;
+
 const emptyForm = (): AlertFormData => ({
   messaggio: '',
   priority: 'info',
-  destinatario: 'interlocutore',
-  colleagueId: '',
-  interlocutoreUserId: 'tutti',
-  partecipanteId: '',
+  destinatario: 'client_user',
+  studioUserId: '',
+  clientUserId: '',
+  contextClientId: '',
   dataScadenza: '',
   preavvisoGiorni: '',
 });
@@ -141,12 +149,12 @@ export function PreassessmentAlertsPage() {
   const isGlobalStaffView = !isCliente && !scopedClientId;
 
   const [preassessmentId, setPreassessmentId] = useState<string | null>(null);
-  const [clientUserId, setClientUserId] = useState<string | null>(null);
   const [clientNome, setClientNome] = useState<string>('');
   const [alerts, setAlerts] = useState<PreassessmentAlert[]>([]);
   const [studioMembers, setStudioMembers] = useState<StudioMember[]>([]);
   const [clientUsers, setClientUsers] = useState<ClientUser[]>([]);
-  const [coParticipants, setCoParticipants] = useState<CoParticipant[]>([]);
+  const [recipientClients, setRecipientClients] = useState<RecipientClient[]>([]);
+  const [availableClients, setAvailableClients] = useState<PreassessmentClientEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -165,7 +173,7 @@ export function PreassessmentAlertsPage() {
 
   // Edit modal
   const [editingAlert, setEditingAlert] = useState<PreassessmentAlert | null>(null);
-  const [editForm, setEditForm] = useState<Omit<AlertFormData, 'destinatario' | 'colleagueId' | 'interlocutoreUserId' | 'partecipanteId'>>(
+  const [editForm, setEditForm] = useState<AlertEditFormData>(
     { messaggio: '', priority: 'info', dataScadenza: '', preavvisoGiorni: '' }
   );
   const [editSubmitAttempted, setEditSubmitAttempted] = useState(false);
@@ -183,11 +191,9 @@ export function PreassessmentAlertsPage() {
         } else if (scopedClientId) {
           const data = await preassessmentApi.getClient(scopedClientId);
           setPreassessmentId(data.preassessment.id);
-          setClientUserId(data.client.id);
           setClientNome(data.client.azienda || data.client.nome || '');
         } else {
           setPreassessmentId(null);
-          setClientUserId(null);
           setClientNome('');
           setLoading(false);
         }
@@ -218,35 +224,47 @@ export function PreassessmentAlertsPage() {
     }
   }, [preassessmentId, isGlobalStaffView, appliedSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Fetch studio colleagues and client users (staff only) ──────────────────
+  // ── Fetch recipients and accessible clients ────────────────────────────────
   useEffect(() => {
-    if (isCliente) return;
-    // Studio colleagues (all staff roles)
-    if (user?.ruolo && user.ruolo !== 'cliente') {
-      api.get<StudioMember[]>('/checkup/users')
-        .then((members) => setStudioMembers(members.filter((m) => m.id !== user?.id && m.ruolo !== 'cliente')))
-        .catch(() => setStudioMembers([]));
-    }
-    // Client users for this specific client
-    if (clientUserId) {
-      usersApi.getAll(undefined, false)
-        .then((all) => {
-          const cu = all
-            .filter((u) => u.ruolo === 'cliente' && u.clientId === clientUserId)
-            .map((u) => ({ id: u.id, nome: u.nome, cognome: u.cognome }));
-          setClientUsers(cu);
-        })
-        .catch(() => setClientUsers([]));
-    }
-  }, [isCliente, user?.ruolo, user?.id, clientUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!user) return;
+    preassessmentStaffChatApi.listRecipients()
+      .then((data) => {
+        setStudioMembers(
+          data.studioUsers.map((entry) => ({
+            id: entry.id,
+            nome: entry.nome,
+            cognome: entry.cognome,
+            ruolo: entry.ruolo,
+          })),
+        );
+        setClientUsers(
+          isCliente
+            ? data.colleagueUsers.map((entry) => ({
+                id: entry.id,
+                nome: entry.nome,
+                cognome: entry.cognome,
+                email: entry.email,
+                ruolo: entry.ruolo,
+                azienda: entry.azienda,
+              }))
+            : [],
+        );
+        setRecipientClients(data.clients);
+      })
+      .catch(() => {
+        setStudioMembers([]);
+        setClientUsers([]);
+        setRecipientClients([]);
+      });
 
-  // ── Fetch co-participants (cliente only) ───────────────────────────────────
-  useEffect(() => {
-    if (!isCliente || !preassessmentId) return;
-    preassessmentCoParticipantsApi.list(preassessmentId)
-      .then(setCoParticipants)
-      .catch(() => setCoParticipants([]));
-  }, [isCliente, preassessmentId]);
+    if (!isCliente) {
+      preassessmentApi.listClients()
+        .then(setAvailableClients)
+        .catch(() => setAvailableClients([]));
+    } else {
+      setAvailableClients([]);
+    }
+  }, [isCliente, user]);
 
   // ── Data loading ────────────────────────────────────────────────────────────
   const loadAlerts = async () => {
@@ -289,20 +307,49 @@ export function PreassessmentAlertsPage() {
 
   // ── Create ───────────────────────────────────────────────────────────────────
   const openCreateModal = () => {
-    setCreateForm(emptyForm());
+    setCreateForm({
+      ...emptyForm(),
+      destinatario: isCliente ? 'studio_user' : 'client_user',
+      contextClientId: scopedClientId ?? '',
+    });
     setSubmitAttempted(false);
     setShowCreateModal(true);
   };
 
   const handleCreateAlert = async () => {
+    const activeClientContextId = isCliente ? scopedClientId ?? '' : createForm.contextClientId;
+    const selectedClientEntry = availableClients.find((entry) => entry.client.id === activeClientContextId);
+    const targetPreassessmentId = isCliente
+      ? preassessmentId
+      : scopedClientId
+        ? preassessmentId
+        : createForm.destinatario === 'client_user'
+          ? selectedClientEntry?.preassessment?.id ?? null
+          : fallbackStaffPreassessment?.preassessment?.id ?? null;
     const missingTarget =
-      (createForm.destinatario === 'collega' && !createForm.colleagueId) ||
-      (createForm.destinatario === 'partecipante' && !createForm.partecipanteId);
+      (createForm.destinatario === 'studio_user' && !createForm.studioUserId) ||
+      (createForm.destinatario === 'client_user' && !createForm.clientUserId) ||
+      (!isCliente && !scopedClientId && createForm.destinatario === 'client_user' && !createForm.contextClientId);
     if (!createForm.messaggio.trim() || missingTarget) {
       setSubmitAttempted(true);
       return;
     }
-    if (!preassessmentId) return;
+    if (!targetPreassessmentId) {
+      setSubmitAttempted(true);
+      setError(
+        createForm.destinatario === 'client_user'
+          ? 'Seleziona prima il sublicenziatario a cui associare l\'alert'
+          : 'Nessun checkup disponibile per associare l\'alert',
+      );
+      return;
+    }
+    const ok = await confirm({
+      title: 'Crea alert',
+      message: 'Confermi la creazione di questo alert?',
+      confirmText: 'Crea',
+      variant: 'info',
+    });
+    if (!ok) return;
 
     const payload = {
       messaggio: createForm.messaggio.trim(),
@@ -314,26 +361,21 @@ export function PreassessmentAlertsPage() {
     setCreateLoading(true);
     try {
       if (isCliente) {
-        let targetUserId: string | undefined;
-        if (createForm.destinatario === 'me') targetUserId = user?.id;
-        else if (createForm.destinatario === 'partecipante') targetUserId = createForm.partecipanteId || undefined;
-        // 'interlocutore' → undefined (goes to studio)
-        await preassessmentAlertApi.create(preassessmentId, { ...payload, targetUserId });
-      } else if (createForm.destinatario === 'me') {
-        await preassessmentAlertApi.create(preassessmentId, { ...payload, targetUserId: user?.id });
-      } else if (createForm.destinatario === 'collega') {
-        await preassessmentAlertApi.create(preassessmentId, { ...payload, targetUserId: createForm.colleagueId || undefined });
+        const targetUserId =
+          createForm.destinatario === 'me'
+            ? user?.id
+            : createForm.destinatario === 'client_user'
+              ? createForm.clientUserId || undefined
+              : createForm.studioUserId || undefined;
+        await preassessmentAlertApi.create(targetPreassessmentId, { ...payload, targetUserId });
       } else {
-        // 'interlocutore' — per il cliente
-        if (createForm.interlocutoreUserId === 'tutti') {
-          // Create one alert per client user (or fallback to CheckupClient.id if no users)
-          const targets = clientUsers.length > 0 ? clientUsers.map((u) => u.id) : [clientUserId ?? undefined];
-          await Promise.all(
-            targets.map((tid) => preassessmentAlertApi.create(preassessmentId!, { ...payload, targetUserId: tid ?? undefined })),
-          );
-        } else {
-          await preassessmentAlertApi.create(preassessmentId, { ...payload, targetUserId: createForm.interlocutoreUserId || undefined });
-        }
+        const targetUserId =
+          createForm.destinatario === 'me'
+            ? user?.id
+            : createForm.destinatario === 'studio_user'
+              ? createForm.studioUserId || undefined
+              : createForm.clientUserId || undefined;
+        await preassessmentAlertApi.create(targetPreassessmentId, { ...payload, targetUserId });
       }
 
       setShowCreateModal(false);
@@ -364,6 +406,13 @@ export function PreassessmentAlertsPage() {
       setEditSubmitAttempted(true);
       return;
     }
+    const ok = await confirm({
+      title: 'Salva modifiche',
+      message: 'Confermi il salvataggio delle modifiche a questo alert?',
+      confirmText: 'Salva',
+      variant: 'info',
+    });
+    if (!ok) return;
     setEditLoading(true);
     try {
       await preassessmentAlertApi.update(editingAlert.id, {
@@ -440,6 +489,13 @@ export function PreassessmentAlertsPage() {
   };
 
   const handleArchiveAlert = async (alert: PreassessmentAlert) => {
+    const ok = await confirm({
+      title: 'Archivia alert',
+      message: 'Confermi l\'archiviazione di questo alert?',
+      confirmText: 'Archivia',
+      variant: 'warning',
+    });
+    if (!ok) return;
     try {
       await preassessmentAlertApi.archive(alert.id);
       showSuccess('Alert archiviato');
@@ -485,6 +541,12 @@ export function PreassessmentAlertsPage() {
   };
 
   const isMyAlert = (alert: PreassessmentAlert) => alert.createdById === user?.id;
+  const selectedClientBucket = recipientClients.find((entry) => entry.id === (createForm.contextClientId || scopedClientId || ''));
+  const selectableClientUsers = isCliente ? clientUsers : (selectedClientBucket?.users ?? []);
+  const showClientSelector = !isCliente && !scopedClientId && createForm.destinatario === 'client_user';
+  const fallbackStaffPreassessment = !isCliente && !scopedClientId
+    ? availableClients.find((entry) => entry.preassessment?.id)
+    : undefined;
 
   const formatDate = (d: string) =>
     new Date(d).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
@@ -566,12 +628,10 @@ export function PreassessmentAlertsPage() {
             <Printer className="h-4 w-4" />
             Stampa
           </button>
-          {!isGlobalStaffView && (
-            <button onClick={openCreateModal} className="wow-button">
-              <Plus className="h-4 w-4" />
-              Nuovo Alert
-            </button>
-          )}
+          <button onClick={openCreateModal} className="wow-button">
+            <Plus className="h-4 w-4" />
+            Nuovo Alert
+          </button>
         </div>
       </div>
       {/* Success/Error banners */}
@@ -886,44 +946,31 @@ export function PreassessmentAlertsPage() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => setCreateForm({ ...createForm, destinatario: 'interlocutore', colleagueId: '', partecipanteId: '' })}
+                      onClick={() => setCreateForm({ ...createForm, destinatario: 'client_user', clientUserId: '' })}
                       className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                        createForm.destinatario === 'interlocutore'
+                        createForm.destinatario === 'client_user'
                           ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
                           : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                       }`}
                     >
-                      {isCliente ? 'Per lo Studio' : 'Per il Cliente'}
+                      {isCliente ? 'Collega sublicenziatario' : 'Utente sublicenziatario'}
                     </button>
-                    {isCliente && coParticipants.length > 0 && (
+                    {studioMembers.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => setCreateForm({ ...createForm, destinatario: 'partecipante', colleagueId: '' })}
+                        onClick={() => setCreateForm({ ...createForm, destinatario: 'studio_user', studioUserId: '' })}
                         className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                          createForm.destinatario === 'partecipante'
+                          createForm.destinatario === 'studio_user'
                             ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
                             : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                         }`}
                       >
-                        Per un partecipante
-                      </button>
-                    )}
-                    {!isCliente && studioMembers.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setCreateForm({ ...createForm, destinatario: 'collega', colleagueId: '', partecipanteId: '' })}
-                        className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                          createForm.destinatario === 'collega'
-                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                            : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        Per un collega
+                        {isCliente ? 'Consulente licenziatario' : 'Collega licenziatario'}
                       </button>
                     )}
                     <button
                       type="button"
-                      onClick={() => setCreateForm({ ...createForm, destinatario: 'me', colleagueId: '', partecipanteId: '' })}
+                      onClick={() => setCreateForm({ ...createForm, destinatario: 'me', studioUserId: '', clientUserId: '' })}
                       className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition ${
                         createForm.destinatario === 'me'
                           ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
@@ -933,70 +980,56 @@ export function PreassessmentAlertsPage() {
                       Per me (privato)
                     </button>
                   </div>
-                  {/* Co-participant selector (cliente only) */}
-                  {createForm.destinatario === 'partecipante' && isCliente && (
-                    <>
-                      <select
-                        value={createForm.partecipanteId}
-                        onChange={(e) => setCreateForm({ ...createForm, partecipanteId: e.target.value })}
-                        className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 ${
-                          submitAttempted && !createForm.partecipanteId ? 'border-rose-400' : 'border-slate-300'
-                        }`}
-                      >
-                        <option value="">— Seleziona un partecipante —</option>
-                        {coParticipants.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.nome} {p.cognome}
-                          </option>
-                        ))}
-                      </select>
-                      {submitAttempted && !createForm.partecipanteId && (
-                        <p className="mt-1 text-xs text-rose-500">Seleziona un partecipante</p>
-                      )}
-                    </>
-                  )}
-                  {/* Colleague selector */}
-                  {createForm.destinatario === 'collega' && (
+                  {showClientSelector && (
                     <select
-                      value={createForm.colleagueId}
-                      onChange={(e) => setCreateForm({ ...createForm, colleagueId: e.target.value })}
-                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                      value={createForm.contextClientId}
+                      onChange={(e) => setCreateForm({ ...createForm, contextClientId: e.target.value, clientUserId: '' })}
+                      className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 ${
+                        submitAttempted && !createForm.contextClientId ? 'border-rose-400' : 'border-slate-300'
+                      }`}
                     >
-                      <option value="">— Seleziona un collega —</option>
-                      {studioMembers.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.nome} {m.cognome} ({m.ruolo})
+                      <option value="">— Seleziona sublicenziatario —</option>
+                      {availableClients.map((entry) => (
+                        <option key={entry.client.id} value={entry.client.id}>
+                          {entry.client.ragioneSociale || entry.client.azienda || entry.client.nome}
                         </option>
                       ))}
                     </select>
                   )}
-                  {/* Client user picker (staff only, when interlocutore) */}
-                  {createForm.destinatario === 'interlocutore' && !isCliente && clientUsers.length > 0 && (
+                  {createForm.destinatario === 'client_user' && (
                     <select
-                      value={createForm.interlocutoreUserId}
-                      onChange={(e) => setCreateForm({ ...createForm, interlocutoreUserId: e.target.value })}
+                      value={createForm.clientUserId}
+                      onChange={(e) => setCreateForm({ ...createForm, clientUserId: e.target.value })}
                       className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
                     >
-                      <option value="tutti">Tutti i partecipanti</option>
-                      {clientUsers.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.nome} {u.cognome}
+                      <option value="">— Seleziona utente —</option>
+                      {selectableClientUsers.map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {entry.nome} {entry.cognome}{entry.email ? ` (${entry.email})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {createForm.destinatario === 'studio_user' && (
+                    <select
+                      value={createForm.studioUserId}
+                      onChange={(e) => setCreateForm({ ...createForm, studioUserId: e.target.value })}
+                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                    >
+                      <option value="">— Seleziona consulente —</option>
+                      {studioMembers.map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {entry.nome} {entry.cognome} ({entry.ruolo})
                         </option>
                       ))}
                     </select>
                   )}
                   <p className="mt-1 text-[11px] text-slate-400">
-                    {createForm.destinatario === 'interlocutore'
-                      ? (isCliente
-                          ? 'L\'alert sarà visibile allo studio consulente.'
-                          : createForm.interlocutoreUserId === 'tutti'
-                            ? 'L\'alert sarà inviato a tutti i partecipanti del cliente.'
-                            : 'L\'alert sarà visibile al partecipante selezionato.')
-                      : createForm.destinatario === 'partecipante'
-                        ? 'L\'alert sarà visibile al partecipante selezionato.'
-                        : createForm.destinatario === 'collega'
-                          ? 'L\'alert sarà visibile al collega selezionato.'
-                          : 'Promemoria privato visibile solo a te.'}
+                    {createForm.destinatario === 'client_user'
+                      ? 'L\'alert sarà visibile solo all\'utente selezionato del sublicenziatario.'
+                      : createForm.destinatario === 'studio_user'
+                        ? 'L\'alert sarà visibile solo al consulente selezionato.'
+                        : 'Promemoria privato visibile solo a te.'}
                   </p>
                 </div>
 

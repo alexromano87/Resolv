@@ -954,7 +954,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                               }
                               className="flex w-full items-center justify-between px-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400"
                             >
-                              {g.label}
+                              {`${g.id.toUpperCase()} - ${g.label}`}
                               <ChevronDown className={`h-3 w-3 text-slate-500 transition ${collapsed[g.id] ? '-rotate-90' : ''}`} />
                             </button>
                             {!collapsed[g.id] && visibleSections.map((s) => {

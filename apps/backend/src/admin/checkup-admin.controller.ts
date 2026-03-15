@@ -1,4 +1,5 @@
-import { Body, ConflictException, Controller, Get, NotFoundException, Post, UseGuards, Param, Put, Patch, Delete, Query, BadRequestException, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, NotFoundException, Post, UseGuards, Param, Put, Patch, Delete, Query, BadRequestException, UseInterceptors, UploadedFile, Req, Res, HttpCode } from '@nestjs/common';
+import type { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, In } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -20,6 +21,10 @@ import { QuestionSection } from '../checkup/entities/question-section.entity';
 import { QuestionField } from '../checkup/entities/question-field.entity';
 import { QuestionModel } from '../checkup/entities/question-model.entity';
 import { QuestionManagementService } from '../checkup/services/question-management.service';
+import { CheckupPdfConfig } from '../checkup/entities/checkup-pdf-config.entity';
+import { PdfConfigDto } from '../checkup/dto/pdf-config.dto';
+import { DEFAULT_PDF_CONFIG } from '../checkup/pdf-config/checkup-pdf-config.service';
+import { CheckupPreassessmentRenderService } from '../checkup/preassessment/checkup-preassessment-render.service';
 import { CreateCheckupStudioDto } from './dto/create-checkup-studio.dto';
 import { CreateCheckupLicenseDto } from './dto/create-checkup-license.dto';
 import { CreateCheckupSublicenseDto } from './dto/create-checkup-sublicense.dto';
@@ -58,7 +63,10 @@ export class CheckupAdminController {
     private preassessmentRepository: Repository<CheckupPreassessment>,
     @InjectRepository(QuestionModel)
     private questionModelRepository: Repository<QuestionModel>,
+    @InjectRepository(CheckupPdfConfig)
+    private pdfConfigRepository: Repository<CheckupPdfConfig>,
     private questionManagementService: QuestionManagementService,
+    private renderService: CheckupPreassessmentRenderService,
   ) {}
 
   private static OWNER_FIELDS_BY_MACRO: Record<string, { name: string; role: string; email: string }> = {
@@ -1502,5 +1510,53 @@ export class CheckupAdminController {
   async deleteField(@Param('id') id: string) {
     await this.questionManagementService.deleteField(parseInt(id));
     return { success: true, message: 'Campo eliminato' };
+  }
+
+  // ── PDF Config ────────────────────────────────────────────────────────────
+
+  @Get('pdf-config')
+  async getPdfConfig(): Promise<PdfConfigDto> {
+    const record = await this.pdfConfigRepository.findOne({ where: { id: 1 } });
+    return record?.config ?? DEFAULT_PDF_CONFIG;
+  }
+
+  @Get('pdf-config/preview-context')
+  async getPdfPreviewContext(): Promise<{ companyName: string; consultantName: string }> {
+    const [studio, client] = await Promise.all([
+      this.studioRepository.findOne({
+        where: { attivo: true, tipo: 'licenziatario' },
+        order: { updatedAt: 'DESC' },
+      }),
+      this.clientRepository.findOne({
+        where: { attivo: true },
+        order: { updatedAt: 'DESC' },
+      }),
+    ]);
+
+    return {
+      companyName: client?.ragioneSociale || client?.nome || 'Cliente di esempio',
+      consultantName: studio?.ragioneSociale || studio?.nome || 'Studio licenziatario',
+    };
+  }
+
+  @Put('pdf-config')
+  async updatePdfConfig(@Body() dto: PdfConfigDto, @Req() req: any): Promise<PdfConfigDto> {
+    let record = await this.pdfConfigRepository.findOne({ where: { id: 1 } });
+    if (!record) {
+      record = this.pdfConfigRepository.create({ id: 1 });
+    }
+    record.config = dto;
+    record.updatedBy = req.user?.email ?? req.user?.username ?? null;
+    await this.pdfConfigRepository.save(record);
+    return record.config;
+  }
+
+  @Post('pdf-config/preview')
+  @HttpCode(200)
+  async previewPdfConfig(@Body() body: { html: string }, @Res() res: Response): Promise<void> {
+    const pdf = await this.renderService.renderHtmlToPdf(body.html ?? '');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="anteprima-report.pdf"');
+    res.end(pdf);
   }
 }

@@ -43,6 +43,7 @@ import {
   PreassessmentDocument,
 } from '../api/preassessment';
 import { preassessmentReportApi } from '../api/reports';
+import { pdfConfigApi, DEFAULT_PDF_CONFIG, type PdfConfig } from '../api/pdfConfig';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreassessmentNav } from '../contexts/PreassessmentNavContext';
 import { useStudio } from '../contexts/StudioContext';
@@ -188,6 +189,7 @@ export default function PreassessmentPage() {
   const [panel, setPanel] = useState<'chat' | 'tickets' | 'alerts' | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [zipLoading, setZipLoading] = useState(false);
+  const [pdfConfig, setPdfConfig] = useState<PdfConfig>(DEFAULT_PDF_CONFIG);
   const [savingReport, setSavingReport] = useState(false);
   const [reportNotice, setReportNotice] = useState<string | null>(null);
   const consultantNoteDirtyRef = useRef(false);
@@ -1073,6 +1075,13 @@ export default function PreassessmentPage() {
     });
   }, []);
 
+  // Carica il config PDF dal backend all'avvio
+  useEffect(() => {
+    pdfConfigApi.getConfig()
+      .then(setPdfConfig)
+      .catch(() => { /* usa il default */ });
+  }, []);
+
   const buildReportHtml = useCallback(async () => {
     const nowDate = new Date();
     const nowLabel = nowDate.toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -1110,12 +1119,75 @@ export default function PreassessmentPage() {
     const excludeNA = exportMode === 'excludeNA';
     const includeNotes = exportIncludeConsultantNotes;
 
+    // ── Build cover HTML ────────────────────────────────────────────────────
+    const licenziatarioNome = clientInfo?.studioNome || studioNome;
+    const escapeHtml = (value?: string) => (value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+    const cssColor = (value?: string, fallback = 'transparent') => value && value.trim() ? value : fallback;
+    const coverElements = (pdfConfig.coverElements ?? []).slice().sort((a, b) => a.zIndex - b.zIndex);
+    const coverElementHtml = coverElements
+      .filter((element) => element.visible)
+      .map((element) => {
+        const justify = element.align === 'center' ? 'center' : element.align === 'right' ? 'flex-end' : 'flex-start';
+        const baseStyle = [
+          `left:${element.x}%`,
+          `top:${element.y}%`,
+          `width:${element.width}%`,
+          `min-height:${element.height}%`,
+          `z-index:${element.zIndex}`,
+          `justify-content:${justify}`,
+          `text-align:${element.align}`,
+          `color:${cssColor(element.color, '#ffffff')}`,
+          `font-family:${escapeHtml(element.fontFamily || pdfConfig.fontFamily || 'Noto Sans')}`,
+          `font-size:${element.fontSize}px`,
+          `font-weight:${escapeHtml(String(element.fontWeight || 'normal'))}`,
+          `opacity:${element.opacity ?? 1}`,
+          `line-height:${element.lineHeight ?? 1.3}`,
+          `letter-spacing:${element.letterSpacing ?? 0}em`,
+          `background:${cssColor(element.backgroundColor)}`,
+          `border:${element.borderWidth ? `${element.borderWidth}px solid ${cssColor(element.borderColor, 'transparent')}` : 'none'}`,
+          `border-radius:${element.borderRadius ?? 0}px`,
+          `text-transform:${element.uppercase ? 'uppercase' : 'none'}`,
+        ].join(';');
+
+        let innerHtml = '';
+        if (element.type === 'logo') {
+          innerHtml = logoForCover ? `<img src="${logoForCover}" alt="Logo" class="cover-element-logo" />` : '<div class="cover-element-logo-placeholder"></div>';
+        } else if (element.type === 'company') {
+          innerHtml = escapeHtml(ragione);
+        } else if (element.type === 'date') {
+          innerHtml = escapeHtml(`Generato il ${nowLabel} · ${nowTime}`);
+        } else if (element.type === 'consultant') {
+          innerHtml = escapeHtml(licenziatarioNome ? `Consulente: ${licenziatarioNome}` : '');
+        } else if (element.type === 'features') {
+          innerHtml = `<div class="cover-element-features">${(element.items ?? []).map((item) => `<div class="cover-element-feature"><span class="dot"></span><span>${escapeHtml(item)}</span></div>`).join('')}</div>`;
+        } else {
+          innerHtml = escapeHtml(element.text || '');
+        }
+
+        return `<div class="cover-element cover-element--${element.type}" data-element-id="${escapeHtml(element.id)}" style="${baseStyle}">${innerHtml}</div>`;
+      })
+      .join('');
+
     let html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><style>
+      :root {
+        --q-font-size: ${pdfConfig.questionFontSize}pt;
+        --a-font-size: ${pdfConfig.answerFontSize}pt;
+        --sh-font-size: ${pdfConfig.sectionHeaderFontSize}pt;
+        --body-font: '${pdfConfig.fontFamily}', system-ui, Helvetica, Arial, sans-serif;
+        --border-width: ${pdfConfig.borderWidth}px;
+        /* Cover */
+        --cv-bg: linear-gradient(135deg, ${pdfConfig.coverBgStart ?? '#1e3a8a'} 0%, ${pdfConfig.coverBgMid ?? '#1e40af'} 45%, ${pdfConfig.coverBgEnd ?? '#0f172a'} 100%);
+      }
       @page { size: A4; margin: 0mm; }
       * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       html, body { height: auto; }
       body {
-        font-family: 'Noto Sans', system-ui, Helvetica, Arial, FreeSans, sans-serif;
+        font-family: var(--body-font);
         background: #f6f8fb;
         color: #1c2738;
         font-size: 11pt;
@@ -1137,42 +1209,32 @@ export default function PreassessmentPage() {
         break-after: auto;
       }
 
-      /* === COVER (originale) === */
+      /* === COVER === */
       .cover-page { padding: 0; background: #f6f8fb; }
       .cover {
         height: 100%; width: 100%;
         padding: 40px 36px;
         border-radius: 18px;
         color: #eef2ff;
-        background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 45%, #0f172a 100%);
+        background: var(--cv-bg);
         border: 1px solid rgba(255,255,255,0.12);
-        display: flex; flex-direction: column; justify-content: space-between;
+        display: flex; flex-direction: column;
         position: relative; overflow: hidden; box-sizing: border-box;
       }
-      .cover-top { display: flex; align-items: center; gap: 16px; padding: 12px 14px; }
-      .cover-top img { height: 64px; width: auto; max-width: 200px; object-fit: contain; }
-      .cover-title { font-size: 28px; font-weight: 700; letter-spacing: 0.02em; }
-      .cover-subtitle { font-size: 14px; opacity: 0.85; margin-top: 6px; }
-      .cover-center { margin-top: 22px; }
-      .cover-kicker { font-size: 12px; letter-spacing: 0.3em; text-transform: uppercase; opacity: 0.8; }
-      .cover-heading { font-size: 36px; font-weight: 700; margin-top: 10px; color: #ffffff; }
-      .cover-company { font-size: 18px; color: #dbeafe; margin-top: 12px; }
-      .cover-meta { margin-top: 12px; font-size: 12px; color: #c7d2fe; }
-      .cover-detail { margin-top: 14px; max-width: 520px; color: #dbeafe; font-size: 12px; line-height: 1.7; }
-      .cover-features { margin-top: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
-      .cover-feature { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; color: #e2e8f0; }
-      .cover-feature .dot { width: 8px; height: 8px; border-radius: 999px; background: #22d3ee; margin-top: 5px; flex: none; }
-      .cover-footer { display: flex; gap: 16px; align-items: center; font-size: 11px; color: #cbd5f5; }
-      .cover-chip { background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.18); padding: 6px 10px; border-radius: 999px; font-weight: 600; letter-spacing: 0.04em; }
-      .cover-content { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 12px; }
-      .cover-band {
-        margin-top: 14px; background: rgba(15,23,42,0.35); border: 1px solid rgba(255,255,255,0.16);
-        border-radius: 12px; padding: 12px 14px;
-        display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+      .cover-content { position: relative; z-index: 1; display: block; flex: 1; width: 100%; height: 100%; }
+      .cover-element {
+        position: absolute;
+        display: flex;
+        align-items: flex-start;
+        white-space: pre-wrap;
+        overflow: hidden;
+        box-sizing: border-box;
       }
-      .cover-band .item { display: flex; flex-direction: column; gap: 4px; }
-      .cover-band .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.18em; color: #cbd5f5; }
-      .cover-band .value { font-size: 16px; font-weight: 700; color: #ffffff; }
+      .cover-element-logo { width: 100%; height: 100%; object-fit: contain; }
+      .cover-element-logo-placeholder { width: 100%; height: 100%; border-radius: 8px; background: rgba(255,255,255,0.24); }
+      .cover-element-features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; width: 100%; }
+      .cover-element-feature { display: flex; gap: 8px; align-items: flex-start; }
+      .cover-element-feature .dot { width: 8px; height: 8px; border-radius: 999px; background: #22d3ee; margin-top: 5px; flex: none; }
 
       /* ---- Page corner accent (echoes cover style on every content page) ---- */
       .mac-corner { position: absolute; top: 0; right: 0; width: 34px; height: 100%; pointer-events: none; }
@@ -1254,7 +1316,7 @@ export default function PreassessmentPage() {
         border-radius: 6px;
         overflow: hidden;
         box-sizing: border-box;
-        border: 1.5px solid #3b82f6;
+        border: var(--border-width) solid #3b82f6;
       }
       .section-page.last .macro-frame { flex: 1; height: auto; }
       .macro-hdr { display: flex; align-items: center; padding: 7px 14px; flex-shrink: 0; position: relative; overflow: hidden; }
@@ -1267,7 +1329,7 @@ export default function PreassessmentPage() {
       .sec-hdr {
         grid-column: 1 / -1;
         padding: 6px 12px 5px;
-        font-size: 10.5px;
+        font-size: var(--sh-font-size);
         font-weight: 600;
         background: #f4f7fb;
         border-top: 1px solid #e8edf5;
@@ -1276,7 +1338,7 @@ export default function PreassessmentPage() {
       .sec-hdr:first-child { border-top: none; }
       .fq {
         padding: 6px 12px;
-        font-size: 10.5px;
+        font-size: var(--q-font-size);
         font-weight: normal;
         color: #334155;
         border-right: 1px solid #e8edf5;
@@ -1286,7 +1348,7 @@ export default function PreassessmentPage() {
       }
       .fa {
         padding: 6px 12px;
-        font-size: 10.5px;
+        font-size: var(--a-font-size);
         color: #1e293b;
         border-bottom: 1px solid #f1f5f9;
         white-space: pre-wrap;
@@ -1331,36 +1393,7 @@ export default function PreassessmentPage() {
           <div class="pdf-page cover-page">
             <div class="cover">
               <div class="cover-content">
-                <div class="cover-top">
-                  <img src="${logoForCover}" alt="Logo" />
-                  <div>
-                    <div class="cover-title">CHECKUP</div>
-                    <div class="cover-subtitle">Checkup Governance • Pre-Assessment</div>
-                  </div>
-                </div>
-                <div class="cover-center">
-                  <div class="cover-kicker">Report Riservato</div>
-                  <div class="cover-heading">Pre-Assessment Tool</div>
-                  <div class="cover-company" style="display:flex;align-items:center;gap:12px;">
-                    ${studioLogoUrl ? `<img src="${studioLogoUrl}" style="height:30px;width:auto;max-width:100px;object-fit:contain;flex-shrink:0;" alt="Studio" />` : ''}
-                    <span>${studioNome || ragione}</span>
-                  </div>
-                  <div class="cover-meta">Generato il ${nowLabel} · ${nowTime}</div>
-                  <div class="cover-detail">
-                    Gestione professionale del checkup governance per studi legali e aziende.
-                    Un report strutturato per decisioni rapide e tracciabilità completa.
-                  </div>
-                  <div class="cover-features">
-                    <div class="cover-feature"><span class="dot"></span><span>Tracking completo e stato avanzamento in tempo reale</span></div>
-                    <div class="cover-feature"><span class="dot"></span><span>Sicurezza, compliance e audit trail integrato</span></div>
-                    <div class="cover-feature"><span class="dot"></span><span>Dashboard e report con KPI immediati</span></div>
-                    <div class="cover-feature"><span class="dot"></span><span>Collaborazione studio-cliente con controllo accessi</span></div>
-                  </div>
-                </div>
-<div class="cover-footer">
-                  <span class="cover-chip">v6.0</span>
-                  <span>Documento ad uso interno e cliente</span>
-                </div>
+                ${coverElementHtml}
               </div>
             </div>
           </div>
@@ -1405,12 +1438,29 @@ export default function PreassessmentPage() {
         idxNum++;
       });
     });
-    const idxTotal = allIdxSections.length;
-    const idxColSize = Math.ceil(idxTotal / 3);
+    // Col 3 = solo sezioni Owner; col 1+2 = tutto il resto, divise per macro group intero
+    const ownerSections = allIdxSections.filter((s) => s.macroLabel.toLowerCase().includes('owner'));
+    const normalSections = allIdxSections.filter((s) => !s.macroLabel.toLowerCase().includes('owner'));
+
+    // Raggruppa le sezioni normali per macro (preservando l'ordine)
+    const normalGroups: { macroLabel: string; color: string; items: typeof allIdxSections }[] = [];
+    normalSections.forEach((s) => {
+      const last = normalGroups[normalGroups.length - 1];
+      if (last && last.macroLabel === s.macroLabel) { last.items.push(s); }
+      else { normalGroups.push({ macroLabel: s.macroLabel, color: s.color, items: [s] }); }
+    });
+
+    // Trova il punto di taglio al confine di macro group più vicino alla metà
+    const midpoint = Math.ceil(normalSections.length / 2);
+    let running = 0; let splitAt = normalGroups.length;
+    for (let i = 0; i < normalGroups.length; i++) {
+      running += normalGroups[i].items.length;
+      if (running >= midpoint) { splitAt = i + 1; break; }
+    }
     const idxCols = [
-      allIdxSections.slice(0, idxColSize),
-      allIdxSections.slice(idxColSize, idxColSize * 2),
-      allIdxSections.slice(idxColSize * 2),
+      normalGroups.slice(0, splitAt).flatMap((g) => g.items),
+      normalGroups.slice(splitAt).flatMap((g) => g.items),
+      ownerSections,
     ];
 
     html += `<div class="index-page" style="margin: 0; flex: 1;"><div class="index-title">Indice</div><div class="index-cols">`;
@@ -1449,7 +1499,7 @@ export default function PreassessmentPage() {
         fields.forEach((f) => items.push({ type: 'field', field: f, sectionId: s.id }));
         const sectionNote = sanitize(notes[s.id]);
         if (sectionNote) items.push({ type: 'section_note', note: sectionNote });
-        if (documentsEnabled) {
+        if (documentsEnabled && pdfConfig.showDocuments) {
           const sectionDocs = s.fields.flatMap((f) => allDocsByField[f.id] || []);
           if (sectionDocs.length > 0) items.push({ type: 'docs', docs: sectionDocs });
         }
@@ -1457,47 +1507,74 @@ export default function PreassessmentPage() {
       if (items.length > 0) macroGroups.push({ macro, items });
     });
 
-    // Chunk items into pages per macro area — entire sections stay together
-    const ITEMS_PER_PAGE = 22;
+    // Paginazione:
+    // - Default: 26 domande per pagina, sezioni si spezzano liberamente
+    // - SECTIONS_PER_PAGE_OVERRIDE: max N sezioni per pagina (E → 3)
+    // - SECTION_INTEGRITY_MACROS: sezioni rimangono intere, si impacchettano
+    //   sulla stessa pagina solo se la somma domande è ≤ MAX_Q (H)
+    const MAX_Q = pdfConfig.maxQuestionsPerPage;
+    const SECTIONS_PER_PAGE_OVERRIDE: Record<string, number> = {};
+    const SECTION_INTEGRITY_MACROS = new Set<string>();
+    pdfConfig.macroOverrides.forEach((ov) => {
+      if (ov.mode === 'sections') SECTIONS_PER_PAGE_OVERRIDE[ov.macroId] = ov.limit;
+      else if (ov.mode === 'integrity') SECTION_INTEGRITY_MACROS.add(ov.macroId);
+    });
+
     type MacroPage = { macro: MacroAreaSpec; chunk: MacroItemType[]; pageNum: number; totalPages: number; };
     const allMacroPages: MacroPage[] = [];
 
-    const itemCost = (item: MacroItemType) =>
-      item.type === 'section_header' ? 2
-      : item.type === 'section_note' ? 2
-      : item.type === 'docs' ? (item.docs?.length ?? 0) + 1.5
-      : 1;
-
     macroGroups.forEach(({ macro, items }) => {
-      // Group flat items into logical sections: [header, ...fields, optional note/docs]
-      const sectionBlocks: MacroItemType[][] = [];
-      let curBlock: MacroItemType[] = [];
-      items.forEach((item) => {
-        if (item.type === 'section_header') {
-          if (curBlock.length > 0) sectionBlocks.push(curBlock);
-          curBlock = [item];
-        } else {
-          curBlock.push(item);
-        }
-      });
-      if (curBlock.length > 0) sectionBlocks.push(curBlock);
-
-      // Fit whole section blocks onto pages
       const chunks: MacroItemType[][] = [];
       let current: MacroItemType[] = [];
-      let count = 0;
 
-      sectionBlocks.forEach((block) => {
-        const blockCost = block.reduce((s, i) => s + itemCost(i), 0);
-        if (count + blockCost > ITEMS_PER_PAGE && current.length > 0) {
-          // Section doesn't fit on current page — flush and start fresh
-          chunks.push(current);
-          current = [];
-          count = 0;
+      if (SECTION_INTEGRITY_MACROS.has(macro.id)) {
+        // Sezioni intere: si impacchettano se la somma domande ≤ MAX_Q, altrimenti nuova pagina
+        const sectionBlocks: MacroItemType[][] = [];
+        let curBlock: MacroItemType[] = [];
+        items.forEach((item) => {
+          if (item.type === 'section_header' && curBlock.length > 0) {
+            sectionBlocks.push(curBlock); curBlock = [];
+          }
+          curBlock.push(item);
+        });
+        if (curBlock.length > 0) sectionBlocks.push(curBlock);
+
+        let qCount = 0;
+        sectionBlocks.forEach((block) => {
+          const bq = block.filter(i => i.type === 'field').length;
+          if (qCount + bq > MAX_Q && current.length > 0) {
+            chunks.push(current); current = []; qCount = 0;
+          }
+          block.forEach(i => current.push(i));
+          qCount += bq;
+        });
+
+      } else {
+        const sectLimit = SECTIONS_PER_PAGE_OVERRIDE[macro.id];
+        if (sectLimit !== undefined) {
+          // Max N sezioni per pagina
+          let sectCount = 0;
+          items.forEach((item) => {
+            if (item.type === 'section_header') {
+              if (sectCount >= sectLimit && current.length > 0) {
+                chunks.push(current); current = []; sectCount = 0;
+              }
+              sectCount++;
+            }
+            current.push(item);
+          });
+        } else {
+          // Default: 26 domande per pagina, sezioni si spezzano
+          let qCount = 0;
+          items.forEach((item) => {
+            if (item.type === 'field' && qCount >= MAX_Q) {
+              chunks.push(current); current = []; qCount = 0;
+            }
+            current.push(item);
+            if (item.type === 'field') qCount++;
+          });
         }
-        block.forEach((i) => current.push(i));
-        count += blockCost;
-      });
+      }
       if (current.length > 0) chunks.push(current);
 
       chunks.forEach((chunk, ci) =>
@@ -1520,7 +1597,10 @@ export default function PreassessmentPage() {
       html += `<div class="mac-cs" style="clip-path:polygon(15% 0%,40% 0%,100% 85%,100% 60%);background:rgba(255,255,255,0.15);"></div>`;
       html += `<div class="mac-cs" style="clip-path:polygon(0% 0%,18% 0%,100% 100%,82% 100%);background:rgba(255,255,255,0.08);"></div>`;
       html += `</div>`;
-      html += `<span class="macro-hdr-name">${macro.label.toUpperCase()}</span>`;
+      const _macroHeaderLabel = pdfConfig.showMacroLetter
+        ? `${macro.id.toUpperCase()} \u2013 ${macro.label.toUpperCase()}`
+        : macro.label.toUpperCase();
+      html += `<span class="macro-hdr-name">${_macroHeaderLabel}</span>`;
       if (totalPages > 1) html += `<span class="macro-hdr-page">${pageNum} / ${totalPages}</span>`;
       html += `</div>`;
       // Column headers
@@ -1538,9 +1618,10 @@ export default function PreassessmentPage() {
           const isNA = !!naFields[f.id];
           const rawValue = isNA ? 'N/A' : sanitize(data[f.id]);
           const v = rawValue.includes('||') ? rawValue.split('||').join(', ') : rawValue;
-          const un = !isNA ? sanitize(userFieldNotes[f.id]) : '';
-          const consultantNote = includeNotes && !isNA ? sanitize(fieldNotes[f.id]) : '';
-          html += `<div class="fq">${f.label}${f.required ? ' *' : ''}</div>`;
+          const un = pdfConfig.showUserNotes && !isNA ? sanitize(userFieldNotes[f.id]) : '';
+          const consultantNote = includeNotes && pdfConfig.showConsultantNotes && !isNA ? sanitize(fieldNotes[f.id]) : '';
+          const displayLabel = pdfConfig.showAsterisks ? f.label : f.label.replace(/\s*\*+\s*$/g, '');
+          html += `<div class="fq">${displayLabel}</div>`;
           html += `<div class="fa">${v ? v.replace(/\n/g, '<br>') : '<span class="empty-val">—</span>'}`;
           if (un) html += `<div class="fn user-note"><span class="note-lbl">Nota:</span>${un.replace(/\n/g, '<br>')}</div>`;
           if (consultantNote) html += `<div class="fn consultant-note"><span class="note-lbl">Consulente:</span>${consultantNote.replace(/\n/g, '<br>')}</div>`;
@@ -1556,17 +1637,15 @@ export default function PreassessmentPage() {
       html += `</div>`; // end macro-grid
       html += `</div>`; // end macro-frame
       if (isLastPage) {
-        html += `
-          <div class="footer">
-            <div class="footer-logo">
-              <img src="${logoUrl}" alt="Resolv" />
-              <div class="footer-text">
-                Software gestionale per studi legali e professionisti del settore creditizio<br>
-                Report generato il ${nowLabel}
-                <div class="copyright">© ${new Date().getFullYear()} Resolv. Tutti i diritti riservati.</div>
-              </div>
-            </div>
-          </div>`;
+        html += `<div class="footer"><div class="footer-logo">`;
+        if (pdfConfig.footerShowLogo !== false) {
+          html += `<img src="${logoUrl}" alt="Resolv" />`;
+        }
+        html += `<div class="footer-text">
+            ${pdfConfig.footerMainText ?? 'Software gestionale per studi legali e professionisti del settore creditizio'}<br>
+            Report generato il ${nowLabel}
+            <div class="copyright">© ${new Date().getFullYear()} ${pdfConfig.footerCopyrightText ?? 'Resolv. Tutti i diritti riservati.'}</div>
+          </div></div></div>`;
       }
       html += `</div>`; // end pdf-page
     });
@@ -1595,6 +1674,7 @@ export default function PreassessmentPage() {
     documentsEnabled,
     preassessmentId,
     studioLogoUrl,
+    pdfConfig,
   ]);
 
   const generatePDF = async () => {
@@ -2182,7 +2262,7 @@ export default function PreassessmentPage() {
                         {expandedMacros.has(row.id)
                           ? <ChevronDown size={13} className="text-slate-400 flex-shrink-0" />
                           : <ChevronRight size={13} className="text-slate-400 flex-shrink-0" />}
-                        <span style={{ color: row.color }} className="font-semibold">{row.label}</span>
+                        <span style={{ color: row.color }} className="font-semibold">{`${row.id.toUpperCase()} - ${row.label}`}</span>
                       </span>
                     </td>
                     <td className="px-3 py-3">
@@ -2498,6 +2578,7 @@ export default function PreassessmentPage() {
                 onNaChange={handleNaChange}
                 canEditConsultantNotes={!isClient}
                 canEditUserNotes={!readOnly && isClient && !/^owner_[a-j]_/.test(f.id)}
+                highlightCompletionState={isClient}
                 documents={documentsByField[f.id] || []}
                 documentsLoading={documentsLoading}
                 documentsEnabled={documentsEnabled}
@@ -2663,7 +2744,7 @@ export default function PreassessmentPage() {
                 <div>Filtro dashboard: {dashFilterLabel}</div>
               )}
               {!isClient && readOnly && (
-                <div className="text-amber-700 font-semibold">Sola lettura • Modifiche non autorizzate dal cliente</div>
+                <div className="text-amber-700 font-semibold">Sola lettura</div>
               )}
               {isFinalClosed && (
                 <div className="text-emerald-700 font-semibold">Checkup concluso</div>
@@ -2872,7 +2953,7 @@ function PreassessmentSidebar({
                   }
                   className="flex w-full items-center justify-between px-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400"
                 >
-                  {g.label}
+                  {`${g.id.toUpperCase()} - ${g.label}`}
                   <ChevronDown className={`h-3 w-3 text-slate-500 transition ${collapsed[g.id] ? '-rotate-90' : ''}`} />
                 </button>
                 {!collapsed[g.id] && g.sections.map((s, sIdx) => {

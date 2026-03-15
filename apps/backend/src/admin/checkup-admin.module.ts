@@ -10,8 +10,10 @@ import { QuestionMacroArea } from '../checkup/entities/question-macro-area.entit
 import { QuestionSection } from '../checkup/entities/question-section.entity';
 import { QuestionField } from '../checkup/entities/question-field.entity';
 import { QuestionModel } from '../checkup/entities/question-model.entity';
+import { CheckupPdfConfig } from '../checkup/entities/checkup-pdf-config.entity';
 import { CheckupAdminController } from './checkup-admin.controller';
 import { QuestionManagementService } from '../checkup/services/question-management.service';
+import { CheckupPreassessmentRenderService } from '../checkup/preassessment/checkup-preassessment-render.service';
 
 @Module({
   imports: [
@@ -26,9 +28,10 @@ import { QuestionManagementService } from '../checkup/services/question-manageme
       QuestionSection,
       QuestionField,
       QuestionModel,
+      CheckupPdfConfig,
     ]),
   ],
   controllers: [CheckupAdminController],
-  providers: [QuestionManagementService],
+  providers: [QuestionManagementService, CheckupPreassessmentRenderService],
 })
 export class CheckupAdminModule {}

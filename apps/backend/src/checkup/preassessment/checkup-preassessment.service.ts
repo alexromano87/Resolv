@@ -10,6 +10,7 @@ import { CheckupUser } from '../users/checkup-user.entity';
 import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
+import { CheckupStudio } from '../studios/checkup-studio.entity';
 import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
 import { CheckupPreassessmentNotificationsService } from './checkup-preassessment-notifications.service';
 import { CheckupPreassessmentRenderService } from './checkup-preassessment-render.service';
@@ -29,6 +30,8 @@ export class CheckupPreassessmentService {
     private sublicenseRepository: Repository<CheckupSublicense>,
     @InjectRepository(CheckupClient)
     private clientRepository: Repository<CheckupClient>,
+    @InjectRepository(CheckupStudio)
+    private studioRepository: Repository<CheckupStudio>,
     private auditLogService: CheckupAuditLogService,
     private preassessmentNotificationsService: CheckupPreassessmentNotificationsService,
     private preassessmentRenderService: CheckupPreassessmentRenderService,
@@ -525,6 +528,19 @@ export class CheckupPreassessmentService {
     const sublicense = await this.sublicenseRepository.findOne({
       where: { clientId: client.id, attiva: true },
     });
+
+    // Resolve licenziatario studio from sublicense → license → studio
+    let studioId: string | null = null;
+    let studioNome: string | null = null;
+    if (sublicense) {
+      const license = await this.licenseRepository.findOne({ where: { id: sublicense.licenseId } });
+      if (license?.studioId) {
+        const studio = await this.studioRepository.findOne({ where: { id: license.studioId } });
+        studioId = license.studioId;
+        studioNome = studio?.ragioneSociale || studio?.nome || null;
+      }
+    }
+
     return {
       client: {
         id: client.id,
@@ -532,8 +548,8 @@ export class CheckupPreassessmentService {
         cognome: '',
         email: client.email,
         azienda: client.ragioneSociale || client.nome,
-        studioId: null,
-        studioNome: null,
+        studioId,
+        studioNome,
         sublicense: sublicense
           ? {
               id: sublicense.id,
@@ -592,6 +608,10 @@ export class CheckupPreassessmentService {
     const license = await this.licenseRepository.findOne({ where: { studioId: currentUser.studioId } });
     if (!license) return [];
 
+    // Fetch the licenziatario studio name once for all clients
+    const licenziatarioStudio = await this.studioRepository.findOne({ where: { id: currentUser.studioId } });
+    const studioNome = licenziatarioStudio?.ragioneSociale || licenziatarioStudio?.nome || null;
+
     const sublicenses = await this.sublicenseRepository.find({
       where: { licenseId: license.id, attiva: true, clientId: Not(IsNull()) },
     });
@@ -624,8 +644,8 @@ export class CheckupPreassessmentService {
           cognome: '',
           email: client.email,
           azienda,
-          studioId: null,
-          studioNome: null,
+          studioId: currentUser.studioId ?? null,
+          studioNome,
           sublicense: sublicense
             ? {
                 id: sublicense.id,

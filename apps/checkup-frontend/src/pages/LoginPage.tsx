@@ -1,7 +1,7 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Shield, ClipboardCheck, BarChart3, Lock, Eye, EyeOff, ArrowLeft, Loader2, Clock } from 'lucide-react';
+import { Shield, ClipboardCheck, BarChart3, Lock, Eye, EyeOff, ArrowLeft, Loader2, Clock, Users, Layers, X } from 'lucide-react';
 import { authApi } from '../api/auth';
 
 export default function LoginPage() {
@@ -32,6 +32,8 @@ export default function LoginPage() {
   const [recoverLoading, setRecoverLoading] = useState(false);
   const [recoverError, setRecoverError] = useState('');
   const [recoverInfo, setRecoverInfo] = useState('');
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
   const { setSession } = useAuth();
   const navigate = useNavigate();
 
@@ -155,38 +157,46 @@ export default function LoginPage() {
           <div className="mt-8 space-y-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1">
               <div className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
-              <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-cyan-300">Governance &amp; Risk &amp; Compliance Platform</span>
+              <span className="text-[13px] font-semibold uppercase tracking-[0.12em] text-cyan-300">Governance &amp; Risk &amp; Compliance Platform</span>
             </div>
-            <h1 className="text-3xl font-bold text-white leading-tight" style={{ fontVariationSettings: "'wght' 700, 'opsz' 32" }}>
-              Profilazione Aziendale<br />
-              <span className="text-blue-300">Intelligente</span>
+            <h1 className="text-xl font-bold text-white leading-tight whitespace-nowrap" style={{ fontVariationSettings: "'wght' 700, 'opsz' 32" }}>
+              Piattaforma GRC modulare per la gestione integrata della compliance aziendale
             </h1>
-            <p className="mt-3 text-[15px] text-blue-200/80 max-w-sm leading-relaxed">
-              Analisi strutturata della compliance, del rischio e della salute organizzativa della tua azienda.
-            </p>
           </div>
         </div>
 
         {/* Middle — Feature highlights */}
-        <div className="relative z-10 space-y-5">
+        <div className="relative z-10 space-y-4">
           {[
             {
               icon: <ClipboardCheck className="w-5 h-5" />,
               color: 'bg-emerald-500/15 text-emerald-400',
-              title: 'Questionari Strutturati',
-              desc: 'Assessment guidati con template personalizzabili per area aziendale',
+              title: 'Questionari Strutturati e Interattivi',
+              desc: 'Assessment guidati con template personalizzati dove consulente e azienda lavorano proattivamente in un ambiente condiviso e sicuro',
             },
             {
               icon: <Shield className="w-5 h-5" />,
               color: 'bg-cyan-500/15 text-cyan-400',
-              title: 'Compliance & Risk Assessment',
-              desc: 'Valutazione conformità normativa con scoring automatico',
+              title: 'Compliance & Risk Assessment Integrati',
+              desc: 'Valutazione multilevel dei rischi con scoring personalizzabili, gap analysis e mappatura del rischio su base continuativa',
             },
             {
               icon: <BarChart3 className="w-5 h-5" />,
               color: 'bg-blue-500/15 text-blue-400',
-              title: 'Report & Analytics',
-              desc: 'Dashboard executive con indicatori di rischio in tempo reale',
+              title: 'Report, KPI e Dashboard dinamici',
+              desc: 'Indicatori sintetici in tempo reale, reportistica e strumenti a supporto delle decisioni strategiche',
+            },
+            {
+              icon: <Users className="w-5 h-5" />,
+              color: 'bg-violet-500/15 text-violet-400',
+              title: 'Workflow Collaborativo & Audit Trail',
+              desc: 'Assegnazione di task, tracciabilità delle azioni, storico delle revisioni e archiviazione sicura della documentazione di compliance',
+            },
+            {
+              icon: <Layers className="w-5 h-5" />,
+              color: 'bg-amber-500/15 text-amber-400',
+              title: 'Moduli Verticali per Area Normativa',
+              desc: 'Implementazione e gestione strutturata di MOG 231, MOG Privacy, NIS2, Whistleblowing, Antiriciclaggio e altri framework regolatori in continua espansione',
             },
           ].map((feature, i) => (
             <div key={i} className="flex items-start gap-4 group">
@@ -203,12 +213,12 @@ export default function LoginPage() {
 
         {/* Bottom — Footer */}
         <div className="relative z-10 flex items-center justify-between">
-          <p className="text-xs text-blue-400/60">
+          <p className="text-xs text-white/70">
             &reg; Resolv è un marchio R&amp;S Italy srl - Tutti i diritti riservati
           </p>
-          <div className="flex items-center gap-1.5 text-xs text-blue-400/60">
+          <div className="flex items-center gap-1.5 text-xs text-white/70">
             <Lock className="w-3 h-3" />
-            <span>Connessione cifrata</span>
+            <span>Connessione sicura</span>
           </div>
         </div>
       </div>
@@ -304,9 +314,6 @@ export default function LoginPage() {
                 <h2 className="text-2xl font-bold text-slate-900" style={{ fontVariationSettings: "'wght' 700" }}>
                   Benvenuto
                 </h2>
-                <p className="mt-2 text-sm text-slate-500">
-                  Accedi alla piattaforma di profilazione aziendale
-                </p>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-5">
@@ -394,13 +401,13 @@ export default function LoginPage() {
                       Accesso in corso...
                     </span>
                   ) : (
-                    'Accedi alla piattaforma'
+                    'Accedi alla Piattaforma'
                   )}
                 </button>
               </form>
 
               {/* Trust indicators */}
-              <div className="pt-4 border-t border-slate-100">
+              <div className="pt-4 border-t border-slate-100 space-y-3">
                 <div className="flex items-center justify-center gap-6 text-[11px] text-slate-400">
                   <span className="inline-flex items-center gap-1.5">
                     <Lock className="h-3 w-3" />
@@ -411,6 +418,25 @@ export default function LoginPage() {
                     GDPR Compliant
                   </span>
                 </div>
+                <p className="text-center text-[11px] text-slate-400 leading-relaxed">
+                  Accedendo dichiari di aver letto e accettato la{' '}
+                  <button
+                    type="button"
+                    onClick={() => setShowPrivacyModal(true)}
+                    className="underline text-slate-500 hover:text-blue-600 transition-colors"
+                  >
+                    Privacy Policy
+                  </button>
+                  {' '}e le{' '}
+                  <button
+                    type="button"
+                    onClick={() => setShowTermsModal(true)}
+                    className="underline text-slate-500 hover:text-blue-600 transition-colors"
+                  >
+                    Condizioni d'Uso
+                  </button>
+                  .
+                </p>
               </div>
             </div>
           )}
@@ -421,6 +447,242 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+
+      {/* ——— PRIVACY POLICY MODAL ——— */}
+      {showPrivacyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowPrivacyModal(false)}
+          />
+          <div className="relative z-10 w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Informativa sul Trattamento dei Dati Personali</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Ai sensi dell'art. 13 del Regolamento UE 2016/679 – GDPR</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPrivacyModal(false)}
+                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto px-6 py-5 space-y-5 text-sm text-slate-700 leading-relaxed">
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">1. Titolare del Trattamento</h4>
+                <p>
+                  R&amp;S Italy S.r.l., con sede legale in Via Orio 18, Bergamo, P.IVA IT04157700164
+                  (di seguito "il Titolare"), fornisce la presente informativa a tutti gli utenti che accedono alla
+                  Piattaforma Resolv – Modulo Checkup Pre-Assessment, in qualità di Titolare del trattamento dei
+                  dati personali ai sensi dell'art. 13 del Regolamento UE 679/2016 (GDPR).
+                  Per ulteriori informazioni sull'azienda: <span className="font-medium text-slate-800">www.resitaly.it</span>.
+                </p>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">2. Dati Trattati</h4>
+                <p>Nell'ambito del Modulo Checkup vengono trattati i seguenti dati personali:</p>
+                <ul className="mt-2 space-y-1 list-disc list-inside text-slate-600">
+                  <li>Dati identificativi: nome, cognome, indirizzo email;</li>
+                  <li>Dati di autenticazione: credenziali di accesso, token di sessione;</li>
+                  <li>Dati professionali e aziendali inseriti nei questionari di pre-assessment;</li>
+                  <li>Log di accesso e tracciatura delle attività (audit trail).</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">3. Finalità del Trattamento</h4>
+                <p>
+                  I dati sono trattati esclusivamente per l'erogazione del servizio di pre-assessment della compliance
+                  aziendale, per la gestione del profilo utente e per l'assolvimento degli obblighi contrattuali e di
+                  legge derivanti dalla fruizione della Piattaforma.
+                </p>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">4. Base Giuridica</h4>
+                <p>
+                  Il trattamento si fonda sull'esecuzione del contratto di servizio stipulato tra il Titolare e
+                  l'organizzazione committente (art. 6, par. 1, lett. b) GDPR) e sul legittimo interesse del Titolare
+                  a garantire la sicurezza e il corretto funzionamento della Piattaforma (art. 6, par. 1, lett. f) GDPR).
+                </p>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">5. Conservazione dei Dati</h4>
+                <p>
+                  I dati dei pre-assessment conclusi sono conservati per il periodo definito contrattualmente con
+                  l'organizzazione committente, decorso il quale sono eliminati in modo automatico e definitivo.
+                  I log di accesso e gli audit trail sono conservati per 90 giorni dalla loro generazione, salvo diversa
+                  indicazione contrattuale.
+                </p>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">6. Misure di Sicurezza</h4>
+                <p>
+                  Il Titolare adotta misure tecniche e organizzative adeguate ai sensi dell'art. 32 GDPR, tra cui:
+                  cifratura AES-256-GCM dei dati sensibili, autenticazione a due fattori (2FA), token di sessione con
+                  scadenza automatica, connessione SSL/TLS cifrata e tracciatura delle operazioni tramite audit trail
+                  immutabile.
+                </p>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">7. Diritti dell'Interessato</h4>
+                <p>
+                  L'utente ha il diritto di accedere ai propri dati (tramite la funzione "Esporta i miei dati" nella
+                  sezione Impostazioni), rettificarli, richiederne la cancellazione (tramite la funzione "Richiesta di
+                  cancellazione"), limitarne il trattamento, opporsi al trattamento e richiedere la portabilità dei dati,
+                  ai sensi degli artt. 15–22 GDPR.
+                </p>
+                <p className="mt-2">
+                  Per esercitare tali diritti o per qualsiasi richiesta in materia di protezione dei dati personali,
+                  è possibile contattare il Responsabile della Protezione dei Dati (DPO) all'indirizzo:{' '}
+                  <span className="font-medium text-slate-800">privacy@resolv.legal</span>.
+                </p>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">8. Trasferimenti Internazionali</h4>
+                <p>
+                  I dati personali trattati nell'ambito della Piattaforma Resolv non sono trasferiti verso Paesi terzi
+                  al di fuori dello Spazio Economico Europeo.
+                </p>
+              </section>
+
+              <p className="text-xs text-slate-400 pt-2 border-t border-slate-100">
+                Ultimo aggiornamento: marzo 2026
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowPrivacyModal(false)}
+                className="rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 transition"
+              >
+                Ho letto e compreso
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ——— CONDIZIONI D'USO MODAL ——— */}
+      {showTermsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowTermsModal(false)}
+          />
+          <div className="relative z-10 w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Condizioni d'Uso della Piattaforma</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Modulo Checkup Pre-Assessment – Resolv</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTermsModal(false)}
+                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto px-6 py-5 space-y-5 text-sm text-slate-700 leading-relaxed">
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">1. Ambito di Applicazione</h4>
+                <p>
+                  Le presenti Condizioni d'Uso disciplinano l'accesso e l'utilizzo del Modulo Checkup Pre-Assessment
+                  della Piattaforma Resolv, sviluppata e gestita da R&amp;S Italy S.r.l., con sede legale in Via Orio 18,
+                  Bergamo, P.IVA IT04157700164 (di seguito "il Fornitore") – <span className="font-medium text-slate-800">www.resitaly.it</span>.
+                  L'accesso alla Piattaforma implica la piena e incondizionata accettazione delle presenti Condizioni.
+                </p>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">2. Credenziali di Accesso</h4>
+                <p>
+                  Le credenziali di accesso (indirizzo email e password) sono strettamente personali e non cedibili a
+                  terzi. L'utente è responsabile della custodia delle proprie credenziali e di qualsiasi attività
+                  compiuta tramite il proprio account. In caso di smarrimento o sospetta compromissione, l'utente deve
+                  procedere immediatamente al cambio della password tramite la funzione "Password dimenticata?"
+                  disponibile nella pagina di accesso.
+                </p>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">3. Utilizzo della Piattaforma</h4>
+                <p>
+                  L'utente si impegna a utilizzare la Piattaforma esclusivamente per le finalità per cui è stata messa
+                  a disposizione e in conformità alla normativa vigente. È espressamente vietato:
+                </p>
+                <ul className="mt-2 space-y-1 list-disc list-inside text-slate-600">
+                  <li>condividere le credenziali di accesso con soggetti non autorizzati;</li>
+                  <li>tentare di accedere ad aree o funzionalità riservate non autorizzate;</li>
+                  <li>utilizzare strumenti automatizzati, bot o script per l'interazione con la Piattaforma;</li>
+                  <li>inserire dati falsi, fuorvianti o lesivi dei diritti di terzi nei questionari.</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">4. Proprietà Intellettuale</h4>
+                <p>
+                  Resolv è un marchio registrato di R&amp;S Italy S.r.l. Tutti i contenuti, le metodologie, i template
+                  di assessment, il software e la documentazione della Piattaforma sono di esclusiva proprietà del
+                  Fornitore e protetti dalla normativa vigente in materia di diritto d'autore e proprietà intellettuale.
+                  Nessun contenuto può essere riprodotto, distribuito, modificato o comunicato a terzi senza espressa
+                  autorizzazione scritta del Fornitore.
+                </p>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">5. Limitazione di Responsabilità</h4>
+                <p>
+                  Il Fornitore garantisce la disponibilità della Piattaforma nei limiti previsti dal contratto di
+                  servizio. Il Fornitore declina ogni responsabilità per danni derivanti da: uso improprio o non
+                  autorizzato delle credenziali; inserimento di dati inesatti o incompleti nei questionari;
+                  interruzioni del servizio dovute a cause di forza maggiore, guasti di terzi o interventi di
+                  manutenzione programmata comunicati con ragionevole preavviso.
+                </p>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">6. Modifiche alle Condizioni</h4>
+                <p>
+                  Il Fornitore si riserva il diritto di modificare le presenti Condizioni d'Uso in qualsiasi momento,
+                  dandone comunicazione agli utenti tramite la Piattaforma. L'utilizzo continuato della Piattaforma
+                  dopo la pubblicazione delle modifiche costituisce accettazione delle nuove Condizioni.
+                </p>
+              </section>
+
+              <section>
+                <h4 className="font-semibold text-slate-900 mb-1">7. Legge Applicabile e Foro Competente</h4>
+                <p>
+                  Le presenti Condizioni d'Uso sono disciplinate dalla legge italiana. Per qualsiasi controversia
+                  relativa all'interpretazione, all'esecuzione o alla cessazione del rapporto regolato dalle presenti
+                  Condizioni, sarà competente in via esclusiva il Foro di Bergamo, salvo diversa indicazione contrattuale.
+                </p>
+              </section>
+
+              <p className="text-xs text-slate-400 pt-2 border-t border-slate-100">
+                Ultimo aggiornamento: marzo 2026
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowTermsModal(false)}
+                className="rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 transition"
+              >
+                Ho letto e accettato
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showRecoverModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">

@@ -96,6 +96,11 @@ import { CheckupMailService } from './mail/checkup-mail.service';
 import { CheckupMeService } from './me/checkup-me.service';
 import { CheckupMeController } from './me/checkup-me.controller';
 
+// PDF Config
+import { CheckupPdfConfig } from './entities/checkup-pdf-config.entity';
+import { CheckupPdfConfigService } from './pdf-config/checkup-pdf-config.service';
+import { CheckupPdfConfigController } from './pdf-config/checkup-pdf-config.controller';
+
 // Audit
 import { CheckupAuditLogService } from './audit/checkup-audit-log.service';
 import { CheckupAuditController } from './audit/checkup-audit.controller';
@@ -131,6 +136,7 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
       QuestionField,
       QuestionModel,
       CheckupAuditLog,
+      CheckupPdfConfig,
     ]),
     PassportModule.register({ defaultStrategy: 'checkup-jwt' }),
     JwtModule.registerAsync({
@@ -166,6 +172,7 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
     QuestionManagementController,
     CheckupAuditController,
     CheckupMeController,
+    CheckupPdfConfigController,
   ],
   providers: [
     {
@@ -212,6 +219,7 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
     CheckupMailService,
     CheckupMeService,
     CheckupAuditLogService,
+    CheckupPdfConfigService,
   ],
 })
 export class CheckupModule {}
