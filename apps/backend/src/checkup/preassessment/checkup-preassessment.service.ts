@@ -548,6 +548,7 @@ export class CheckupPreassessmentService {
         cognome: '',
         email: client.email,
         azienda: client.ragioneSociale || client.nome,
+        ragioneSociale: client.ragioneSociale || null,
         studioId,
         studioNome,
         sublicense: sublicense
@@ -644,6 +645,7 @@ export class CheckupPreassessmentService {
           cognome: '',
           email: client.email,
           azienda,
+          ragioneSociale: client.ragioneSociale || null,
           studioId: currentUser.studioId ?? null,
           studioNome,
           sublicense: sublicense

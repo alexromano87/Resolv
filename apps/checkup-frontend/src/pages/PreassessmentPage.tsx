@@ -1090,7 +1090,6 @@ export default function PreassessmentPage() {
       ? `${clientInfo.nome || ''} ${clientInfo.cognome || ''}`.trim()
       : '';
     const ragione =
-      data.ragione_sociale ||
       clientInfo?.ragioneSociale ||
       clientInfo?.azienda ||
       clientNomeCompleto ||
@@ -1120,7 +1119,7 @@ export default function PreassessmentPage() {
     const includeNotes = exportIncludeConsultantNotes;
 
     // ── Build cover HTML ────────────────────────────────────────────────────
-    const licenziatarioNome = clientInfo?.studioNome || studioNome;
+    const licenziatarioNome = clientInfo?.studioNome || user?.licenziatarioNome || (!isClient ? studioNome : null);
     const escapeHtml = (value?: string) => (value || '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')

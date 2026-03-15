@@ -159,7 +159,7 @@ export default function LoginPage() {
               <div className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
               <span className="text-[13px] font-semibold uppercase tracking-[0.12em] text-cyan-300">Governance &amp; Risk &amp; Compliance Platform</span>
             </div>
-            <h1 className="text-xl font-bold text-white leading-tight whitespace-nowrap" style={{ fontVariationSettings: "'wght' 700, 'opsz' 32" }}>
+            <h1 className="text-xl font-normal text-white leading-tight whitespace-nowrap" style={{ fontVariationSettings: "'wght' 400, 'opsz' 32" }}>
               Piattaforma GRC modulare per la gestione integrata della compliance aziendale
             </h1>
           </div>

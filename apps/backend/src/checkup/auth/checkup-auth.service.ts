@@ -57,7 +57,7 @@ export class CheckupAuthService {
   private mapUserPayload(user: CheckupUser) {
     const clientSublicense = user.client?.sublicenses?.[0] || null;
     const clientLicense = clientSublicense?.license || null;
-    const licenziatarioNome = clientLicense?.studio?.nome ?? null;
+    const licenziatarioNome = clientLicense?.studio?.ragioneSociale ?? clientLicense?.studio?.nome ?? null;
     type LicensePayload = NonNullable<NonNullable<CheckupUser['studio']>['license']>;
     const mapLicense = (license: LicensePayload) => ({
       id: license.id,
