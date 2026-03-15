@@ -1089,8 +1089,10 @@ export default function PreassessmentPage() {
     const clientNomeCompleto = clientInfo
       ? `${clientInfo.nome || ''} ${clientInfo.cognome || ''}`.trim()
       : '';
+    const clientRagioneSociale = user?.client?.ragioneSociale || user?.client?.nome || null;
     const ragione =
       clientInfo?.ragioneSociale ||
+      clientRagioneSociale ||
       clientInfo?.azienda ||
       clientNomeCompleto ||
       'Società non specificata';

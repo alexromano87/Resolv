@@ -193,7 +193,7 @@ export default function LoginPage() {
               desc: 'Assegnazione di task, tracciabilità delle azioni, storico delle revisioni e archiviazione sicura della documentazione di compliance',
             },
             {
-              icon: <Layers className="w-5 h-5" />,
+              icon: <Layers size={16} className="w-4 h-4" />,
               color: 'bg-amber-500/15 text-amber-400',
               title: 'Moduli Verticali per Area Normativa',
               desc: 'Implementazione e gestione strutturata di MOG 231, MOG Privacy, NIS2, Whistleblowing, Antiriciclaggio e altri framework regolatori in continua espansione',
