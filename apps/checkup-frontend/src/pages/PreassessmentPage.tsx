@@ -1122,6 +1122,8 @@ export default function PreassessmentPage() {
 
     // ── Build cover HTML ────────────────────────────────────────────────────
     const licenziatarioNome = clientInfo?.studioNome || user?.licenziatarioNome || (!isClient ? studioNome : null);
+    const reportSuperOwnerName = finalValidation?.by?.name || (isClient && user?.superOwner ? `${user?.nome || ''} ${user?.cognome || ''}`.trim() : '');
+    const reportSuperOwnerRole = finalValidation?.by?.ruolo || (isClient && user?.superOwner ? 'Super-owner' : '');
     const escapeHtml = (value?: string) => (value || '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -1306,6 +1308,38 @@ export default function PreassessmentPage() {
         margin-bottom: 3px;
         line-height: 1.4;
       }
+      .final-summary {
+        margin: 10px 0 0;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        color: #1e3a8a;
+      }
+      .final-summary-title {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+      .final-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px 12px;
+      }
+      .final-summary-label {
+        font-size: 9px;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .final-summary-value {
+        font-size: 11px;
+        font-weight: 700;
+        color: #0f172a;
+        margin-top: 3px;
+      }
 
       /* === MACRO AREA PAGES === */
       .section-page { padding: 5mm; box-sizing: border-box; }
@@ -1405,7 +1439,7 @@ export default function PreassessmentPage() {
               <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em;">RIEPILOGO DEL PREASSESSMENT</span>
               <span style="margin-left: auto; font-size: 9px; color: rgba(255,255,255,0.75);">${ragione}</span>
             </div>
-            <div style="flex: 1; overflow: hidden; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="padding: 12px 14px 10px; display:flex; flex-direction:column; gap:10px; flex:1;">
               <div class="client-summary" style="margin: 0;">
                 <h3>Cliente</h3>
                 <div class="client-grid">
@@ -1431,56 +1465,21 @@ export default function PreassessmentPage() {
     })).filter((g) => g.sections.length > 0);
 
     // Build flat list of all index sections with sequential numbering
-    const allIdxSections: { num: number; title: string; color: string; macroLabel: string }[] = [];
+    const allIdxSections: { num: number; title: string; color: string; macroLabel: string; sectionId: string; anchorId: string }[] = [];
     let idxNum = 1;
     sectionsByMacro.forEach((g) => {
       g.sections.forEach((s) => {
-        allIdxSections.push({ num: idxNum, title: s.title, color: g.color, macroLabel: g.macro });
+        allIdxSections.push({
+          num: idxNum,
+          title: s.title,
+          color: g.color,
+          macroLabel: g.macro,
+          sectionId: s.id,
+          anchorId: `section-${s.id}`,
+        });
         idxNum++;
       });
     });
-    // Col 3 = solo sezioni Owner; col 1+2 = tutto il resto, divise per macro group intero
-    const ownerSections = allIdxSections.filter((s) => s.macroLabel.toLowerCase().includes('owner'));
-    const normalSections = allIdxSections.filter((s) => !s.macroLabel.toLowerCase().includes('owner'));
-
-    // Raggruppa le sezioni normali per macro (preservando l'ordine)
-    const normalGroups: { macroLabel: string; color: string; items: typeof allIdxSections }[] = [];
-    normalSections.forEach((s) => {
-      const last = normalGroups[normalGroups.length - 1];
-      if (last && last.macroLabel === s.macroLabel) { last.items.push(s); }
-      else { normalGroups.push({ macroLabel: s.macroLabel, color: s.color, items: [s] }); }
-    });
-
-    // Trova il punto di taglio al confine di macro group più vicino alla metà
-    const midpoint = Math.ceil(normalSections.length / 2);
-    let running = 0; let splitAt = normalGroups.length;
-    for (let i = 0; i < normalGroups.length; i++) {
-      running += normalGroups[i].items.length;
-      if (running >= midpoint) { splitAt = i + 1; break; }
-    }
-    const idxCols = [
-      normalGroups.slice(0, splitAt).flatMap((g) => g.items),
-      normalGroups.slice(splitAt).flatMap((g) => g.items),
-      ownerSections,
-    ];
-
-    html += `<div class="index-page" style="margin: 0; flex: 1;"><div class="index-title">Indice</div><div class="index-cols">`;
-    idxCols.forEach((colSections) => {
-      html += `<div class="index-col">`;
-      let curMacro = '';
-      colSections.forEach((s) => {
-        if (s.macroLabel !== curMacro) {
-          if (curMacro) html += `</div>`;
-          html += `<div class="index-group"><div class="index-group-title" style="color:${s.color};">${s.macroLabel}</div>`;
-          curMacro = s.macroLabel;
-        }
-        html += `<div class="index-item">${s.num}. ${s.title}</div>`;
-      });
-      if (colSections.length > 0) html += `</div>`;
-      html += `</div>`;
-    });
-    html += `</div></div>`;
-    html += `</div></div></div>`;
 
     // Build macro area groups with paginated items
     type MacroItemType =
@@ -1525,16 +1524,16 @@ export default function PreassessmentPage() {
     const allMacroPages: MacroPage[] = [];
 
     macroGroups.forEach(({ macro, items }) => {
-      const chunks: MacroItemType[][] = [];
+      let chunks: MacroItemType[][] = [];
       let current: MacroItemType[] = [];
 
       if (SECTION_INTEGRITY_MACROS.has(macro.id)) {
-        // Sezioni intere: si impacchettano se la somma domande ≤ MAX_Q, altrimenti nuova pagina
         const sectionBlocks: MacroItemType[][] = [];
         let curBlock: MacroItemType[] = [];
         items.forEach((item) => {
           if (item.type === 'section_header' && curBlock.length > 0) {
-            sectionBlocks.push(curBlock); curBlock = [];
+            sectionBlocks.push(curBlock);
+            curBlock = [];
           }
           curBlock.push(item);
         });
@@ -1542,46 +1541,94 @@ export default function PreassessmentPage() {
 
         let qCount = 0;
         sectionBlocks.forEach((block) => {
-          const bq = block.filter(i => i.type === 'field').length;
+          const bq = block.filter((item) => item.type === 'field').length;
           if (qCount + bq > MAX_Q && current.length > 0) {
-            chunks.push(current); current = []; qCount = 0;
+            chunks.push(current);
+            current = [];
+            qCount = 0;
           }
-          block.forEach(i => current.push(i));
+          current.push(...block);
           qCount += bq;
         });
-
       } else {
         const sectLimit = SECTIONS_PER_PAGE_OVERRIDE[macro.id];
         if (sectLimit !== undefined) {
-          // Max N sezioni per pagina
           let sectCount = 0;
           items.forEach((item) => {
             if (item.type === 'section_header') {
               if (sectCount >= sectLimit && current.length > 0) {
-                chunks.push(current); current = []; sectCount = 0;
+                chunks.push(current);
+                current = [];
+                sectCount = 0;
               }
-              sectCount++;
+              sectCount += 1;
             }
             current.push(item);
           });
         } else {
-          // Default: 26 domande per pagina, sezioni si spezzano
           let qCount = 0;
           items.forEach((item) => {
             if (item.type === 'field' && qCount >= MAX_Q) {
-              chunks.push(current); current = []; qCount = 0;
+              chunks.push(current);
+              current = [];
+              qCount = 0;
             }
             current.push(item);
-            if (item.type === 'field') qCount++;
+            if (item.type === 'field') qCount += 1;
           });
         }
       }
       if (current.length > 0) chunks.push(current);
 
-      chunks.forEach((chunk, ci) =>
-        allMacroPages.push({ macro, chunk, pageNum: ci + 1, totalPages: chunks.length })
-      );
+      chunks.forEach((chunk, ci) => {
+        allMacroPages.push({ macro, chunk, pageNum: ci + 1, totalPages: chunks.length });
+      });
     });
+
+    // Col 3 = solo sezioni Owner; col 1+2 = tutto il resto, divise per macro group intero
+    const ownerSections = allIdxSections.filter((s) => s.macroLabel.toLowerCase().includes('owner'));
+    const normalSections = allIdxSections.filter((s) => !s.macroLabel.toLowerCase().includes('owner'));
+
+    const normalGroups: { macroLabel: string; color: string; items: typeof allIdxSections }[] = [];
+    normalSections.forEach((s) => {
+      const last = normalGroups[normalGroups.length - 1];
+      if (last && last.macroLabel === s.macroLabel) last.items.push(s);
+      else normalGroups.push({ macroLabel: s.macroLabel, color: s.color, items: [s] });
+    });
+
+    const midpoint = Math.ceil(normalSections.length / 2);
+    let running = 0;
+    let splitAt = normalGroups.length;
+    for (let i = 0; i < normalGroups.length; i += 1) {
+      running += normalGroups[i].items.length;
+      if (running >= midpoint) {
+        splitAt = i + 1;
+        break;
+      }
+    }
+    const idxCols = [
+      normalGroups.slice(0, splitAt).flatMap((g) => g.items),
+      normalGroups.slice(splitAt).flatMap((g) => g.items),
+      ownerSections,
+    ];
+
+    html += `<div class="index-page" style="margin: 0; flex: 1;"><div class="index-title">Indice</div><div class="index-cols">`;
+    idxCols.forEach((colSections) => {
+      html += `<div class="index-col">`;
+      let curMacro = '';
+      colSections.forEach((s) => {
+        if (s.macroLabel !== curMacro) {
+          if (curMacro) html += `</div>`;
+          html += `<div class="index-group"><div class="index-group-title" style="color:${s.color};">${s.macroLabel}</div>`;
+          curMacro = s.macroLabel;
+        }
+        html += `<div class="index-item">${s.num}. ${s.title}</div>`;
+      });
+      if (colSections.length > 0) html += `</div>`;
+      html += `</div>`;
+    });
+    html += `</div></div>`;
+    html += `</div></div></div>`;
 
     allMacroPages.forEach(({ macro, chunk, pageNum, totalPages }, pi) => {
       const isLastPage = pi === allMacroPages.length - 1;
@@ -1589,7 +1636,7 @@ export default function PreassessmentPage() {
       const cLight = c + '14';
       const cMid = c + '35';
       html += `<div class="pdf-page section-page${isLastPage ? ' last' : ''}">`;
-      html += `<div class="macro-frame" style="border-color:${c};">`;
+      html += `<div class="macro-frame" style="border-color:${c};">`; 
       // Macro area header
       html += `<div class="macro-hdr" style="background:${c};">`;
       // Corner accent — 3 white diagonal stripes echoing the cover design
@@ -1613,7 +1660,7 @@ export default function PreassessmentPage() {
       html += `<div class="macro-grid">`;
       chunk.forEach((item) => {
         if (item.type === 'section_header') {
-          html += `<div class="sec-hdr" style="color:${c};border-bottom-color:${cMid};">${item.title}</div>`;
+          html += `<div id="${escapeHtml(`section-${item.sectionId}`)}" class="sec-hdr" style="color:${c};border-bottom-color:${cMid};">${item.title}</div>`;
         } else if (item.type === 'field') {
           const f = item.field;
           const isNA = !!naFields[f.id];
@@ -1638,6 +1685,14 @@ export default function PreassessmentPage() {
       html += `</div>`; // end macro-grid
       html += `</div>`; // end macro-frame
       if (isLastPage) {
+        if (reportSuperOwnerName || finalValidation) {
+          html += `<div class="final-summary"><div class="final-summary-title">Validazione finale</div><div class="final-summary-grid">`;
+          html += `<div><div class="final-summary-label">Super-owner</div><div class="final-summary-value">${escapeHtml(reportSuperOwnerName || 'Non disponibile')}</div></div>`;
+          html += `<div><div class="final-summary-label">Ruolo</div><div class="final-summary-value">${escapeHtml(reportSuperOwnerRole || 'Super-owner')}</div></div>`;
+          html += `<div><div class="final-summary-label">Stato checkup</div><div class="final-summary-value">${escapeHtml(finalValidation ? 'Chiuso e validato' : 'In lavorazione')}</div></div>`;
+          html += `<div><div class="final-summary-label">Data validazione</div><div class="final-summary-value">${escapeHtml(finalValidation?.at ? new Date(finalValidation.at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-')}</div></div>`;
+          html += `</div></div>`;
+        }
         html += `<div class="footer"><div class="footer-logo">`;
         if (pdfConfig.footerShowLogo !== false) {
           html += `<img src="${logoUrl}" alt="Resolv" />`;
@@ -1667,6 +1722,9 @@ export default function PreassessmentPage() {
     exportIncludeConsultantNotes,
     isClient,
     clientInfo,
+    user,
+    finalValidation,
+    studioNome,
     getLogoDataUrl,
     flattenLogoTransparency,
     totalReq,

@@ -1,4 +1,4 @@
-import { useState, FormEvent, useEffect } from 'react';
+import { useState, type FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Shield, ClipboardCheck, BarChart3, Lock, Eye, EyeOff, ArrowLeft, Loader2, Clock, Users, Layers, X } from 'lucide-react';
@@ -155,7 +155,7 @@ export default function LoginPage() {
             <img src="/logo_resolv.png" alt="RESOLV" className="h-16 w-auto" />
           </div>
           <div className="mt-8 space-y-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1">
+              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1">
               <div className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
               <span className="text-[13px] font-semibold uppercase tracking-[0.12em] text-cyan-300">Governance &amp; Risk &amp; Compliance Platform</span>
             </div>
@@ -692,10 +692,12 @@ export default function LoginPage() {
           />
           <div className="relative z-10 w-full max-w-sm mx-4 rounded-xl bg-white p-6 shadow-2xl border border-slate-200">
             <h3 className="text-lg font-bold text-slate-900">
-              Recupera password
+              {recoverStep === 'request' ? 'Recupera password' : 'Imposta nuova password'}
             </h3>
             <p className="mt-2 text-sm text-slate-600">
-              Ti invieremo un codice via email.
+              {recoverStep === 'request'
+                ? 'Ti invieremo un codice via email.'
+                : 'Inserisci il codice ricevuto e definisci la nuova password di accesso.'}
             </p>
             {recoverError && (
               <div className="mt-3 rounded-lg border border-danger-200 bg-danger-50 px-3 py-2 text-xs text-danger-700">

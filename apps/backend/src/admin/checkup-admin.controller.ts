@@ -1559,4 +1559,5 @@ export class CheckupAdminController {
     res.setHeader('Content-Disposition', 'inline; filename="anteprima-report.pdf"');
     res.end(pdf);
   }
+
 }
