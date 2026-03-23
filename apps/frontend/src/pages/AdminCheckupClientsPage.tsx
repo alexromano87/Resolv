@@ -318,6 +318,7 @@ export default function AdminCheckupClientsPage() {
       await checkupAdminApi.upsertSublicense({
         id: current.id,
         licenseId: current.licenseId,
+        modelId: current.modelId || '',
         tipo: current.tipo || '',
         numeroUtenze: current.numeroUtenze,
         dataInizioValidita: current.dataInizioValidita || '',
@@ -337,6 +338,7 @@ export default function AdminCheckupClientsPage() {
     await checkupAdminApi.upsertSublicense({
       id: next.id,
       licenseId: next.licenseId,
+      modelId: next.modelId || '',
       tipo: next.tipo || '',
       numeroUtenze: next.numeroUtenze,
       dataInizioValidita: next.dataInizioValidita || '',

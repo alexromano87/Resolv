@@ -4,7 +4,7 @@ import { BadRequestException } from '@nestjs/common';
 import { CheckupPreassessmentExportJobsService } from './checkup-preassessment-export-jobs.service';
 import { CheckupPreassessmentExportJob } from './checkup-preassessment-export-job.entity';
 import { CheckupPreassessmentDocumentsService } from './checkup-preassessment-documents.service';
-import { CheckupPreassessmentRenderService } from './checkup-preassessment-render.service';
+import { CheckupPreassessmentPdfTemplateService } from './checkup-preassessment-pdf-template.service';
 
 describe('CheckupPreassessmentExportJobsService', () => {
   const repo = {
@@ -19,8 +19,9 @@ describe('CheckupPreassessmentExportJobsService', () => {
     createZipBuffer: jest.fn(),
   };
 
-  const renderService = {
-    renderHtmlToPdf: jest.fn(),
+  const pdfTemplateService = {
+    buildReportHtml: jest.fn().mockResolvedValue('<html></html>'),
+    createPdfBuffer: jest.fn(),
   };
 
   let service: CheckupPreassessmentExportJobsService;
@@ -32,7 +33,7 @@ describe('CheckupPreassessmentExportJobsService', () => {
         CheckupPreassessmentExportJobsService,
         { provide: getRepositoryToken(CheckupPreassessmentExportJob), useValue: repo },
         { provide: CheckupPreassessmentDocumentsService, useValue: documentsService },
-        { provide: CheckupPreassessmentRenderService, useValue: renderService },
+        { provide: CheckupPreassessmentPdfTemplateService, useValue: pdfTemplateService },
       ],
     }).compile();
 
@@ -45,17 +46,23 @@ describe('CheckupPreassessmentExportJobsService', () => {
     repo.create.mockImplementation((value) => value);
     repo.save.mockImplementation(async (value) => ({ id: 'job-1', createdAt, completedAt: null, errorMessage: null, ...value }));
 
-    const result = await service.createPdfJob('<html></html>', {
+    const result = await service.createPdfJob({
+      preassessmentId: 'pa-1',
+      excludeNA: true,
+      includeConsultantNotes: true,
+    }, {
       id: 'user-1',
       ruolo: 'admin_studio',
       studioId: 'studio-1',
       clientId: null,
     } as any);
 
+    expect(pdfTemplateService.buildReportHtml).toHaveBeenCalled();
     expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({
       type: 'pdf',
       status: 'queued',
       requestedById: 'user-1',
+      preassessmentId: 'pa-1',
     }));
     expect(result).toEqual(expect.objectContaining({ id: 'job-1', type: 'pdf', status: 'queued' }));
   });

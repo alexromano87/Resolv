@@ -6,6 +6,7 @@ import { CheckupPreassessmentPresenceService } from './checkup-preassessment-pre
 import { CheckupPreassessmentReportsService } from './checkup-preassessment-reports.service';
 import { CheckupPreassessmentExportJobsService } from './checkup-preassessment-export-jobs.service';
 import { CheckupPreassessmentExcelExportService } from './checkup-preassessment-excel-export.service';
+import { CheckupPreassessmentPdfTemplateService } from './checkup-preassessment-pdf-template.service';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupStaffGuard } from '../auth/checkup-staff.guard';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
@@ -81,6 +82,10 @@ describe('CheckupPreassessmentController', () => {
     generateExcel: jest.Mock;
   };
 
+  let pdfTemplateService: {
+    createPdfBuffer: jest.Mock;
+  };
+
   beforeEach(async () => {
     preassessmentService = {
       getOrCreate: jest.fn().mockResolvedValue(makePreassessment()),
@@ -120,6 +125,15 @@ describe('CheckupPreassessmentController', () => {
       generateExcel: jest.fn().mockResolvedValue(Buffer.from('excel')),
     };
 
+    pdfTemplateService = {
+      createPdfBuffer: jest.fn().mockResolvedValue({
+        pdf: Buffer.from('%PDF'),
+        filename: 'report.pdf',
+        clientId: 'client-1',
+        preassessmentId: 'pa-1',
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CheckupPreassessmentController],
       providers: [
@@ -128,6 +142,7 @@ describe('CheckupPreassessmentController', () => {
         { provide: CheckupPreassessmentReportsService, useValue: reportsService },
         { provide: CheckupPreassessmentExportJobsService, useValue: exportJobsService },
         { provide: CheckupPreassessmentExcelExportService, useValue: excelExportService },
+        { provide: CheckupPreassessmentPdfTemplateService, useValue: pdfTemplateService },
       ],
     })
       .overrideGuard(CheckupJwtAuthGuard).useValue(alwaysAllow)
@@ -247,9 +262,9 @@ describe('CheckupPreassessmentController', () => {
   describe('createPdfJob()', () => {
     it('delega a exportJobsService.createPdfJob', async () => {
       const user = makeClienteUser();
-      const html = '<html>test</html>';
-      const result = await controller.createPdfJob(html, user);
-      expect(exportJobsService.createPdfJob).toHaveBeenCalledWith(html, user);
+      const dto = { preassessmentId: 'pa-1', excludeNA: true, includeConsultantNotes: true };
+      const result = await controller.createPdfJob(dto as any, user);
+      expect(exportJobsService.createPdfJob).toHaveBeenCalledWith(dto, user);
       expect(result).toMatchObject({ jobId: 'job-1' });
     });
   });
@@ -267,17 +282,14 @@ describe('CheckupPreassessmentController', () => {
   // ── POST /:preassessmentId/report/salva ───────────────────────────────────
 
   describe('saveReport()', () => {
-    it('lancia BadRequestException se html è mancante', async () => {
-      const user = makeUser();
-      await expect(controller.saveReport('pa-1', user, '')).rejects.toThrow(BadRequestException);
-      await expect(controller.saveReport('pa-1', user, undefined as any)).rejects.toThrow(BadRequestException);
-    });
-
     it('salva il report e restituisce il record', async () => {
       const user = makeUser();
-      const result = await controller.saveReport('pa-1', user, '<html>report</html>');
-      expect(preassessmentService.getPreassessmentForReport).toHaveBeenCalledWith('pa-1', user);
-      expect(preassessmentService.renderHtmlToPdf).toHaveBeenCalled();
+      const result = await controller.saveReport('pa-1', user, { excludeNA: true, includeConsultantNotes: true } as any);
+      expect(pdfTemplateService.createPdfBuffer).toHaveBeenCalledWith({
+        preassessmentId: 'pa-1',
+        excludeNA: true,
+        includeConsultantNotes: true,
+      }, user);
       expect(reportsService.save).toHaveBeenCalled();
       expect(result).toMatchObject({ id: 'report-1' });
     });

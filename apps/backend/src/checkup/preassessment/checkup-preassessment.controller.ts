@@ -15,6 +15,8 @@ import { CheckupPreassessmentReportsService } from './checkup-preassessment-repo
 import { CheckupPreassessmentExportJobsService } from './checkup-preassessment-export-jobs.service';
 import { CheckupPreassessmentExcelExportService } from './checkup-preassessment-excel-export.service';
 import { CheckupPreassessmentExcelImportService } from './checkup-preassessment-excel-import.service';
+import { GeneratePreassessmentPdfDto } from './dto/generate-preassessment-pdf.dto';
+import { CheckupPreassessmentPdfTemplateService } from './checkup-preassessment-pdf-template.service';
 
 @Controller('checkup/preassessment')
 @UseGuards(CheckupJwtAuthGuard)
@@ -26,6 +28,7 @@ export class CheckupPreassessmentController {
     private readonly exportJobsService: CheckupPreassessmentExportJobsService,
     private readonly excelExportService: CheckupPreassessmentExcelExportService,
     private readonly excelImportService: CheckupPreassessmentExcelImportService,
+    private readonly pdfTemplateService: CheckupPreassessmentPdfTemplateService,
   ) {}
 
   @Get()
@@ -145,10 +148,10 @@ export class CheckupPreassessmentController {
   @Post('pdf/jobs')
   @RateLimit({ limit: 3, windowMs: 60 * 1000 })
   createPdfJob(
-    @Body('html') html: string,
+    @Body() dto: GeneratePreassessmentPdfDto,
     @CheckupCurrentUser() user: CheckupCurrentUserData,
   ) {
-    return this.exportJobsService.createPdfJob(html, user);
+    return this.exportJobsService.createPdfJob(dto, user);
   }
 
   @Get('export-jobs/:jobId')
@@ -177,15 +180,14 @@ export class CheckupPreassessmentController {
   async saveReport(
     @Param('preassessmentId') preassessmentId: string,
     @CheckupCurrentUser() user: CheckupCurrentUserData,
-    @Body('html') html: string,
+    @Body() dto: Omit<GeneratePreassessmentPdfDto, 'preassessmentId'>,
   ) {
-    if (!html || typeof html !== 'string') {
-      throw new BadRequestException('HTML mancante');
-    }
-    const { preassessment, client } = await this.preassessmentService.getPreassessmentForReport(preassessmentId, user);
-    const pdf = await this.preassessmentService.renderHtmlToPdf(html);
-    const filename = `report-preassessment-${client.id}-${new Date().toISOString().split('T')[0]}.pdf`;
-    return this.reportsService.save(preassessment.id, client.id, filename, pdf);
+    const rendered = await this.pdfTemplateService.createPdfBuffer({
+      preassessmentId,
+      excludeNA: dto?.excludeNA ?? true,
+      includeConsultantNotes: dto?.includeConsultantNotes ?? true,
+    }, user);
+    return this.reportsService.save(rendered.preassessmentId, rendered.clientId, rendered.filename, rendered.pdf);
   }
 
   @UseGuards(CheckupStaffGuard)

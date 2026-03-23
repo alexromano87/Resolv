@@ -712,7 +712,6 @@ export default function AdminCheckupStudiosPage() {
                             sublabel: [
                               license.studio?.nome || 'Non assegnata',
                               license.tipo || 'Tipo n.d.',
-                              license.model?.label ? `Modello: ${license.model.label}` : 'Modello: —',
                               `${license.numeroUtenze} utenze`,
                               `${formatDate(license.dataInizioValidita)} → ${formatDate(license.dataScadenza)}`,
                             ].join(' · '),

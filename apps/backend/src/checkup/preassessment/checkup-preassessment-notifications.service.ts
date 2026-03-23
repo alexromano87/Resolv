@@ -92,6 +92,63 @@ export class CheckupPreassessmentNotificationsService {
     );
   }
 
+  async notifyConsultantNote(
+    preassessment: CheckupPreassessment,
+    client: CheckupClient,
+    consultant: CheckupCurrentUserData,
+    affectedMacros: Set<string>,
+  ) {
+    const clienteUsers = await this.userRepository.find({
+      where: { clientId: client.id, ruolo: 'cliente', attivo: true },
+    });
+
+    const recipients = clienteUsers.filter((u) => {
+      if (u.superOwner) return true;
+      if (!u.macroAreaAssignments || u.macroAreaAssignments.length === 0) return true;
+      return u.macroAreaAssignments.some((m) => affectedMacros.has(m));
+    });
+
+    if (recipients.length === 0) return;
+
+    const consultantName = `${consultant.nome} ${consultant.cognome}`.trim() || consultant.email;
+    const company = client.ragioneSociale || client.nome || 'Cliente';
+    const subject = `📝 Nuova nota del consulente — ${company}`;
+    const messaggio = `Il consulente ${consultantName} ha inserito o aggiornato una nota nel tuo pre-assessment di ${company}.`;
+    const html = `
+      <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#f8fafc;padding:32px;border-radius:12px">
+        <div style="background:#92400e;border-radius:8px;padding:20px 24px;margin-bottom:24px">
+          <h2 style="color:#fff;margin:0;font-size:18px">Checkup Governance · Pre-Assessment</h2>
+        </div>
+        <h3 style="color:#0f172a;margin:0 0 8px">📝 Nuova nota del consulente</h3>
+        <p style="color:#334155;margin:0 0 16px;font-size:15px">
+          Il consulente <strong>${consultantName}</strong> ha inserito o aggiornato una nota nel pre-assessment di <strong>${company}</strong>.
+        </p>
+        <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0">
+          <tr><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px">Cliente</td><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#0f172a;font-size:13px">${company}</td></tr>
+          <tr><td style="padding:10px 16px;color:#64748b;font-size:13px">Consulente</td><td style="padding:10px 16px;font-weight:600;color:#0f172a;font-size:13px">${consultantName}</td></tr>
+        </table>
+        <p style="color:#64748b;font-size:12px;margin-top:24px;text-align:center">
+          Accedi alla piattaforma Checkup per consultare la nota.
+        </p>
+      </div>`;
+
+    await Promise.all(
+      recipients.map(async (u) => {
+        if (u.email) {
+          await this.emailService.sendEmail({ to: u.email, subject, text: messaggio, html });
+        }
+        const alert = this.alertRepository.create({
+          preassessmentId: preassessment.id,
+          createdById: consultant.id,
+          targetUserId: u.id,
+          priority: 'info',
+          messaggio,
+        });
+        await this.alertRepository.save(alert);
+      }),
+    );
+  }
+
   async notifyFinalValidation(
     preassessment: CheckupPreassessment,
     client: CheckupClient,

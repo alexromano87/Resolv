@@ -304,8 +304,7 @@ export class CheckupUsersService {
       if (client && !client.attivo) {
         throw new ForbiddenException('Cliente non attivo');
       }
-      const license = await this.licenseRepository.findOne({ where: { id: sublicense.licenseId }, relations: ['model'] });
-      resolvedModelId = license?.modelId ?? null;
+      resolvedModelId = sublicense.modelId ?? null;
       const macroAreaLabels = await this.getMacroAreaLabelMap(resolvedModelId);
       await this.validateMacroAreaSelection(resolvedModelId, dto.macroAreaAssignments);
       await this.validateMacroAreaSelection(resolvedModelId, dto.macroAreaOwner);
@@ -493,8 +492,7 @@ export class CheckupUsersService {
         nextClientId,
         nextSublicenseId,
       );
-      const license = await this.licenseRepository.findOne({ where: { id: nextSublicense.licenseId }, relations: ['model'] });
-      const modelId = license?.modelId ?? null;
+      const modelId = nextSublicense.modelId ?? null;
       const macroAreaLabels = await this.getMacroAreaLabelMap(modelId);
       await this.validateMacroAreaSelection(modelId, nextMacroAssignments);
       await this.validateMacroAreaSelection(modelId, nextMacroOwner);

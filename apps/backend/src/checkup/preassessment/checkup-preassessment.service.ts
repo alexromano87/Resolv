@@ -327,15 +327,17 @@ export class CheckupPreassessmentService {
     if (!sublicense) {
       throw new NotFoundException('Sottolicenza non trovata');
     }
+    if (!sublicense.modelId) {
+      throw new ConflictException('Sublicenza senza modello associato');
+    }
     const license = await this.licenseRepository.findOne({
       where: { id: sublicense.licenseId },
-      relations: ['model', 'studio'],
+      relations: ['studio'],
     });
-    const modelId = sublicense.modelId || license?.modelId || null;
-    if (!license || !modelId) {
-      throw new ConflictException('Licenza senza modello associato');
+    if (!license) {
+      throw new ConflictException('Licenza non trovata');
     }
-    return { modelId, studioId: license.studioId, license };
+    return { modelId: sublicense.modelId, studioId: license.studioId, license };
   }
 
   private async buildNotificationContext(clientId: string, preassessmentId: string, studioId?: string | null) {
@@ -588,6 +590,22 @@ export class CheckupPreassessmentService {
       }
     }
 
+    // Detect changed consultant notes before applying changes
+    let affectedMacros: Set<string> | null = null;
+    if (dto.fieldNotes !== undefined) {
+      const oldNotes = record.fieldNotes || {};
+      const changedFields = Object.entries(dto.fieldNotes)
+        .filter(([fieldId, note]) => note && (note as string).trim() && note !== (oldNotes[fieldId] || ''))
+        .map(([fieldId]) => fieldId);
+      if (changedFields.length > 0) {
+        const { modelId } = await this.resolveModelIdForClient(record.clientId);
+        const { fieldToMacro } = await this.validationService.getStructureMetaByModel(modelId);
+        affectedMacros = new Set(
+          changedFields.map((f) => fieldToMacro.get(f)).filter(Boolean) as string[],
+        );
+      }
+    }
+
     this.validationService.applyFieldMeta(record, dto.data, dto.naFields, currentUser);
     if (dto.data !== undefined) record.data = dto.data;
     if (dto.notes !== undefined) record.notes = dto.notes;
@@ -600,7 +618,15 @@ export class CheckupPreassessmentService {
       throw new ForbiddenException('Solo il cliente può modificare questa autorizzazione');
     }
 
-    return this.preassessmentRepository.save(record);
+    const saved = await this.preassessmentRepository.save(record);
+
+    if (affectedMacros && affectedMacros.size > 0) {
+      this.preassessmentNotificationsService
+        .notifyConsultantNote(saved, client, currentUser, affectedMacros)
+        .catch(() => {});
+    }
+
+    return saved;
   }
 
   async listClients(currentUser: CheckupCurrentUserData) {

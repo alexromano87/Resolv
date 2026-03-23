@@ -8,9 +8,14 @@ export interface SavedPreassessmentReport {
   createdAt: string;
 }
 
+export interface SavePreassessmentReportPayload {
+  excludeNA?: boolean;
+  includeConsultantNotes?: boolean;
+}
+
 export const preassessmentReportApi = {
-  save: (preassessmentId: string, html: string) =>
-    api.post<SavedPreassessmentReport>(`/checkup/preassessment/${preassessmentId}/report/salva`, { html }),
+  save: (preassessmentId: string, payload: SavePreassessmentReportPayload) =>
+    api.post<SavedPreassessmentReport>(`/checkup/preassessment/${preassessmentId}/report/salva`, payload),
 
   listByClient: (clientId: string) =>
     api.get<SavedPreassessmentReport[]>(`/checkup/preassessment/clients/${clientId}/reports`),

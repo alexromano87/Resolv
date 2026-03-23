@@ -89,9 +89,8 @@ export class CheckupExportService {
     const clientIds = sublicenses.map((s) => s.clientId).filter(Boolean) as string[];
 
     const modelIds = new Set<string>();
-    licenses.forEach((l) => {
-      if (l.modelId) modelIds.add(l.modelId);
-      (l.modelIds || []).forEach((id) => modelIds.add(id));
+    sublicenses.forEach((s) => {
+      if (s.modelId) modelIds.add(s.modelId);
     });
 
     switch (dto.entity) {

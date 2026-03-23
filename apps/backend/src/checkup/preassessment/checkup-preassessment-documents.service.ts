@@ -11,7 +11,6 @@ import { CheckupPreassessmentDocument, CheckupPreassessmentDocumentType } from '
 import { CheckupPreassessmentService } from './checkup-preassessment.service';
 import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
-import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { QuestionManagementService } from '../services/question-management.service';
 
 const unlinkAsync = promisify(fs.unlink);
@@ -52,10 +51,7 @@ export class CheckupPreassessmentDocumentsService {
       return new Map<string, { macroLabel: string; sectionTitle: string }>();
     }
 
-    const license = await this.licenseRepository.findOne({
-      where: { id: sublicense.licenseId },
-    });
-    const modelId = sublicense.modelId || license?.modelId || null;
+    const modelId = sublicense.modelId || null;
     if (!modelId) {
       return new Map<string, { macroLabel: string; sectionTitle: string }>();
     }
@@ -79,8 +75,6 @@ export class CheckupPreassessmentDocumentsService {
     private documentRepository: Repository<CheckupPreassessmentDocument>,
     @InjectRepository(CheckupSublicense)
     private sublicenseRepository: Repository<CheckupSublicense>,
-    @InjectRepository(CheckupLicense)
-    private licenseRepository: Repository<CheckupLicense>,
     private preassessmentService: CheckupPreassessmentService,
     private questionManagementService: QuestionManagementService,
   ) {}

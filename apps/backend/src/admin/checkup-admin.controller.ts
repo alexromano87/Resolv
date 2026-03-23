@@ -1,7 +1,7 @@
 import { Body, ConflictException, Controller, Get, NotFoundException, Post, UseGuards, Param, Put, Patch, Delete, Query, BadRequestException, UseInterceptors, UploadedFile, Req, Res, HttpCode } from '@nestjs/common';
 import type { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not, In } from 'typeorm';
+import { Repository, Not } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -104,7 +104,7 @@ export class CheckupAdminController {
       return;
     }
     if (!modelId) {
-      throw new ConflictException('La licenza non ha un modello associato');
+      throw new ConflictException('La sublicenza non ha un modello associato');
     }
     const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
     const allowed = macroAreas.filter((m) => !this.isOwnerMacroArea(m.code, m.label));
@@ -763,8 +763,7 @@ export class CheckupAdminController {
       }
       const clientSublicense = await this.resolveClientSublicense(dto.clientId, dto.sublicenseId);
       resolvedSublicenseId = clientSublicense.id;
-      const license = await this.licenseRepository.findOne({ where: { id: clientSublicense.licenseId }, relations: ['model'] });
-      resolvedModelId = license?.modelId ?? null;
+      resolvedModelId = clientSublicense.modelId ?? null;
       const macroAreaLabels = await this.getMacroAreaLabelMap(resolvedModelId);
       await this.validateMacroAreaSelection(resolvedModelId, dto.macroAreaAssignments);
       await this.validateMacroAreaSelection(resolvedModelId, dto.macroAreaOwner);
@@ -869,8 +868,7 @@ export class CheckupAdminController {
         throw new ConflictException('Seleziona la sublicenza per l\'utente');
       }
       const clientSublicense = await this.resolveClientSublicense(nextClientId, nextSublicenseId);
-      const license = await this.licenseRepository.findOne({ where: { id: clientSublicense.licenseId }, relations: ['model'] });
-      const modelId = license?.modelId ?? null;
+      const modelId = clientSublicense.modelId ?? null;
       const macroAreaLabels = await this.getMacroAreaLabelMap(modelId);
       await this.validateMacroAreaSelection(modelId, nextMacroAssignments);
       await this.validateMacroAreaSelection(modelId, nextMacroOwner);
@@ -1120,7 +1118,7 @@ export class CheckupAdminController {
   @Get('sublicenses')
   async listSublicenses(): Promise<CheckupSublicense[]> {
     return this.sublicenseRepository.find({
-      relations: ['license', 'license.model', 'license.studio', 'clienteStudio', 'client'],
+      relations: ['license', 'license.studio', 'clienteStudio', 'client'],
       order: { updatedAt: 'DESC' },
     });
   }
@@ -1142,54 +1140,8 @@ export class CheckupAdminController {
       }
     }
 
-    const resolveModel = async (id?: string | null) => {
-      if (id) {
-        const model = await this.questionModelRepository.findOne({ where: { id } });
-        if (!model) {
-          throw new NotFoundException('Modello non trovato');
-        }
-        return model;
-      }
-
-      const existing = await this.questionModelRepository.findOne({ where: { code: 'preassessment' } });
-      if (existing) return existing;
-      const created = this.questionModelRepository.create({
-        code: 'preassessment',
-        label: 'Pre-Assessment',
-        description: 'Modello standard pre-assessment',
-        attivo: true,
-      });
-      return this.questionModelRepository.save(created);
-    };
-
-    const requestedIds = Array.from(
-      new Set(
-        (dto.modelIds?.length ? dto.modelIds : dto.modelId ? [dto.modelId] : [])
-          .map((id) => id?.trim())
-          .filter(Boolean) as string[],
-      ),
-    );
-
-    const model = await resolveModel(requestedIds[0] || null);
-    let modelIds = requestedIds.length ? requestedIds : [model.id];
-    if (modelIds.length) {
-      const existingModels = await this.questionModelRepository.find({
-        where: { id: In(modelIds) },
-      });
-      if (existingModels.length !== modelIds.length) {
-        throw new NotFoundException('Uno o più modelli non trovati');
-      }
-      const existingSet = new Set(existingModels.map((m) => m.id));
-      modelIds = modelIds.filter((id) => existingSet.has(id));
-      if (!modelIds.length) {
-        modelIds = [model.id];
-      }
-    }
-
     const payload = {
       studioId: studio?.id ?? null,
-      modelId: model.id,
-      modelIds,
       intestatario: dto.intestatario?.trim() || studio?.ragioneSociale?.trim() || studio?.nome || 'Licenza',
       tipo: dto.tipo.trim(),
       numeroUtenze: Number(dto.numeroUtenze),
@@ -1203,11 +1155,8 @@ export class CheckupAdminController {
       if (!existing) {
         throw new NotFoundException('Licenza non trovata');
       }
-      const shouldUpdateModels = Boolean(dto.modelId || (dto.modelIds && dto.modelIds.length));
       this.licenseRepository.merge(existing, {
         ...payload,
-        modelId: shouldUpdateModels ? model.id : existing.modelId,
-        modelIds: shouldUpdateModels ? modelIds : existing.modelIds ?? modelIds,
         numeroSottolicenze: existing.numeroSottolicenze ?? 0,
       });
       if (!existing.numeroLicenza) {
@@ -1266,11 +1215,13 @@ export class CheckupAdminController {
       throw new ConflictException('Compila tutti i campi obbligatori');
     }
 
-    const allowedModels = (license.modelIds && license.modelIds.length)
-      ? new Set(license.modelIds)
-      : new Set([license.modelId]);
-    if (dto.modelId && !allowedModels.has(dto.modelId)) {
-      throw new BadRequestException('Modello non associato alla licenza');
+    if (!dto.modelId) {
+      throw new BadRequestException('Il modello è obbligatorio per la sublicenza');
+    }
+
+    const model = await this.questionModelRepository.findOne({ where: { id: dto.modelId } });
+    if (!model) {
+      throw new NotFoundException('Modello non trovato');
     }
 
     const payload: Partial<CheckupSublicense> = {
@@ -1281,7 +1232,7 @@ export class CheckupAdminController {
       dataScadenza: dto.dataScadenza,
       attiva: dto.attiva ?? true,
       allowDocuments: dto.allowDocuments ?? true,
-      modelId: dto.modelId || license.modelId,
+      modelId: dto.modelId,
     };
 
     if (dto.clientId !== undefined) {

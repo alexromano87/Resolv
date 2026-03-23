@@ -158,7 +158,7 @@ export default function AdminCheckupSublicensesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.licenseId || !formData.tipo || !formData.dataInizioValidita || !formData.dataScadenza) {
+    if (!formData.licenseId || !formData.modelId || !formData.tipo || !formData.dataInizioValidita || !formData.dataScadenza) {
       toastError('Compila tutti i campi obbligatori');
       return;
     }
@@ -175,7 +175,7 @@ export default function AdminCheckupSublicensesPage() {
       await checkupAdminApi.upsertSublicense({
         id: editingId ?? undefined,
         licenseId: formData.licenseId,
-        modelId: formData.modelId || undefined,
+        modelId: formData.modelId,
         tipo: formData.tipo.trim(),
         numeroUtenze: Number(formData.numeroUtenze),
         dataInizioValidita: formData.dataInizioValidita,
@@ -234,40 +234,15 @@ export default function AdminCheckupSublicensesPage() {
     });
   }, [sublicenses, filterStudioId, selectedLicenseId, searchTerm]);
 
-  const selectedLicense = useMemo(
-    () => licenses.find((license) => license.id === formData.licenseId),
-    [licenses, formData.licenseId],
-  );
-
-  const allowedModelIds = useMemo(() => {
-    if (!selectedLicense) return [];
-    if (selectedLicense.modelIds && selectedLicense.modelIds.length) return selectedLicense.modelIds;
-    return selectedLicense.modelId ? [selectedLicense.modelId] : [];
-  }, [selectedLicense]);
-
-  const modelOptions = useMemo(() => {
-    if (!allowedModelIds.length) return [];
-    return models
-      .filter((model) => allowedModelIds.includes(model.id))
-      .map((model) => ({
+  const modelOptions = useMemo(
+    () =>
+      models.map((model) => ({
         value: model.id,
         label: model.label,
         sublabel: model.code,
-      }));
-  }, [allowedModelIds, models]);
-
-  useEffect(() => {
-    if (!formData.licenseId) {
-      if (formData.modelId) {
-        setFormData((p) => ({ ...p, modelId: '' }));
-      }
-      return;
-    }
-    if (!allowedModelIds.length) return;
-    if (!formData.modelId || !allowedModelIds.includes(formData.modelId)) {
-      setFormData((p) => ({ ...p, modelId: allowedModelIds[0] || '' }));
-    }
-  }, [formData.licenseId, formData.modelId, allowedModelIds]);
+      })),
+    [models],
+  );
 
   return (
     <div className="space-y-6 wow-stagger">
@@ -457,7 +432,7 @@ export default function AdminCheckupSublicensesPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700">Modello associato</label>
+                  <label className="block text-sm font-medium text-slate-700">Modello associato *</label>
                   <div className="mt-1">
                     <CustomSelect
                       value={formData.modelId}
@@ -466,12 +441,8 @@ export default function AdminCheckupSublicensesPage() {
                       placeholder="Seleziona modello"
                       searchable
                       searchPlaceholder="Cerca modello..."
-                      disabled={!formData.licenseId || modelOptions.length === 0}
                     />
                   </div>
-                  {!formData.licenseId && (
-                    <p className="mt-1 text-xs text-slate-500">Seleziona prima una licenza per vedere i modelli.</p>
-                  )}
                 </div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>

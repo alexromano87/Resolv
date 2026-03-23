@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   Save, RotateCcw, Settings, FileText, Type, ToggleLeft, Plus, Trash2,
   AlertCircle, CheckCircle, BookOpen, PanelBottom,
-  AlignLeft, AlignCenter, AlignRight, CopyPlus, Eye, EyeOff, Layers3,
+  AlignLeft, AlignCenter, AlignRight, CopyPlus, Eye, EyeOff, Layers3, GripVertical,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -26,6 +26,22 @@ const ALIGN_OPTIONS = [
   { value: 'left', label: 'Sinistra', icon: AlignLeft },
   { value: 'center', label: 'Centro', icon: AlignCenter },
   { value: 'right', label: 'Destra', icon: AlignRight },
+] as const;
+
+const COVER_TEXT_FIELDS: Array<{
+  id: string;
+  label: string;
+  configKey: keyof PdfConfig;
+  description: string;
+  multiline?: boolean;
+}> = [
+  { id: 'kicker', label: 'Etichetta', configKey: 'coverKicker', description: 'Testo piccolo sopra al titolo principale.' },
+  { id: 'heading', label: 'Titolo principale', configKey: 'coverHeading', description: 'Titolo hero della copertina.' },
+  { id: 'title', label: 'Titolo app', configKey: 'coverTitle', description: 'Label applicativa vicino al logo.' },
+  { id: 'subtitle', label: 'Sottotitolo', configKey: 'coverSubtitle', description: 'Testo secondario accanto al logo.' },
+  { id: 'detail', label: 'Testo descrittivo', configKey: 'coverDetail', description: 'Paragrafo introduttivo della copertina.', multiline: true },
+  { id: 'chip', label: 'Badge', configKey: 'coverChipText', description: 'Badge testuale della copertina.' },
+  { id: 'footer-note', label: 'Nota copertina', configKey: 'coverFooterNote', description: 'Nota in basso a sinistra della cover.' },
 ] as const;
 
 // ── Cover live preview ────────────────────────────────────────────────────────
@@ -326,6 +342,8 @@ export default function AdminCheckupPdfConfigPage() {
   const [activeTab, setActiveTab] = useState<Tab>('paginazione');
   const [selectedCoverElementId, setSelectedCoverElementId] = useState<string | null>(DEFAULT_PDF_CONFIG.coverElements.find((element) => element.type !== 'logo')?.id ?? null);
   const [previewZoom, setPreviewZoom] = useState(1.35);
+  const [draggedCoverElementId, setDraggedCoverElementId] = useState<string | null>(null);
+  const [dragOverCoverElementId, setDragOverCoverElementId] = useState<string | null>(null);
   const [previewContext, setPreviewContext] = useState<PdfCoverPreviewContext>({
     companyName: 'Cliente di esempio',
     consultantName: 'Studio licenziatario',
@@ -399,6 +417,11 @@ export default function AdminCheckupPdfConfigPage() {
     setConfig({ ...config, macroOverrides: config.macroOverrides.filter((_, i) => i !== idx) });
 
   const selectedCoverElement = (config.coverElements ?? []).find((element) => element.id === selectedCoverElementId && element.type !== 'logo') ?? null;
+  const editableCoverElements = useMemo(
+    () => [...(config.coverElements ?? [])].filter((element) => element.type !== 'logo').sort((a, b) => b.zIndex - a.zIndex),
+    [config.coverElements],
+  );
+  const getCoverElementById = (elementId: string) => (config.coverElements ?? []).find((element) => element.id === elementId) ?? null;
 
   const updateCoverElements = (updater: (elements: CoverElement[]) => CoverElement[]) => {
     setConfig((prev) => ({ ...prev, coverElements: normalizeFixedCoverElements(updater(prev.coverElements ?? [])) }));
@@ -409,6 +432,26 @@ export default function AdminCheckupPdfConfigPage() {
     updateCoverElements((elements) => elements.map((element) => (
       element.id === selectedCoverElementId ? { ...element, ...patch } : element
     )));
+  };
+
+  const updateCoverElementById = (elementId: string, patch: Partial<CoverElement>) => {
+    updateCoverElements((elements) => elements.map((element) => (
+      element.id === elementId ? { ...element, ...patch } : element
+    )));
+  };
+
+  const updateSemanticCoverText = (
+    elementId: string,
+    configKey: keyof PdfConfig,
+    value: string,
+  ) => {
+    setConfig((prev) => ({ ...prev, [configKey]: value }));
+    updateCoverElementById(elementId, { text: value });
+  };
+
+  const updateSemanticCoverItems = (items: string[]) => {
+    setConfig((prev) => ({ ...prev, coverFeatures: items }));
+    updateCoverElementById('features', { items });
   };
 
   const addCoverElement = (type: CoverElementType) => {
@@ -470,6 +513,29 @@ export default function AdminCheckupPdfConfigPage() {
     setSelectedCoverElementId((current) => (current === elementId ? (remaining[0]?.id ?? null) : current));
   };
 
+  const reorderCoverElementById = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    const sourceIndex = editableCoverElements.findIndex((element) => element.id === sourceId);
+    const targetIndex = editableCoverElements.findIndex((element) => element.id === targetId);
+    if (sourceIndex === -1 || targetIndex === -1) return;
+
+    const reordered = [...editableCoverElements];
+    const [moved] = reordered.splice(sourceIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    updateCoverElements((elements) => {
+      const reorderedById = new Map(
+        reordered.map((element, index) => [element.id, { ...element, zIndex: reordered.length - index + 1 }]),
+      );
+      return elements.map((element) => (
+        element.type === 'logo'
+          ? element
+          : (reorderedById.get(element.id) ?? element)
+      ));
+    });
+    setSelectedCoverElementId(sourceId);
+  };
+
 
   const moveSelectedCoverElement = (direction: 'forward' | 'backward') => {
     if (!selectedCoverElementId) return;
@@ -482,23 +548,6 @@ export default function AdminCheckupPdfConfigPage() {
     const [item] = reordered.splice(index, 1);
     reordered.splice(targetIndex, 0, item);
     updateCoverElements(() => reordered.map((element, idx) => ({ ...element, zIndex: idx + 1 })));
-  };
-
-  const updateSelectedFeature = (index: number, value: string) => {
-    if (!selectedCoverElement || selectedCoverElement.type !== 'features') return;
-    const items = [...(selectedCoverElement.items ?? [])];
-    items[index] = value;
-    updateSelectedCoverElement({ items });
-  };
-
-  const addSelectedFeature = () => {
-    if (!selectedCoverElement || selectedCoverElement.type !== 'features') return;
-    updateSelectedCoverElement({ items: [...(selectedCoverElement.items ?? []), `Nuovo bullet ${(selectedCoverElement.items?.length ?? 0) + 1}`] });
-  };
-
-  const removeSelectedFeature = (index: number) => {
-    if (!selectedCoverElement || selectedCoverElement.type !== 'features') return;
-    updateSelectedCoverElement({ items: (selectedCoverElement.items ?? []).filter((_, idx) => idx !== index) });
   };
 
   // ── Toggle helper ────────────────────────────────────────────────────────
@@ -752,70 +801,142 @@ export default function AdminCheckupPdfConfigPage() {
 
           {/* ── Copertina ─────────────────────────────────────────────── */}
           {activeTab === 'copertina' && (
-            <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)_320px]">
+            <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)_320px]">
               <div className="space-y-5">
-                <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/50">
-                  <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+                  <div className="mb-4 flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Elementi copertina</h3>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Crea, duplica, nascondi o elimina ogni elemento della cover.</p>
+                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Testi della copertina</h3>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Gestisci i contenuti principali della cover senza toccare il logo.</p>
                     </div>
-                    <Layers3 className="mt-0.5 h-4 w-4 text-slate-400" />
+                    <Type className="mt-0.5 h-4 w-4 text-slate-400" />
                   </div>
-
-                  <div className="mb-3 rounded-lg border border-slate-200 bg-white/90 px-3 py-2 text-xs text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    Il logo resta visibile nell'anteprima ma ha posizione fissa e non puo essere modificato.
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    {COVER_ELEMENT_TYPE_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => addCoverElement(option.value)}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:border-blue-500 dark:hover:bg-slate-600"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Plus className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                          <span>{option.label}</span>
+                  <div className="space-y-4">
+                    {COVER_TEXT_FIELDS.map((field) => {
+                      const element = getCoverElementById(field.id);
+                      return (
+                        <div key={field.id}>
+                          <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">{field.label}</label>
+                          {field.multiline ? (
+                            <textarea
+                              rows={4}
+                              value={String(config[field.configKey] ?? '')}
+                              onChange={(event) => updateSemanticCoverText(field.id, field.configKey, event.target.value)}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                            />
+                          ) : (
+                            <input
+                              type="text"
+                              value={String(config[field.configKey] ?? '')}
+                              onChange={(event) => updateSemanticCoverText(field.id, field.configKey, event.target.value)}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                            />
+                          )}
+                          <div className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-400">
+                            <span>{field.description}</span>
+                            {element && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedCoverElementId(element.id)}
+                                className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                              >
+                                Modifica posizione
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </button>
-                    ))}
+                      );
+                    })}
+
+                    <div>
+                      <div className="mb-2 flex items-center justify-between">
+                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Bullet point copertina</label>
+                        <button
+                          type="button"
+                          onClick={() => updateSemanticCoverItems([...(config.coverFeatures ?? []), `Nuovo bullet ${(config.coverFeatures?.length ?? 0) + 1}`])}
+                          className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Aggiungi
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {(config.coverFeatures ?? []).map((item, index) => (
+                          <div key={`cover-feature-${index}`} className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={item}
+                              onChange={(event) => {
+                                const next = [...(config.coverFeatures ?? [])];
+                                next[index] = event.target.value;
+                                updateSemanticCoverItems(next);
+                              }}
+                              className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => updateSemanticCoverItems((config.coverFeatures ?? []).filter((_, itemIndex) => itemIndex !== index))}
+                              className="rounded-md p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                      <p><strong>Azienda:</strong> {previewContext.companyName}</p>
+                      <p className="mt-1"><strong>Consulente:</strong> {previewContext.consultantName}</p>
+                      <p className="mt-2">Questi due elementi sono letti dal database. Puoi spostarli e stilizzarli, ma non cambiarne il contenuto.</p>
+                    </div>
                   </div>
                 </div>
 
                 <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
                   <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
-                    <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Gerarchia elementi</h3>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => moveSelectedCoverElement('backward')}
-                        disabled={!selectedCoverElement}
-                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
-                      >
-                        Indietro
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveSelectedCoverElement('forward')}
-                        disabled={!selectedCoverElement}
-                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
-                      >
-                        Avanti
-                      </button>
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Elementi in copertina</h3>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Seleziona un elemento e riordinalo o nascondilo. Il logo resta fisso.</p>
                     </div>
+                    <Layers3 className="h-4 w-4 text-slate-400" />
                   </div>
                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {[...(config.coverElements ?? []).filter((element) => element.type !== 'logo')]
-                      .sort((a, b) => b.zIndex - a.zIndex)
-                      .map((element) => {
+                    {editableCoverElements.map((element) => {
                         const isSelected = element.id === selectedCoverElementId;
+                        const isDragOver = dragOverCoverElementId === element.id && draggedCoverElementId !== element.id;
                         return (
                           <div
                             key={element.id}
                             role="button"
                             tabIndex={0}
+                            draggable
+                            onDragStart={() => {
+                              setDraggedCoverElementId(element.id);
+                              setDragOverCoverElementId(element.id);
+                            }}
+                            onDragOver={(event) => {
+                              event.preventDefault();
+                              if (draggedCoverElementId && draggedCoverElementId !== element.id) {
+                                setDragOverCoverElementId(element.id);
+                              }
+                            }}
+                            onDragLeave={() => {
+                              if (dragOverCoverElementId === element.id) {
+                                setDragOverCoverElementId(null);
+                              }
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              if (draggedCoverElementId && draggedCoverElementId !== element.id) {
+                                reorderCoverElementById(draggedCoverElementId, element.id);
+                              }
+                              setDraggedCoverElementId(null);
+                              setDragOverCoverElementId(null);
+                            }}
+                            onDragEnd={() => {
+                              setDraggedCoverElementId(null);
+                              setDragOverCoverElementId(null);
+                            }}
                             onClick={() => setSelectedCoverElementId(element.id)}
                             onKeyDown={(event) => {
                               if (event.key === 'Enter' || event.key === ' ') {
@@ -824,10 +945,14 @@ export default function AdminCheckupPdfConfigPage() {
                               }
                             }}
                             className={[
-                              'flex cursor-pointer items-start gap-3 px-4 py-3 transition',
+                              'flex cursor-move items-start gap-3 px-4 py-3 transition',
                               isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/60',
+                              isDragOver ? 'ring-2 ring-inset ring-blue-400' : '',
                             ].join(' ')}
                           >
+                            <div className="pt-0.5 text-slate-300 dark:text-slate-600">
+                              <GripVertical className="h-4 w-4" />
+                            </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
                                 <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{element.name}</p>
@@ -835,14 +960,14 @@ export default function AdminCheckupPdfConfigPage() {
                                   {COVER_ELEMENT_TYPE_OPTIONS.find((option) => option.value === element.type)?.label ?? element.type}
                                 </span>
                               </div>
-                              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Livello {element.zIndex} · X {element.x}% · Y {element.y}% · {element.width}% × {element.height}%</p>
+                              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">X {element.x}% · Y {element.y}% · {element.width}% × {element.height}% · livello {element.zIndex}</p>
                             </div>
                             <div className="flex items-center gap-1">
                               <button
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  updateCoverElements((elements) => elements.map((item) => item.id === element.id ? { ...item, visible: !item.visible } : item));
+                                  updateCoverElementById(element.id, { visible: !element.visible });
                                 }}
                                 className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                                 title={element.visible ? 'Nascondi elemento' : 'Mostra elemento'}
@@ -876,6 +1001,40 @@ export default function AdminCheckupPdfConfigPage() {
                         );
                       })}
                   </div>
+                  <div className="flex items-center gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
+                    <button
+                      type="button"
+                      onClick={() => moveSelectedCoverElement('backward')}
+                      disabled={!selectedCoverElement}
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                    >
+                      Indietro
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveSelectedCoverElement('forward')}
+                      disabled={!selectedCoverElement}
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                    >
+                      Avanti
+                    </button>
+                    <div className="ml-auto grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => addCoverElement('text')}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                      >
+                        + Testo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => addCoverElement('chip')}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                      >
+                        + Badge
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -883,8 +1042,8 @@ export default function AdminCheckupPdfConfigPage() {
                 <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
                   <div className="mb-4 flex items-center justify-between gap-4">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Proprietà elemento</h3>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Gestisci contenuto, tipografia, colori, dimensioni, posizione e visibilità del singolo elemento.</p>
+                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Posizione e stile elemento</h3>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Modifica il singolo elemento selezionato. Il logo non è modificabile.</p>
                     </div>
                     {selectedCoverElement && (
                       <button
@@ -899,7 +1058,7 @@ export default function AdminCheckupPdfConfigPage() {
 
                   {!selectedCoverElement ? (
                     <div className="rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                      Seleziona un elemento dalla colonna a sinistra per modificarlo.
+                      Seleziona un elemento dalla colonna a sinistra o direttamente nell’anteprima.
                     </div>
                   ) : (
                     <div className="space-y-5">
@@ -913,75 +1072,37 @@ export default function AdminCheckupPdfConfigPage() {
                             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                           />
                         </div>
-                        <div>
-                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Tipo elemento</label>
-                          <select
-                            value={selectedCoverElement.type}
-                            onChange={(event) => updateSelectedCoverElement({ type: event.target.value as CoverElementType })}
-                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-                          >
-                            {COVER_ELEMENT_TYPE_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
+                        <div className="flex items-end">
+                          <div className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-600">
+                            <div>
+                              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Visibile</p>
+                              <p className="text-xs text-slate-400">Nasconde l’elemento senza eliminarlo</p>
+                            </div>
+                            <Toggle checked={selectedCoverElement.visible} onChange={() => updateSelectedCoverElement({ visible: !selectedCoverElement.visible })} />
+                          </div>
                         </div>
                       </div>
 
-                      {selectedCoverElement.type !== 'features' &&
-                        selectedCoverElement.type !== 'logo' &&
-                        selectedCoverElement.type !== 'company' &&
-                        selectedCoverElement.type !== 'consultant' && (
-                        <div>
-                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Contenuto</label>
-                          <textarea
-                            rows={selectedCoverElement.type === 'text' ? 4 : 2}
-                            value={selectedCoverElement.text ?? ''}
-                            onChange={(event) => updateSelectedCoverElement({ text: event.target.value })}
-                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-                          />
-                        </div>
-                      )}
-
-                      {(selectedCoverElement.type === 'company' || selectedCoverElement.type === 'consultant') && (
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                          Il contenuto di questo elemento arriva dal database:
-                          {selectedCoverElement.type === 'company' ? ` azienda cliente = ${previewContext.companyName}` : ` studio licenziatario = ${previewContext.consultantName}`}.
-                        </div>
-                      )}
-
-                      {selectedCoverElement.type === 'features' && (
-                        <div>
-                          <div className="mb-2 flex items-center justify-between">
-                            <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Bullet points</label>
-                            <button
-                              type="button"
-                              onClick={addSelectedFeature}
-                              className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-                            >
-                              <Plus className="h-3.5 w-3.5" /> Aggiungi
-                            </button>
+                      <div className="grid gap-4 md:grid-cols-4">
+                        {([
+                          ['x', 'X (%)', 0, 90],
+                          ['y', 'Y (%)', 0, 94],
+                          ['width', 'Larghezza (%)', 5, 100],
+                          ['height', 'Altezza (%)', 2, 40],
+                        ] as const).map(([key, label, min, max]) => (
+                          <div key={key}>
+                            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">{label}</label>
+                            <input
+                              type="number"
+                              min={min}
+                              max={max}
+                              value={selectedCoverElement[key]}
+                              onChange={(event) => updateSelectedCoverElement({ [key]: Number(event.target.value) } as Partial<CoverElement>)}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                            />
                           </div>
-                          <div className="space-y-2">
-                            {(selectedCoverElement.items ?? []).map((item, index) => (
-                              <div key={`${selectedCoverElement.id}-item-${index}`} className="flex items-center gap-2">
-                                <input
-                                  type="text"
-                                  value={item}
-                                  onChange={(event) => updateSelectedFeature(index, event.target.value)}
-                                  className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => removeSelectedFeature(index)}
-                                  className="rounded-md p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                        ))}
+                      </div>
 
                       <div className="grid gap-4 md:grid-cols-3">
                         <div>
@@ -995,7 +1116,7 @@ export default function AdminCheckupPdfConfigPage() {
                           </select>
                         </div>
                         <div>
-                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Dimensione font</label>
+                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Dimensione</label>
                           <input
                             type="number"
                             min={8}
@@ -1006,7 +1127,7 @@ export default function AdminCheckupPdfConfigPage() {
                           />
                         </div>
                         <div>
-                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Peso font</label>
+                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Peso</label>
                           <select
                             value={selectedCoverElement.fontWeight}
                             onChange={(event) => updateSelectedCoverElement({ fontWeight: event.target.value as CoverElement['fontWeight'] })}
@@ -1045,29 +1166,8 @@ export default function AdminCheckupPdfConfigPage() {
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-4">
-                        {([
-                          ['x', 'Posizione X (%)', 0, 90],
-                          ['y', 'Posizione Y (%)', 0, 94],
-                          ['width', 'Larghezza (%)', 5, 100],
-                          ['height', 'Altezza (%)', 2, 40],
-                        ] as const).map(([key, label, min, max]) => (
-                          <div key={key}>
-                            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">{label}</label>
-                            <input
-                              type="number"
-                              min={min}
-                              max={max}
-                              value={selectedCoverElement[key]}
-                              onChange={(event) => updateSelectedCoverElement({ [key]: Number(event.target.value) } as Partial<CoverElement>)}
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-                            />
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-4">
                         <div>
-                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Bordo (px)</label>
+                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Bordo</label>
                           <input type="number" min={0} max={12} value={selectedCoverElement.borderWidth ?? 0} onChange={(event) => updateSelectedCoverElement({ borderWidth: Number(event.target.value) })} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100" />
                         </div>
                         <div>
@@ -1079,7 +1179,7 @@ export default function AdminCheckupPdfConfigPage() {
                           <input type="number" min={0} max={1} step={0.05} value={selectedCoverElement.opacity ?? 1} onChange={(event) => updateSelectedCoverElement({ opacity: Number(event.target.value) })} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100" />
                         </div>
                         <div>
-                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Z-index</label>
+                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Livello</label>
                           <input type="number" min={1} max={99} value={selectedCoverElement.zIndex} onChange={(event) => updateSelectedCoverElement({ zIndex: Number(event.target.value) })} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100" />
                         </div>
                       </div>
@@ -1118,19 +1218,11 @@ export default function AdminCheckupPdfConfigPage() {
                           <div className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-600">
                             <div>
                               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Maiuscolo</p>
-                              <p className="text-xs text-slate-400">Trasforma in uppercase</p>
+                              <p className="text-xs text-slate-400">Applica uppercase</p>
                             </div>
                             <Toggle checked={selectedCoverElement.uppercase ?? false} onChange={() => updateSelectedCoverElement({ uppercase: !(selectedCoverElement.uppercase ?? false) })} />
                           </div>
                         </div>
-                      </div>
-
-                      <div className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-700">
-                        <div>
-                          <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Visibile nella cover</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">Nasconde l'elemento senza eliminarlo dalla configurazione.</p>
-                        </div>
-                        <Toggle checked={selectedCoverElement.visible} onChange={() => updateSelectedCoverElement({ visible: !selectedCoverElement.visible })} />
                       </div>
                     </div>
                   )}
@@ -1139,7 +1231,7 @@ export default function AdminCheckupPdfConfigPage() {
 
               <div className="space-y-5">
                 <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
-                  <h3 className="mb-4 text-sm font-semibold text-slate-800 dark:text-slate-100">Aspetto generale</h3>
+                  <h3 className="mb-4 text-sm font-semibold text-slate-800 dark:text-slate-100">Aspetto generale della cover</h3>
                   <div className="space-y-5">
                     <div>
                       <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Sfondo copertina</p>
@@ -1159,9 +1251,8 @@ export default function AdminCheckupPdfConfigPage() {
                         ))}
                       </div>
                     </div>
-
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Font predefinito copertina</label>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Font predefinito</label>
                       <select
                         value={config.fontFamily}
                         onChange={(event) => setConfig({ ...config, fontFamily: event.target.value })}
@@ -1192,6 +1283,9 @@ export default function AdminCheckupPdfConfigPage() {
                       </span>
                     </div>
                   </div>
+                  <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                    Il logo Resolv è fisso: resta visibile in anteprima ma non compare tra gli elementi modificabili.
+                  </div>
                   <div className="flex justify-center">
                     <CoverPreview
                       config={config}
@@ -1202,7 +1296,7 @@ export default function AdminCheckupPdfConfigPage() {
                       previewZoom={previewZoom}
                     />
                   </div>
-                  <p className="mt-3 text-center text-xs text-slate-400">La preview mostra gerarchia, griglia e posizionamento reale degli elementi in copertina.</p>
+                  <p className="mt-3 text-center text-xs text-slate-400">Trascina e ridimensiona gli elementi direttamente nella cover.</p>
                   <p className="mt-1 text-center text-[11px] text-slate-400">Tieni premuto `Alt` durante drag o resize per disattivare temporaneamente lo snap alla griglia.</p>
                 </div>
               </div>
@@ -1211,69 +1305,66 @@ export default function AdminCheckupPdfConfigPage() {
 
           {/* ── Footer ────────────────────────────────────────────────── */}
           {activeTab === 'footer' && (
-            <div className="space-y-6">
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Configura il testo e il logo del footer che appare nell'ultima pagina del report.
-              </p>
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="space-y-5">
+                <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Testi del footer</h3>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Configura il footer dell’ultima pagina del report PDF.</p>
+                  <div className="mt-5 space-y-4">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Testo principale</label>
+                      <textarea
+                        rows={3}
+                        value={config.footerMainText ?? ''}
+                        onChange={(e) => setConfig({ ...config, footerMainText: e.target.value })}
+                        placeholder="Piattaforma GRC modulare per la gestione integrata della compliance aziendale"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                      />
+                      <p className="mt-1 text-xs text-slate-400">Testo istituzionale al centro del footer.</p>
+                    </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Testo principale
-                  </label>
-                  <input
-                    type="text"
-                    value={config.footerMainText ?? ''}
-                    onChange={(e) => setConfig({ ...config, footerMainText: e.target.value })}
-                    placeholder="Software gestionale per studi legali e professionisti del settore creditizio"
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-                  />
-                  <p className="mt-1 text-xs text-slate-400">Prima riga del footer, accanto al logo.</p>
-                </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Testo copyright <span className="font-normal text-slate-400">(dopo "© {new Date().getFullYear()} ")</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={config.footerCopyrightText ?? ''}
+                        onChange={(e) => setConfig({ ...config, footerCopyrightText: e.target.value })}
+                        placeholder="Resolv. Tutti i diritti riservati."
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                      />
+                    </div>
 
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Testo copyright <span className="font-normal text-slate-400">(dopo "© {new Date().getFullYear()} ")</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={config.footerCopyrightText ?? ''}
-                    onChange={(e) => setConfig({ ...config, footerCopyrightText: e.target.value })}
-                    placeholder="Resolv. Tutti i diritti riservati."
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-                  />
-                  <p className="mt-1 text-xs text-slate-400">
-                    Risultato: © {new Date().getFullYear()} {config.footerCopyrightText || 'Resolv. Tutti i diritti riservati.'}
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-700">
-                  <div>
-                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Mostra logo nel footer</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Visualizza il logo dello studio accanto al testo</p>
+                    <div className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-700">
+                      <div>
+                        <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Mostra logo Resolv</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Il footer usa sempre il logo Resolv, non quello del cliente o dello studio.</p>
+                      </div>
+                      <Toggle
+                        checked={config.footerShowLogo !== false}
+                        onChange={() => setConfig({ ...config, footerShowLogo: !config.footerShowLogo })}
+                      />
+                    </div>
                   </div>
-                  <Toggle
-                    checked={config.footerShowLogo !== false}
-                    onChange={() => setConfig({ ...config, footerShowLogo: !config.footerShowLogo })}
-                  />
                 </div>
               </div>
 
-              {/* Preview */}
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
-                <p className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-400">Anteprima footer</p>
-                <div className="flex items-center gap-4 rounded-lg p-4" style={{ background: 'linear-gradient(135deg, #0c162b 0%, #132844 50%, #1f3c63 100%)' }}>
-                  <div className="flex items-center gap-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Anteprima footer</p>
+                <div className="overflow-hidden rounded-xl" style={{ background: 'linear-gradient(135deg, #10233f 0%, #183f68 100%)' }}>
+                  <div className="flex items-center gap-4 px-6 py-4">
                     {config.footerShowLogo !== false && (
-                      <div className="h-10 w-10 flex-none rounded bg-white/20" title="Logo" />
-                    )}
-                    <div className="text-xs leading-relaxed text-slate-200">
-                      {config.footerMainText || 'Software gestionale per studi legali e professionisti del settore creditizio'}<br />
-                      Report generato il {new Date().toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric' })}
-                      <div className="mt-1 text-slate-400">
-                        © {new Date().getFullYear()} {config.footerCopyrightText || 'Resolv. Tutti i diritti riservati.'}
+                      <div className="flex h-11 w-28 flex-none items-center justify-center rounded bg-white/10 text-xs font-semibold tracking-[0.08em] text-white/90">
+                        LOGO RESOLV
                       </div>
+                    )}
+                    <div className="min-w-0 flex-1 text-xs leading-relaxed text-slate-100">
+                      <div>{config.footerMainText || 'Piattaforma GRC modulare per la gestione integrata della compliance aziendale'}</div>
+                      <div className="mt-1 text-slate-200">Report generato il {new Date().toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                      <div className="mt-1 text-slate-300">© {new Date().getFullYear()} {config.footerCopyrightText || 'Resolv. Tutti i diritti riservati.'}</div>
                     </div>
+                    <div className="text-xs font-semibold text-slate-200">12 / 24</div>
                   </div>
                 </div>
               </div>

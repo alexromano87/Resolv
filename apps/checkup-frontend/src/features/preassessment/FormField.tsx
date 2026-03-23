@@ -223,7 +223,7 @@ export const FormField = memo(function FormField({
                 <StickyNote className="h-3.5 w-3.5" />
               </button>
             )}
-            {canEditConsultantNotes && !naChecked && (
+            {canEditConsultantNotes && (
               <button
                 type="button"
                 onClick={() => setShowConsultantNote((prev) => !prev)}
@@ -479,7 +479,7 @@ export const FormField = memo(function FormField({
         </div>
       )}
 
-      {showConsultantNote && canEditConsultantNotes && !naChecked && (
+      {showConsultantNote && canEditConsultantNotes && (
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             <label className="text-[11px] font-semibold text-amber-700">Nota consulente</label>
@@ -511,7 +511,7 @@ export const FormField = memo(function FormField({
         </div>
       )}
 
-      {!canEditConsultantNotes && consultantNote && !naChecked && (
+      {!canEditConsultantNotes && consultantNote && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <strong>Nota consulente:</strong> {consultantNote}
         </div>

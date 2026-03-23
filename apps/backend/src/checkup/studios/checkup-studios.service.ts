@@ -30,7 +30,7 @@ export class CheckupStudiosService {
   private async getStudioOrThrow(studioId: string) {
     const studio = await this.studioRepository.findOne({
       where: { id: studioId, attivo: true },
-      relations: ['license', 'license.model'],
+      relations: ['license'],
     });
     if (!studio) {
       throw new NotFoundException('Studio non trovato');
@@ -48,7 +48,6 @@ export class CheckupStudiosService {
     }
     const license = await this.licenseRepository.findOne({
       where: { studioId: studio.id },
-      relations: ['model'],
     });
     if (!license) {
       throw new NotFoundException('Licenza non trovata');
@@ -106,7 +105,7 @@ export class CheckupStudiosService {
       license = studio.license;
       sublicenses = await this.sublicenseRepository.find({
         where: { licenseId: studio.license.id },
-        relations: ['client'],
+        relations: ['client', 'model'],
       });
     }
 
@@ -123,11 +122,11 @@ export class CheckupStudiosService {
             numeroSottolicenze: license.numeroSottolicenze,
             dataInizioValidita: license.dataInizioValidita,
             dataScadenza: license.dataScadenza,
-            model: license.model
+            model: sublicenses[0]?.model
               ? {
-                  id: license.model.id,
-                  code: license.model.code,
-                  label: license.model.label,
+                  id: sublicenses[0].model.id,
+                  code: sublicenses[0].model.code,
+                  label: sublicenses[0].model.label,
                 }
               : null,
           }
@@ -226,6 +225,7 @@ export class CheckupStudiosService {
     const license = await this.getLicenseForAdmin(currentUser);
     const sublicenses = await this.sublicenseRepository.find({
       where: { licenseId: license.id },
+      relations: ['model'],
     });
     return sublicenses.map((s) => ({
       id: s.id,
@@ -245,11 +245,12 @@ export class CheckupStudiosService {
         numeroLicenza: license.numeroLicenza,
         dataInizioValidita: license.dataInizioValidita,
         dataScadenza: license.dataScadenza,
-        model: license.model
+        modelId: s.modelId,
+        model: s.model
           ? {
-              id: license.model.id,
-              code: license.model.code,
-              label: license.model.label,
+              id: s.model.id,
+              code: s.model.code,
+              label: s.model.label,
             }
           : null,
       },

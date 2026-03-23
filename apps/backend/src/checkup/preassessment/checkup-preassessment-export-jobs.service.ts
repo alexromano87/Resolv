@@ -8,7 +8,8 @@ import { promises as fsp } from 'fs';
 import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupPreassessmentExportJob } from './checkup-preassessment-export-job.entity';
 import { CheckupPreassessmentDocumentsService } from './checkup-preassessment-documents.service';
-import { CheckupPreassessmentRenderService } from './checkup-preassessment-render.service';
+import { CheckupPreassessmentPdfTemplateService } from './checkup-preassessment-pdf-template.service';
+import { GeneratePreassessmentPdfDto } from './dto/generate-preassessment-pdf.dto';
 
 const EXPORT_DIR = path.resolve(process.cwd(), 'uploads', 'checkup-exports');
 const JOB_RETENTION_HOURS = 24;
@@ -35,7 +36,7 @@ export class CheckupPreassessmentExportJobsService implements OnModuleInit {
     @InjectRepository(CheckupPreassessmentExportJob)
     private readonly jobRepository: Repository<CheckupPreassessmentExportJob>,
     private readonly documentsService: CheckupPreassessmentDocumentsService,
-    private readonly renderService: CheckupPreassessmentRenderService,
+    private readonly pdfTemplateService: CheckupPreassessmentPdfTemplateService,
   ) {}
 
 
@@ -75,10 +76,11 @@ export class CheckupPreassessmentExportJobsService implements OnModuleInit {
     }, 0);
   }
 
-  async createPdfJob(html: string, user: CheckupCurrentUserData) {
-    if (!html || typeof html !== 'string') {
-      throw new BadRequestException('HTML mancante');
+  async createPdfJob(dto: GeneratePreassessmentPdfDto, user: CheckupCurrentUserData) {
+    if (!dto?.preassessmentId) {
+      throw new BadRequestException('Preassessment mancante');
     }
+    await this.pdfTemplateService.buildReportHtml(dto, user);
     const job = this.jobRepository.create({
       type: 'pdf',
       status: 'queued',
@@ -86,7 +88,11 @@ export class CheckupPreassessmentExportJobsService implements OnModuleInit {
       requestedByRole: user.ruolo,
       requestedByStudioId: user.studioId || null,
       requestedByClientId: user.clientId || null,
-      payload: { html },
+      preassessmentId: dto.preassessmentId,
+      payload: {
+        excludeNA: dto.excludeNA ?? true,
+        includeConsultantNotes: dto.includeConsultantNotes ?? true,
+      },
       filename: `pre_assessment_${new Date().toISOString().slice(0, 10)}.pdf`,
       mimeType: 'application/pdf',
     });
@@ -177,10 +183,16 @@ export class CheckupPreassessmentExportJobsService implements OnModuleInit {
 
         try {
           if (next.type === 'pdf') {
-            const pdf = await this.renderService.renderHtmlToPdf(next.payload?.html || '');
-            const filename = next.filename || `pre_assessment_${new Date().toISOString().slice(0, 10)}.pdf`;
-            next.resultPath = await this.writeJobFile(next.id, filename, pdf);
-            next.filename = filename;
+            if (!next.preassessmentId) {
+              throw new BadRequestException('Preassessment mancante per il PDF');
+            }
+            const result = await this.pdfTemplateService.createPdfBuffer({
+              preassessmentId: next.preassessmentId,
+              excludeNA: next.payload?.excludeNA ?? true,
+              includeConsultantNotes: next.payload?.includeConsultantNotes ?? true,
+            }, this.toJobUser(next));
+            next.resultPath = await this.writeJobFile(next.id, result.filename, result.pdf);
+            next.filename = result.filename;
             next.mimeType = 'application/pdf';
           } else if (next.type === 'zip') {
             if (!next.preassessmentId) {

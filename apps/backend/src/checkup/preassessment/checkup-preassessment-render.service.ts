@@ -157,7 +157,16 @@ export class CheckupPreassessmentRenderService implements OnModuleDestroy {
     return this.launchPromise;
   }
 
-  async renderHtmlToPdf(html: string): Promise<Buffer> {
+  async renderHtmlToPdf(
+    html: string,
+    options?: {
+      displayHeaderFooter?: boolean;
+      headerTemplate?: string;
+      footerTemplate?: string;
+      margin?: { top?: string; bottom?: string; left?: string; right?: string };
+      preferCSSPageSize?: boolean;
+    },
+  ): Promise<Buffer> {
     const safeHtml = this.sanitizeHtmlForPdf(html);
     const browser = await this.getBrowser();
 
@@ -180,7 +189,16 @@ export class CheckupPreassessmentRenderService implements OnModuleDestroy {
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' },
+        displayHeaderFooter: options?.displayHeaderFooter ?? false,
+        headerTemplate: options?.headerTemplate ?? '<div></div>',
+        footerTemplate: options?.footerTemplate ?? '<div></div>',
+        preferCSSPageSize: options?.preferCSSPageSize ?? false,
+        margin: {
+          top: options?.margin?.top ?? '0mm',
+          bottom: options?.margin?.bottom ?? '0mm',
+          left: options?.margin?.left ?? '0mm',
+          right: options?.margin?.right ?? '0mm',
+        },
       });
       return Buffer.from(pdf);
     } finally {

@@ -11,6 +11,7 @@ import {
 import { CheckupLicense } from './checkup-license.entity';
 import { CheckupStudio } from '../studios/checkup-studio.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
+import { QuestionModel } from '../entities/question-model.entity';
 
 @Entity('checkup_sublicenses')
 export class CheckupSublicense {
@@ -20,8 +21,8 @@ export class CheckupSublicense {
   @Column({ type: 'uuid' })
   licenseId: string;
 
-  @Column({ type: 'uuid', nullable: true })
-  modelId: string | null;
+  @Column({ type: 'uuid' })
+  modelId: string;
 
   @Column({ type: 'uuid', nullable: true })
   clienteStudioId: string | null;
@@ -68,4 +69,8 @@ export class CheckupSublicense {
   @ManyToOne(() => CheckupClient, (client) => client.sublicenses, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'clientId' })
   client: CheckupClient | null;
+
+  @ManyToOne(() => QuestionModel, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'modelId' })
+  model: QuestionModel;
 }

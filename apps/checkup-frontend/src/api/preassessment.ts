@@ -114,8 +114,8 @@ export const preassessmentApi = {
     api.get<PreassessmentTyping>(`/checkup/preassessment/${preassessmentId}/sections/${sectionId}/typing`),
   setTyping: (preassessmentId: string, sectionId: string, active: boolean) =>
     api.post(`/checkup/preassessment/${preassessmentId}/sections/${sectionId}/typing`, { active }),
-  createPdfJob: (html: string) =>
-    api.post<PreassessmentExportJob>('/checkup/preassessment/pdf/jobs', { html }, { timeoutMs: 120_000 }),
+  createPdfJob: (payload: GeneratePreassessmentPdfPayload) =>
+    api.post<PreassessmentExportJob>('/checkup/preassessment/pdf/jobs', payload, { timeoutMs: 120_000 }),
   getExportJob: (jobId: string) =>
     api.get<PreassessmentExportJob>(`/checkup/preassessment/export-jobs/${jobId}`),
   downloadExportJob: (jobId: string) =>
@@ -132,6 +132,12 @@ export interface PreassessmentExportJob {
   errorMessage?: string | null;
   createdAt: string;
   completedAt?: string | null;
+}
+
+export interface GeneratePreassessmentPdfPayload {
+  preassessmentId: string;
+  excludeNA?: boolean;
+  includeConsultantNotes?: boolean;
 }
 
 export interface PreassessmentChatMessage {

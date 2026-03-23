@@ -59,21 +59,16 @@ export class CheckupAuthService {
     const clientLicense = clientSublicense?.license || null;
     const licenziatarioNome = clientLicense?.studio?.ragioneSociale ?? clientLicense?.studio?.nome ?? null;
     type LicensePayload = NonNullable<NonNullable<CheckupUser['studio']>['license']>;
-    const mapLicense = (license: LicensePayload) => ({
+    const mapLicense = (license: LicensePayload, model?: { id: string; code: string; label: string } | null) => ({
       id: license.id,
       studioId: license.studioId,
       intestatario: license.intestatario,
       tipo: license.tipo,
       numeroUtenze: license.numeroUtenze,
       numeroSottolicenze: license.numeroSottolicenze,
-      modelIds: license.modelIds && license.modelIds.length ? license.modelIds : (license.model ? [license.model.id] : []),
-      model: license.model
-        ? {
-            id: license.model.id,
-            code: license.model.code,
-            label: license.model.label,
-          }
-        : null,
+      modelIds: model ? [model.id] : [],
+      modelId: model?.id ?? null,
+      model: model ?? null,
     });
     return {
       id: user.id,
@@ -111,9 +106,21 @@ export class CheckupAuthService {
           }
         : null,
       license: user.studio?.license
-        ? mapLicense(user.studio.license)
+        ? mapLicense(user.studio.license, clientSublicense?.model
+          ? {
+              id: clientSublicense.model.id,
+              code: clientSublicense.model.code,
+              label: clientSublicense.model.label,
+            }
+          : null)
         : clientLicense
-          ? mapLicense(clientLicense)
+          ? mapLicense(clientLicense, clientSublicense?.model
+            ? {
+                id: clientSublicense.model.id,
+                code: clientSublicense.model.code,
+                label: clientSublicense.model.label,
+              }
+            : null)
           : null,
     };
   }
@@ -124,11 +131,10 @@ export class CheckupAuthService {
       .addSelect('u.password')
       .leftJoinAndSelect('u.studio', 'studio')
       .leftJoinAndSelect('studio.license', 'license')
-      .leftJoinAndSelect('license.model', 'licenseModel')
       .leftJoinAndSelect('u.client', 'client')
       .leftJoinAndSelect('client.sublicenses', 'clientSublicense')
+      .leftJoinAndSelect('clientSublicense.model', 'clientSublicenseModel')
       .leftJoinAndSelect('clientSublicense.license', 'clientLicense')
-      .leftJoinAndSelect('clientLicense.model', 'clientLicenseModel')
       .leftJoinAndSelect('clientLicense.studio', 'licenziatarioStudio')
       .andWhere('u.attivo = :attivo', { attivo: true });
 

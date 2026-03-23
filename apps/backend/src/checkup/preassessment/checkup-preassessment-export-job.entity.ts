@@ -12,6 +12,8 @@ export type CheckupExportJobStatus = 'queued' | 'processing' | 'completed' | 'fa
 
 interface CheckupExportJobPayload {
   html?: string;
+  excludeNA?: boolean;
+  includeConsultantNotes?: boolean;
 }
 
 @Entity('checkup_export_jobs')

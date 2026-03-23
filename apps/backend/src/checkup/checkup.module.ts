@@ -76,6 +76,7 @@ import { CheckupPreassessmentValidationService } from './preassessment/checkup-p
 import { CheckupPreassessmentExportJobsService } from './preassessment/checkup-preassessment-export-jobs.service';
 import { CheckupPreassessmentExcelExportService } from './preassessment/checkup-preassessment-excel-export.service';
 import { CheckupPreassessmentExcelImportService } from './preassessment/checkup-preassessment-excel-import.service';
+import { CheckupPreassessmentPdfTemplateService } from './preassessment/checkup-preassessment-pdf-template.service';
 import { CheckupStudiosService } from './studios/checkup-studios.service';
 import { CheckupStudiosController } from './studios/checkup-studios.controller';
 import { CheckupClient } from './clients/checkup-client.entity';
@@ -211,6 +212,7 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
     CheckupPreassessmentPresenceService,
     CheckupPreassessmentValidationService,
     CheckupPreassessmentExportJobsService,
+    CheckupPreassessmentPdfTemplateService,
     CheckupPreassessmentExcelExportService,
     CheckupPreassessmentExcelImportService,
     CheckupStudiosService,

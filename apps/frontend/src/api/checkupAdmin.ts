@@ -44,8 +44,6 @@ export interface CheckupAdminUser {
 export interface CheckupLicense {
   id: string;
   studioId: string | null;
-  modelId?: string;
-  modelIds?: string[] | null;
   intestatario: string;
   tipo: string;
   numeroUtenze: number;
@@ -53,12 +51,9 @@ export interface CheckupLicense {
   numeroLicenza?: string | null;
   dataInizioValidita?: string | null;
   dataScadenza?: string | null;
-  model?: {
-    id: string;
-    code: string;
-    label: string;
-  } | null;
   studio?: CheckupStudio | null;
+  modelId?: string | null;
+  model?: { id: string; code: string; label: string } | null;
   sublicenses?: CheckupSublicense[];
   activeSublicensesCount?: number;
   inactiveSublicensesCount?: number;
@@ -70,7 +65,7 @@ export interface CheckupLicense {
 export interface CheckupSublicense {
   id: string;
   licenseId: string;
-  modelId?: string | null;
+  modelId: string;
   clienteStudioId?: string | null;
   clientId?: string | null;
   numeroSublicenza?: string | null;
@@ -191,8 +186,6 @@ export interface UpdateCheckupAdminUserDto {
 export interface UpsertCheckupLicenseDto {
   id?: string;
   studioId?: string;
-  modelId?: string;
-  modelIds?: string[];
   tipo: string;
   numeroUtenze: number;
   dataInizioValidita: string;
@@ -202,7 +195,7 @@ export interface UpsertCheckupLicenseDto {
 export interface UpsertCheckupSublicenseDto {
   id?: string;
   licenseId: string;
-  modelId?: string;
+  modelId: string;
   tipo: string;
   numeroUtenze: number;
   dataInizioValidita: string;

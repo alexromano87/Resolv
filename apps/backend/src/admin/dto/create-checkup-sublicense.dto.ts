@@ -8,13 +8,12 @@ export class CreateCheckupSublicenseDto {
   @IsString()
   licenseId: string;
 
+  @IsUUID('all')
+  modelId: string;
+
   @IsOptional()
   @IsString()
   tipo?: string;
-
-  @IsOptional()
-  @IsUUID('all')
-  modelId?: string;
 
   @IsInt()
   @Min(1)
