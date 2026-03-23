@@ -1102,7 +1102,7 @@ export class CheckupAdminController {
   @Get('licenses')
   async listLicenses(): Promise<CheckupLicense[]> {
     const licenses = await this.licenseRepository.find({
-      relations: ['studio', 'model', 'sublicenses', 'sublicenses.clienteStudio', 'sublicenses.client'],
+      relations: ['studio', 'sublicenses', 'sublicenses.model', 'sublicenses.clienteStudio', 'sublicenses.client'],
       order: { updatedAt: 'DESC' },
     });
     return licenses.map((license) => {
