@@ -232,7 +232,8 @@ export function buildPreassessmentCsv({
       const isNA = !!naFields[field.id];
       const rawValue = isNA ? 'N/A' : (data[field.id] || '');
       const value = rawValue.includes('||') ? rawValue.split('||').join(', ') : rawValue;
-      let row = `"${macroLabel}";"${section.title}";"${field.label}";"${field.required ? 'Sì' : 'No'}";"${value.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+      const cleanLabel = field.label.replace(/\s*\*+\s*$/g, '');
+      let row = `"${macroLabel}";"${section.title}";"${cleanLabel}";"Sì";"${value.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
       row += `;"${(isNA ? '' : (userFieldNotes[field.id] || '')).replace(/"/g, '""')}"`;
       if (includeConsultantNotes) {
         row += `;"${(isNA ? '' : (fieldNotes[field.id] || '')).replace(/"/g, '""')}"`;

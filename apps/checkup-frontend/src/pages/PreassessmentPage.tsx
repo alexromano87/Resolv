@@ -58,6 +58,38 @@ import {
 import { FormField } from '../features/preassessment/FormField';
 
 const CHAT_SECTION_ID = 'general';
+const getModelDisplayName = (user?: { license?: { model?: { code?: string | null; label?: string | null } | null } | null } | null) => {
+  const code = user?.license?.model?.code?.trim();
+  const label = user?.license?.model?.label?.trim();
+  if (code && code.toLowerCase() !== 'preassessment') return code.toUpperCase();
+  if (label) return label;
+  return 'Pre-Assessment';
+};
+
+const getMacroReference = (macroId: string) => {
+  const parts = (macroId || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const lastAlpha = [...parts].reverse().find((part) => /^[a-z]+$/.test(part));
+  return (lastAlpha || macroId || 's').slice(-1).toUpperCase();
+};
+
+const stripMacroPrefix = (label: string) =>
+  (label || '').replace(/^(?:[A-Z0-9]+[_-])?[A-Z]\s*[-–—:]\s*/i, '').trim() || label;
+
+const formatMacroHeading = (macroId: string, label: string) => `${getMacroReference(macroId)} - ${stripMacroPrefix(label)}`;
+
+const stripSectionPrefix = (title: string) =>
+  (title || '').replace(/^(?:[A-Z0-9]+[_-])?[A-Z](?:[._]\d+)+\s*[-–—:]?\s*/i, '').trim() || title;
+
+const getSectionReference = (sectionId: string, macroId: string, fallbackIndex: number) => {
+  const normalized = (sectionId || '').replace(/-/g, '_');
+  const match = normalized.match(/(?:^|_)([a-z])_(\d+(?:_\d+)*)$/i);
+  if (match) return `${match[1].toUpperCase()}.${match[2].replace(/_/g, '.')}`;
+  return `${getMacroReference(macroId)}.${fallbackIndex + 1}`;
+};
+
+const formatSectionHeading = (section: SectionSpec, fallbackIndex: number) =>
+  `${getSectionReference(section.id, section.macro, fallbackIndex)} - ${stripSectionPrefix(section.title)}`;
+
 const getInitials = (name: string) => {
   return name
     .split(' ')
@@ -74,6 +106,7 @@ export default function PreassessmentPage() {
   const { setNavState, collapsed, setCollapsed, search, setSearch, registerSectionClick, unregisterSectionClick } = usePreassessmentNav();
   const isClient = user?.ruolo === 'cliente';
   const isStaff = !!user && user.ruolo !== 'cliente';
+  const modelDisplayName = useMemo(() => getModelDisplayName(user), [user]);
   const canChat = user?.ruolo === 'cliente'
     || user?.ruolo === 'collaboratore'
     || user?.ruolo === 'admin_studio'
@@ -275,8 +308,8 @@ export default function PreassessmentPage() {
     const sectionStats: Record<string, { done: number; total: number; na: number }> = {};
     sections.forEach((s) => {
       sectionStats[s.id] = {
-        done: s.fields.filter((f) => f.required && !naFields[f.id] && data[f.id]?.trim()).length,
-        total: s.fields.filter((f) => f.required && !naFields[f.id]).length,
+        done: s.fields.filter((f) => !!naFields[f.id] || !!data[f.id]?.trim()).length,
+        total: s.fields.length,
         na: s.fields.filter((f) => naFields[f.id]).length,
       };
     });
@@ -931,27 +964,24 @@ export default function PreassessmentPage() {
   );
 
   // Count-based metrics (for display "N/M" labels)
-  const totalReq = useMemo(
-    () => countedSections.reduce((a, s) => a + s.fields.filter((f) => f.required).length, 0),
-    [countedSections],
-  );
-  const totalFilled = useMemo(
-    () => countedSections.reduce((a, s) => a + s.fields.filter((f) => f.required && isFieldResolved(f)).length, 0),
-    [countedSections, isFieldResolved],
-  );
   const totalFields = useMemo(
     () => countedSections.reduce((a, s) => a + s.fields.length, 0),
     [countedSections],
   );
+  const totalReq = totalFields;
+  const totalFilled = useMemo(
+    () => countedSections.reduce((a, s) => a + s.fields.filter((f) => isFieldResolved(f)).length, 0),
+    [countedSections, isFieldResolved],
+  );
   const totalNA = useMemo(
-    () => countedSections.reduce((a, s) => a + s.fields.filter((f) => f.required && naFields[f.id]).length, 0),
+    () => countedSections.reduce((a, s) => a + s.fields.filter((f) => naFields[f.id]).length, 0),
     [countedSections, naFields],
   );
   const pct = totalReq > 0 ? Math.min(100, Math.round((totalFilled / totalReq) * 100)) : 0;
 
-  const sDone = (s: SectionSpec) => s.fields.filter((f) => f.required && isFieldResolved(f)).length;
-  const sTotal = (s: SectionSpec) => s.fields.filter((f) => f.required).length;
-  const sNA = (s: SectionSpec) => s.fields.filter((f) => f.required && naFields[f.id]).length;
+  const sDone = (s: SectionSpec) => s.fields.filter((f) => isFieldResolved(f)).length;
+  const sTotal = (s: SectionSpec) => s.fields.length;
+  const sNA = (s: SectionSpec) => s.fields.filter((f) => naFields[f.id]).length;
 
   const fieldMatchesFilter = (f: FieldSpec) => {
     if (dashFilter === 'all') return true;
@@ -1565,7 +1595,7 @@ export default function PreassessmentPage() {
             { label: 'Macro Aree', value: countedMacroAreas.length, detail: 'aree tematiche' },
             { label: 'Sezioni', value: countedSections.length, detail: `${completedSections} completate` },
             { label: 'Sezioni validate', value: validatedSectionsTotal, detail: `su ${totalSectionsToValidate}` },
-            { label: 'Campi', value: totalFields, detail: `${totalReq} obbligatori` },
+            { label: 'Domande', value: totalFields, detail: 'tutte da compilare' },
             { label: 'Compilati', value: totalFilled, detail: `su ${totalReq}` },
             { label: 'N/A', value: totalNA, detail: 'campi esclusi' },
           ].map((item) => (
@@ -1594,7 +1624,7 @@ export default function PreassessmentPage() {
                   <th className="px-3 py-2">Owner</th>
                   <th className="px-3 py-2">Sezioni</th>
                   <th className="px-3 py-2">Sezioni validate</th>
-                  <th className="px-3 py-2">Obb.</th>
+                  <th className="px-3 py-2">Domande</th>
                   <th className="px-3 py-2">Compilati</th>
                   <th className="px-3 py-2">N/A</th>
                   <th className="px-3 py-2">Stato</th>
@@ -1618,7 +1648,7 @@ export default function PreassessmentPage() {
                         {expandedMacros.has(row.id)
                           ? <ChevronDown size={13} className="text-slate-400 flex-shrink-0" />
                           : <ChevronRight size={13} className="text-slate-400 flex-shrink-0" />}
-                        <span style={{ color: row.color }} className="font-semibold">{`${row.id.toUpperCase()} - ${row.label}`}</span>
+                        <span style={{ color: row.color }} className="font-semibold">{formatMacroHeading(row.id, row.label)}</span>
                       </span>
                     </td>
                     <td className="px-3 py-3">
@@ -1732,7 +1762,7 @@ export default function PreassessmentPage() {
                               <thead className="bg-slate-100">
                                 <tr className="text-left text-[10px] uppercase tracking-wider text-slate-400">
                                   <th className="px-3 py-2">Sezione</th>
-                                  <th className="px-3 py-2">Obb.</th>
+                                  <th className="px-3 py-2">Domande</th>
                                   <th className="px-3 py-2">Compilati</th>
                                   <th className="px-3 py-2">N/A</th>
                                   <th className="px-3 py-2">Stato</th>
@@ -1759,7 +1789,7 @@ export default function PreassessmentPage() {
                                         setPanel(null);
                                       }}
                                     >
-                                      <td className="px-3 py-2 font-medium text-slate-700">{s.title}</td>
+                                      <td className="px-3 py-2 font-medium text-slate-700">{formatSectionHeading(s, rowSects.findIndex((section) => section.id === s.id))}</td>
                                       <td className="px-3 py-2 text-slate-500">{total}</td>
                                       <td className="px-3 py-2 text-slate-500">{done}</td>
                                       <td className="px-3 py-2">
@@ -1831,6 +1861,9 @@ export default function PreassessmentPage() {
     const ownerInfo = getOwnerInfo(data, activeSection.macro);
     const isSectionValidated = !!sectionValidation;
     const isOwnerSection = activeSection.fields.some((f) => /^owner_[a-j]_/.test(f.id));
+    const unresolvedFields = activeSection.fields.filter((field) => !isFieldResolved(field));
+    const missingAnswersCount = unresolvedFields.length;
+    const canValidateSection = sTotal(activeSection) > 0 && missingAnswersCount === 0;
     return (
       <div className="space-y-4">
         {!isClient && readOnly && (
@@ -1896,7 +1929,7 @@ export default function PreassessmentPage() {
                         key={m.id}
                         className={`rounded-lg border px-3 py-2 text-xs ${val ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}
                       >
-                        <div className="font-semibold text-slate-700 truncate">{m.label}</div>
+                        <div className="font-semibold text-slate-700 truncate">{formatMacroHeading(m.id, m.label)}</div>
                         {val ? (
                           <div className="mt-0.5 text-emerald-600 font-medium truncate">✓ {val.by.name}</div>
                         ) : (
@@ -1911,6 +1944,29 @@ export default function PreassessmentPage() {
             {visibleFields.length === 0 && (
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
                 Nessun campo corrispondente al filtro selezionato.
+              </div>
+            )}
+            {isClient && isOwnerForMacro(activeSection.macro) && !isSectionValidated && missingAnswersCount > 0 && (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                <div className="font-semibold">Sezione non validabile</div>
+                <div className="mt-1">
+                  Mancano {missingAnswersCount} risposte. Compila tutte le domande oppure marca N/A.
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {unresolvedFields.slice(0, 6).map((field) => (
+                    <span
+                      key={field.id}
+                      className="rounded-full border border-rose-200 bg-white px-2 py-1 text-[10px] font-semibold text-rose-600"
+                    >
+                      {field.label.replace(/\s*\*+\s*$/g, '')}
+                    </span>
+                  ))}
+                  {unresolvedFields.length > 6 && (
+                    <span className="rounded-full border border-rose-200 bg-white px-2 py-1 text-[10px] font-semibold text-rose-600">
+                      +{unresolvedFields.length - 6} altre
+                    </span>
+                  )}
+                </div>
               </div>
             )}
             {visibleFields.map((f) => (
@@ -1987,14 +2043,14 @@ export default function PreassessmentPage() {
               ) : (
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="text-xs text-slate-500">
-                    {sDone(activeSection) === sTotal(activeSection) && sTotal(activeSection) > 0
+                    {canValidateSection
                       ? 'Sezione completa. Puoi validare la compilazione.'
-                      : 'Completa tutti i campi obbligatori per validare la sezione.'}
+                      : 'Completa tutte le domande oppure marca N/A per validare la sezione.'}
                   </div>
                   <button
                     type="button"
                     onClick={() => handleValidateSection(activeSection.id)}
-                    disabled={sTotal(activeSection) === 0 || sDone(activeSection) < sTotal(activeSection)}
+                    disabled={!canValidateSection}
                     className="wow-button disabled:opacity-50"
                   >
                     Valida la compilazione
@@ -2036,10 +2092,10 @@ export default function PreassessmentPage() {
   };
 
   const breadcrumbs = [
-    { label: 'Pre-Assessment', onClick: () => { setView('dashboard'); setPanel(null); } },
+    { label: modelDisplayName, onClick: () => { setView('dashboard'); setPanel(null); } },
     panel ? { label: panel === 'chat' ? 'Chat' : panel === 'tickets' ? 'Ticket' : 'Alert' } : null,
-    !panel && activeSection ? { label: activeMacro?.label || '' } : null,
-    !panel && activeSection ? { label: activeSection.title } : null,
+    !panel && activeSection ? { label: activeMacro ? formatMacroHeading(activeMacro.id, activeMacro.label) : '' } : null,
+    !panel && activeSection ? { label: formatSectionHeading(activeSection, sections.filter((s) => s.macro === activeSection.macro).findIndex((s) => s.id === activeSection.id)) } : null,
     !panel && !activeSection ? { label: 'Dashboard' } : null,
   ].filter(Boolean) as { label: string; onClick?: () => void }[];
 
@@ -2060,7 +2116,7 @@ export default function PreassessmentPage() {
         <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
             <div>
-              <h1 className="display-font text-3xl font-semibold text-slate-900">Pre-Assessment</h1>
+              <h1 className="display-font text-3xl font-semibold text-slate-900">{modelDisplayName}</h1>
               <p className="text-sm text-slate-600">
                 Questionario strutturato per la profilazione governance, compliance, risk e documentazione.
               </p>
@@ -2309,7 +2365,7 @@ function PreassessmentSidebar({
                   }
                   className="flex w-full items-center justify-between px-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400"
                 >
-                  {`${g.id.toUpperCase()} - ${g.label}`}
+                  {formatMacroHeading(g.id, g.label)}
                   <ChevronDown className={`h-3 w-3 text-slate-500 transition ${collapsed[g.id] ? '-rotate-90' : ''}`} />
                 </button>
                 {!collapsed[g.id] && g.sections.map((s, sIdx) => {
@@ -2319,7 +2375,7 @@ function PreassessmentSidebar({
                   const total = sTotal(s);
                   const na = sNA(s);
                   const isValidated = !!validations[s.macro];
-                  const sectionNum = `${g.id.toUpperCase()}.${sIdx + 1}`;
+                  const sectionNum = getSectionReference(s.id, g.id, sIdx);
                   return (
                     <button
                       key={s.id}
@@ -2341,7 +2397,7 @@ function PreassessmentSidebar({
                       <span className="flex-1 min-w-0 text-left truncate">
                         <span className="font-semibold opacity-70">{sectionNum}</span>
                         <span className="mx-1 opacity-50">—</span>
-                        {s.title.replace(/^[A-Za-z]\.\d+\s*/, '')}
+                        {stripSectionPrefix(s.title)}
                       </span>
                       <span className={`flex flex-shrink-0 items-center gap-2 text-[10px] font-semibold ${total > 0 && done === total ? 'text-emerald-300' : done > 0 ? 'text-blue-200' : 'text-slate-500'}`}>
                         {isValidated && <span className="h-2 w-2 rounded-full bg-emerald-400" />}

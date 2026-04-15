@@ -370,17 +370,17 @@ describe('CheckupPreassessmentValidationService', () => {
       expect(map.has('sec_b')).toBe(true);
     });
 
-    it('mappa correttamente macroId e requiredFields', async () => {
+    it('mappa correttamente macroId e campi da completare', async () => {
       const map = await service.getSectionMetaByModel('model-1');
-      expect(map.get('sec_a')).toMatchObject({ macroId: 'a', requiredFields: ['field_a'] });
+      expect(map.get('sec_a')).toMatchObject({ macroId: 'a', requiredFields: ['field_a', 'field_a2'] });
       expect(map.get('sec_b')).toMatchObject({ macroId: 'b', requiredFields: ['field_b'] });
     });
 
-    it('esclude i campi non required da requiredFields', async () => {
+    it('include anche i campi non required nei campi da completare', async () => {
       const map = await service.getSectionMetaByModel('model-1');
       const secA = map.get('sec_a')!;
-      expect(secA.requiredFields).not.toContain('field_a2');
-      expect(secA.requiredFields).toHaveLength(1);
+      expect(secA.requiredFields).toContain('field_a2');
+      expect(secA.requiredFields).toHaveLength(2);
     });
 
     it('chiama getCompleteStructure con il modelId corretto', async () => {
@@ -406,7 +406,7 @@ describe('CheckupPreassessmentValidationService', () => {
 
     it('popola sectionMeta con le stesse info di getSectionMetaByModel', async () => {
       const { sectionMeta } = await service.getStructureMetaByModel('model-1');
-      expect(sectionMeta.get('sec_a')).toMatchObject({ macroId: 'a', requiredFields: ['field_a'] });
+      expect(sectionMeta.get('sec_a')).toMatchObject({ macroId: 'a', requiredFields: ['field_a', 'field_a2'] });
     });
 
     it('chiama getCompleteStructure una sola volta', async () => {

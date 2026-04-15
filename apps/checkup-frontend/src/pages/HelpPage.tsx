@@ -45,13 +45,12 @@ export default function HelpPage() {
           <section className="wow-panel p-6 space-y-4">
             <SectionTitle icon={FileText} title="2. Compilazione delle sezioni" />
             <p className="text-sm text-slate-600">
-              Ogni sezione contiene campi obbligatori e opzionali. I campi obbligatori sono contrassegnati
-              con asterisco.
+              Ogni domanda del questionario deve ricevere una risposta. Se non è applicabile, seleziona N/A.
             </p>
             <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
               <li>Salva frequentemente: lo stato di avanzamento viene aggiornato in tempo reale.</li>
               <li>Usa i filtri (Tutti, Completati, Da completare, N/A) per gestire il lavoro.</li>
-              <li>Se un campo non è applicabile, utilizza l’opzione N/A se disponibile.</li>
+              <li>Se una domanda non è applicabile, utilizza l’opzione N/A.</li>
               <li>Concludi il checkup solo quando tutte le informazioni richieste sono complete.</li>
             </ul>
           </section>
@@ -87,7 +86,7 @@ export default function HelpPage() {
           <section className="wow-panel p-6 space-y-4">
             <SectionTitle icon={ListChecks} title="Checklist prima della consegna" />
             <ol className="list-decimal pl-5 text-sm text-slate-700 space-y-2">
-              <li>Tutti i campi obbligatori sono compilati.</li>
+              <li>Tutte le domande sono compilate oppure marcate N/A.</li>
               <li>Gli allegati richiesti sono presenti.</li>
               <li>Le note sono state controllate per errori.</li>
               <li>Il riepilogo del completamento è superiore al 95%.</li>
@@ -115,7 +114,7 @@ export default function HelpPage() {
               La valutazione del checkup avviene dopo la conclusione da parte del cliente.
             </p>
             <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
-              <li>Controlla i campi obbligatori prima della chiusura del questionario.</li>
+              <li>Controlla che ogni domanda sia compilata oppure marcata N/A prima della chiusura del questionario.</li>
               <li>Usa le note consulente per guidare il cliente.</li>
               <li>Non procedere alla valutazione se mancano allegati richiesti.</li>
             </ul>
@@ -161,7 +160,7 @@ export default function HelpPage() {
             <SectionTitle icon={AlertTriangle} title="Troubleshooting rapido" />
             <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
               <li>Se il salvataggio fallisce, controlla la connessione e riprova.</li>
-              <li>Se una sezione non è valida, verifica campi obbligatori e allegati.</li>
+              <li>Se una sezione non è valida, verifica domande mancanti e allegati.</li>
               <li>Se i dati sembrano incoerenti, ricarica il checkup.</li>
             </ul>
           </section>

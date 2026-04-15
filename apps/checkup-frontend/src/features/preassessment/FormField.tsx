@@ -115,19 +115,16 @@ export const FormField = memo(function FormField({
     ? normalizedValue.split('||').filter(Boolean).length > 0
     : normalizedValue.length > 0);
   const shouldHighlightField = highlightCompletionState && !readOnly && !ownerProtected && !isEditingOther;
+  const cleanLabel = field.label.replace(/\s*\*+\s*$/g, '');
   const completionBorderClass = shouldHighlightField
     ? hasResolvedValue
       ? 'border-emerald-300 focus:ring-emerald-500'
-      : field.required
-        ? 'border-rose-300 focus:ring-rose-500'
-        : 'border-slate-200 focus:ring-blue-500'
+      : 'border-rose-300 focus:ring-rose-500'
     : 'border-slate-200 focus:ring-blue-500';
   const multiSelectContainerClass = shouldHighlightField
     ? hasResolvedValue
       ? 'border-emerald-300 bg-emerald-50/30'
-      : field.required
-        ? 'border-rose-300 bg-rose-50/30'
-        : 'border-slate-200 bg-slate-50'
+      : 'border-rose-300 bg-rose-50/30'
     : 'border-slate-200 bg-slate-50';
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -179,8 +176,7 @@ export const FormField = memo(function FormField({
       <div className="space-y-1">
         <div className="flex items-start justify-between gap-3">
           <label className={`text-sm font-medium ${naChecked ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
-            {field.label}
-            {field.required && !naChecked && <span className="ml-1 text-rose-500">*</span>}
+            {cleanLabel}
           </label>
           <div className="flex items-center gap-2">
             {isEditingOther && (
@@ -301,9 +297,7 @@ export const FormField = memo(function FormField({
             shouldHighlightField
               ? hasResolvedValue
                 ? 'success'
-                : field.required
-                  ? 'error'
-                  : 'default'
+                : 'error'
               : 'default'
           }
           disabled={disabled}

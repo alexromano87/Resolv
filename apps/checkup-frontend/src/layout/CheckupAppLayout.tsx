@@ -11,6 +11,33 @@ import { preassessmentApi, threadsUnreadApi, preassessmentAlertApi, preassessmen
 import { ToastNotification, type AlertToast } from '../components/ui/ToastNotification';
 import { ActivityToastNotification, type ActivityToast } from '../components/ui/ActivityToastNotification';
 
+const getModelDisplayName = (user?: { license?: { model?: { code?: string | null; label?: string | null } | null } | null } | null) => {
+  const code = user?.license?.model?.code?.trim();
+  const label = user?.license?.model?.label?.trim();
+  if (code && code.toLowerCase() !== 'preassessment') return code.toUpperCase();
+  if (label) return label;
+  return 'Pre-Assessment';
+};
+
+const getMacroReference = (macroId: string) => {
+  const parts = (macroId || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const lastAlpha = [...parts].reverse().find((part) => /^[a-z]+$/.test(part));
+  return (lastAlpha || macroId || 's').slice(-1).toUpperCase();
+};
+
+const stripMacroPrefix = (label: string) =>
+  (label || '').replace(/^(?:[A-Z0-9]+[_-])?[A-Z]\s*[-–—:]\s*/i, '').trim() || label;
+
+const stripSectionPrefix = (title: string) =>
+  (title || '').replace(/^(?:[A-Z0-9]+[_-])?[A-Z](?:[._]\d+)+\s*[-–—:]?\s*/i, '').trim() || title;
+
+const getSectionReference = (sectionId: string, macroId: string, fallbackIndex: number) => {
+  const normalized = (sectionId || '').replace(/-/g, '_');
+  const match = normalized.match(/(?:^|_)([a-z])_(\d+(?:_\d+)*)$/i);
+  if (match) return `${match[1].toUpperCase()}.${match[2].replace(/_/g, '.')}`;
+  return `${getMacroReference(macroId)}.${fallbackIndex + 1}`;
+};
+
 // ── Web Audio beep ────────────────────────────────────────────────────────────
 function playAlertSound() {
   try {
@@ -66,6 +93,7 @@ function formatNotificationDate(value: string) {
 
 export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   const { user, logout } = useAuth();
+  const modelDisplayName = useMemo(() => getModelDisplayName(user), [user]);
   const location = useLocation();
   const navigate = useNavigate();
   const { navState, setNavState, collapsed, setCollapsed, search, setSearch, onSectionClick } = usePreassessmentNav();
@@ -135,10 +163,10 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     if (location.pathname.startsWith('/checkup/clienti')) {
       if (location.pathname.endsWith('/tickets')) return 'Ticket';
       if (location.pathname.endsWith('/alerts')) return 'Alert';
-      return 'Pre-Assessment';
+      return modelDisplayName;
     }
-    return 'Pre-Assessment';
-  }, [location.pathname, user?.ruolo]);
+    return modelDisplayName;
+  }, [location.pathname, modelDisplayName, user?.ruolo]);
   const { logoUrl: studioLogoUrl, nome: studioNome } = useStudio();
   const isStaff = user ? user.ruolo !== 'cliente' : false;
   const isClientChatRoute = !isStaff && location.pathname.startsWith('/checkup/chat');
@@ -532,7 +560,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
             <div className={`overflow-hidden transition-all duration-400 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
               <img src="/logo_resolv.png" alt="RESOLV" className="h-14 w-auto" />
               <div className="mt-3 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-bold uppercase tracking-[0.24em] text-white/90 shadow-sm">
-                PRE-ASSESSMENT
+                {modelDisplayName}
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -954,7 +982,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                               }
                               className="flex w-full items-center justify-between px-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400"
                             >
-                              {`${g.id.toUpperCase()} - ${g.label}`}
+                              {`${getMacroReference(g.id)} - ${stripMacroPrefix(g.label)}`}
                               <ChevronDown className={`h-3 w-3 text-slate-500 transition ${collapsed[g.id] ? '-rotate-90' : ''}`} />
                             </button>
                             {!collapsed[g.id] && visibleSections.map((s) => {
@@ -965,7 +993,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                               const total = stat?.total ?? 0;
                               const na = stat?.na ?? 0;
                               const isValidated = !!navState.macroValidations[s.macro];
-                              const sectionNum = `${g.id.toUpperCase()}.${sIdx + 1}`;
+                              const sectionNum = getSectionReference(s.id, g.id, sIdx);
                               return (
                                 <button
                                   key={s.id}
@@ -979,7 +1007,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                                   <span className="flex-1 min-w-0 text-left truncate">
                                     <span className="font-semibold opacity-70">{sectionNum}</span>
                                     <span className="mx-1 opacity-50">—</span>
-                                    {s.title.replace(/^[A-Za-z]\.\d+\s*/, '')}
+                                    {stripSectionPrefix(s.title)}
                                   </span>
                                   <span className={`flex flex-shrink-0 items-center gap-2 text-[10px] font-semibold ${total > 0 && done === total ? 'text-emerald-300' : done > 0 ? 'text-blue-200' : 'text-slate-500'}`}>
                                     {isValidated && <span className="h-2 w-2 rounded-full bg-emerald-400" />}

@@ -14,6 +14,7 @@ import { CheckupPreassessmentRenderService } from './checkup-preassessment-rende
 import { CheckupPreassessmentService } from './checkup-preassessment.service';
 import { CheckupPdfConfigService } from '../pdf-config/checkup-pdf-config.service';
 import { QuestionField } from '../entities/question-field.entity';
+import { QuestionModel } from '../entities/question-model.entity';
 import { QuestionManagementService } from '../services/question-management.service';
 import { CheckupPreassessmentValidationService } from './checkup-preassessment-validation.service';
 import { CheckupStudio } from '../studios/checkup-studio.entity';
@@ -62,6 +63,7 @@ type ReportPayload = {
   naFields: Record<string, boolean>;
   clientName: string;
   consultantName: string;
+  modelDisplayName: string;
   logoUrl: string;
   superOwnerName: string;
   nowDate: Date;
@@ -96,6 +98,8 @@ export class CheckupPreassessmentPdfTemplateService {
     private readonly studioRepository: Repository<CheckupStudio>,
     @InjectRepository(CheckupUser)
     private readonly userRepository: Repository<CheckupUser>,
+    @InjectRepository(QuestionModel)
+    private readonly modelRepository: Repository<QuestionModel>,
   ) {}
 
   async createPdfBuffer(
@@ -260,7 +264,7 @@ export class CheckupPreassessmentPdfTemplateService {
           const isNA = !!naFields[field.id];
           const rawValue = isNA ? 'N/A' : sanitize(data[field.id]);
           const value = rawValue.includes('||') ? rawValue.split('||').join(', ') : rawValue;
-          const safeLabel = pdfConfig.showAsterisks ? field.label : field.label.replace(/\s*\*+\s*$/g, '');
+          const safeLabel = field.label.replace(/\s*\*+\s*$/g, '');
           const userNote = pdfConfig.showUserNotes && !isNA ? sanitize(userFieldNotes[field.id]) : '';
           const consultantNote = includeConsultantNotes && pdfConfig.showConsultantNotes && !isNA ? sanitize(fieldNotes[field.id]) : '';
           const sectionDocs = pdfConfig.showDocuments ? docsByField[field.id] || [] : [];
@@ -467,7 +471,7 @@ export class CheckupPreassessmentPdfTemplateService {
             <div class="summary" style="margin: 0;">
               <div class="summary-grid">
                 <div class="summary-item"><div class="label">Sezioni</div><div class="value">${reportMacros.flatMap((macro) => macro.sections).length}</div></div>
-                <div class="summary-item"><div class="label">Campi obbligatori</div><div class="value">${totalReq}</div></div>
+                <div class="summary-item"><div class="label">Domande da compilare</div><div class="value">${totalReq}</div></div>
                 <div class="summary-item"><div class="label">Compilati</div><div class="value">${totalFilled}/${totalReq} (${pct}%)</div></div>
               </div>
             </div>
@@ -490,11 +494,14 @@ export class CheckupPreassessmentPdfTemplateService {
     if (!modelId) {
       throw new NotFoundException('Modello non associato alla sublicenza');
     }
+    const model = await this.modelRepository.findOne({ where: { id: modelId } });
     const studio = license?.studioId
       ? await this.studioRepository.findOne({ where: { id: license.studioId } })
       : null;
     return {
       modelId,
+      modelCode: model?.code || '',
+      modelLabel: model?.label || '',
       studioName: studio?.ragioneSociale || studio?.nome || '',
       studioLogoUrl: studio?.logoUrl || '',
     };
@@ -521,8 +528,35 @@ export class CheckupPreassessmentPdfTemplateService {
     return `report_${base || 'cliente'}_${dd}${mm}${yyyy}.pdf`;
   }
 
+  private getModelDisplayName(code?: string | null, label?: string | null) {
+    const normalizedCode = (code || '').trim();
+    if (normalizedCode && normalizedCode.toLowerCase() !== 'preassessment') {
+      return normalizedCode.toUpperCase();
+    }
+    const normalizedLabel = (label || '').trim();
+    return normalizedLabel || 'Pre-Assessment';
+  }
+
+  private getQuestionnaireKicker(modelDisplayName: string) {
+    return `Questionario ${modelDisplayName}`.trim();
+  }
+
+  private getMacroReference(code: string) {
+    const normalized = (code || '').replace(/[_\-\s]+/g, '_').trim();
+    const match = normalized.match(/(?:^|_)([A-Z])(?:$|_)/i);
+    if (match) return match[1].toUpperCase();
+    return (normalized || 'A').charAt(0).toUpperCase();
+  }
+
+  private stripMacroPrefix(label: string) {
+    return (label || '')
+      .replace(/^[A-Z0-9]+_[A-Z]\s*[-–—:]?\s*/i, '')
+      .replace(/^[A-Z]\s*[-–—:]\s*/i, '')
+      .trim();
+  }
+
   private formatMacroTitle(code: string, label: string) {
-    return `${code.toUpperCase()} - ${label}`;
+    return `${this.getMacroReference(code)} - ${this.stripMacroPrefix(label).toUpperCase()}`;
   }
 
   private escapeHtmlStatic(value?: string) {
@@ -575,6 +609,7 @@ export class CheckupPreassessmentPdfTemplateService {
     const naFields = preassessment.naFields || {};
     const clientName = client.ragioneSociale || client.nome || 'Società non specificata';
     const consultantName = modelInfo.studioName || 'Studio non specificato';
+    const modelDisplayName = this.getModelDisplayName(modelInfo.modelCode, modelInfo.modelLabel);
     const logoUrl = this.getResolvLogoDataUri();
     const superOwner = await this.userRepository.findOne({
       where: { clientId: client.id, attivo: true, superOwner: true },
@@ -582,16 +617,15 @@ export class CheckupPreassessmentPdfTemplateService {
     });
     const superOwnerName = superOwner ? `${superOwner.nome || ''} ${superOwner.cognome || ''}`.trim() || superOwner.email : 'Non disponibile';
 
-    const nonOwnerRequiredFields = reportMacros
+    const nonOwnerQuestionFields = reportMacros
       .filter((macro) => !this.validationService.isOwnerMacroArea(macro.id, macro.label))
       .flatMap((macro) => macro.sections)
-      .flatMap((section) => section.fields)
-      .filter((field) => field.required);
-    const visibleRequiredFields = excludeNA
-      ? nonOwnerRequiredFields.filter((field) => !naFields[field.id])
-      : nonOwnerRequiredFields;
-    const totalReq = visibleRequiredFields.length;
-    const totalFilled = visibleRequiredFields.filter((field) => {
+      .flatMap((section) => section.fields);
+    const visibleQuestionFields = excludeNA
+      ? nonOwnerQuestionFields.filter((field) => !naFields[field.id])
+      : nonOwnerQuestionFields;
+    const totalReq = visibleQuestionFields.length;
+    const totalFilled = visibleQuestionFields.filter((field) => {
       const value = (data[field.id] || '').trim();
       return !!value || !!naFields[field.id];
     }).length;
@@ -616,6 +650,7 @@ export class CheckupPreassessmentPdfTemplateService {
       naFields,
       clientName,
       consultantName,
+      modelDisplayName,
       logoUrl,
       superOwnerName,
       nowDate,
@@ -639,21 +674,21 @@ export class CheckupPreassessmentPdfTemplateService {
       bufferPages: true,
       autoFirstPage: false,
       info: {
-        Title: `Report Pre-Assessment - ${payload.clientName}`,
+        Title: `Report ${payload.modelDisplayName} - ${payload.clientName}`,
         Author: payload.consultantName,
-        Subject: 'Report Pre-Assessment',
+        Subject: `Report ${payload.modelDisplayName}`,
       },
     });
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
 
-    const sectionsForIndex: Array<{ macroLabel: string; title: string; color: string; page: number }> = [];
+    const sectionsForIndex: Array<{ macroLabel: string; title: string; color: string; page: number; dest: string }> = [];
 
     this.drawNativeCover(doc, payload);
     this.drawNativeIntro(doc, payload);
     doc.addPage();
     const tocPageIndex = doc.bufferedPageRange().count - 1;
-    this.drawTocPlaceholder(doc);
+    this.drawTocPlaceholder(doc, payload);
 
     payload.reportMacros.forEach((macro) => {
       const visibleSections = macro.sections.filter((section) => section.fields.some((field) => !(payload.excludeNA && payload.naFields[field.id])));
@@ -661,13 +696,15 @@ export class CheckupPreassessmentPdfTemplateService {
       doc.addPage();
       this.drawMacroPageHeader(doc, payload, macro);
       visibleSections.forEach((section) => {
+        const sectionDest = `section-${macro.id}-${section.id}`;
         sectionsForIndex.push({
           macroLabel: this.formatMacroTitle(macro.id, macro.label),
           title: section.title,
           color: macro.color,
           page: doc.bufferedPageRange().start + doc.bufferedPageRange().count,
+          dest: sectionDest,
         });
-        this.drawSectionNative(doc, payload, macro, section);
+        this.drawSectionNative(doc, payload, macro, section, sectionDest);
       });
     });
 
@@ -707,7 +744,7 @@ export class CheckupPreassessmentPdfTemplateService {
     doc.rect(0, 0, pageWidth, pageHeight).fill(gradient);
     doc.restore();
 
-    const title = this.getCoverText(payload.pdfConfig, 'title', 'Pre-Assessment');
+    const title = payload.modelDisplayName;
     const subtitle = this.getCoverText(payload.pdfConfig, 'subtitle', 'Questionario strutturato per la profilazione governance, compliance, risk e documentazione.');
     const company = payload.clientName;
     const consultant = `Consulente: ${payload.consultantName}`;
@@ -728,7 +765,7 @@ export class CheckupPreassessmentPdfTemplateService {
     });
     doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold').text(company, leftPad, pageHeight - 170, { width: 300 });
     doc.fillColor('#cbd5e1').fontSize(10).font('Helvetica').text(`${payload.nowLabel} · ${payload.nowTime}`, leftPad, pageHeight - 142);
-    doc.fillColor('#cbd5e1').fontSize(10).font('Helvetica').text(consultant, leftPad, pageHeight - 56, {
+    doc.fillColor('#cbd5e1').fontSize(10).font('Helvetica').text(consultant, leftPad, pageHeight - 74, {
       width: pageWidth - leftPad - rightPad,
       align: 'right',
     });
@@ -736,7 +773,7 @@ export class CheckupPreassessmentPdfTemplateService {
 
   private drawNativeIntro(doc: any, payload: ReportPayload) {
     doc.addPage();
-    this.drawPageShell(doc, 'Riepilogo del pre-assessment', payload.clientName);
+    this.drawPageShell(doc, 'Riepilogo del questionario', payload.clientName, true, this.getQuestionnaireKicker(payload.modelDisplayName));
     let y = 114;
     y = this.drawInfoCard(doc, 54, y, 487, 128, 'Cliente', [
       ['Ragione sociale', payload.clientName],
@@ -749,7 +786,7 @@ export class CheckupPreassessmentPdfTemplateService {
     y += 16;
     y = this.drawInfoCard(doc, 54, y, 487, 94, 'Riepilogo', [
       ['Sezioni', String(payload.reportMacros.flatMap((macro) => macro.sections).length)],
-      ['Campi obbligatori', String(payload.totalReq)],
+      ['Domande da compilare', String(payload.totalReq)],
       ['Compilati', `${payload.totalFilled}/${payload.totalReq} (${payload.pct}%)`],
     ], 3);
     if (payload.preassessment.finalValidation || payload.currentUser.superOwner) {
@@ -762,12 +799,13 @@ export class CheckupPreassessmentPdfTemplateService {
     }
   }
 
-  private drawTocPlaceholder(doc: any) {
-    this.drawPageShell(doc, 'Indice', 'Sommario del documento');
+  private drawTocPlaceholder(doc: any, payload: ReportPayload) {
+    this.drawPageShell(doc, 'Indice', 'Sommario del documento', false, this.getQuestionnaireKicker(payload.modelDisplayName));
   }
 
-  private drawNativeToc(doc: any, payload: ReportPayload, sections: Array<{ macroLabel: string; title: string; color: string; page: number }>) {
-    this.drawPageShell(doc, 'Indice', 'Sommario del documento');
+  private drawNativeToc(doc: any, payload: ReportPayload, sections: Array<{ macroLabel: string; title: string; color: string; page: number; dest: string }>) {
+    this.drawPageShell(doc, 'Indice', 'Sommario del documento', false, this.getQuestionnaireKicker(payload.modelDisplayName));
+    doc.addNamedDestination('toc', 'XYZ', 54, 118, null);
     let y = 120;
     const colWidth = 155;
     const startX = 54;
@@ -784,18 +822,25 @@ export class CheckupPreassessmentPdfTemplateService {
         doc.fillColor(section.color).font('Helvetica-Bold').fontSize(9).text(currentMacro.toUpperCase(), x, y, { width: colWidth });
         y += 14;
       }
-      doc.fillColor('#0f172a').font('Helvetica').fontSize(9.5).text(section.title, x, y, { width: colWidth - 22 });
+      const sectionCode = this.formatSectionCode(section.title, section.macroLabel);
+      const sectionTitle = this.stripSectionCodePrefix(section.title, sectionCode);
+      const tocLabel = `${sectionCode} - ${sectionTitle}`;
+      doc.fillColor('#0f172a').font('Helvetica').fontSize(9.5).text(tocLabel, x, y, {
+        width: colWidth - 22,
+        goTo: section.dest,
+        underline: true,
+      });
       doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(9.5).text(String(section.page), x + colWidth - 18, y, { width: 18, align: 'right' });
-      y += Math.max(16, doc.heightOfString(section.title, { width: colWidth - 22, align: 'left' }) + 6);
+      y += Math.max(16, doc.heightOfString(tocLabel, { width: colWidth - 22, align: 'left' }) + 6);
     });
   }
 
   private drawMacroPageHeader(doc: any, payload: ReportPayload, macro: ReportMacro) {
-    this.drawPageShell(doc, this.formatMacroTitle(macro.id, macro.label), payload.clientName);
+    this.drawPageShell(doc, this.formatMacroTitle(macro.id, macro.label), payload.clientName, true, this.getQuestionnaireKicker(payload.modelDisplayName));
   }
 
   private drawNativeFinalPage(doc: any, payload: ReportPayload) {
-    this.drawPageShell(doc, 'Validazione finale', payload.clientName);
+    this.drawPageShell(doc, 'Validazione finale', payload.clientName, true, this.getQuestionnaireKicker(payload.modelDisplayName));
     let y = 126;
     y = this.drawInfoCard(doc, 54, y, 487, 110, 'Super-owner', [
       ['Nominativo', payload.preassessment.finalValidation?.by?.name || payload.superOwnerName],
@@ -812,7 +857,7 @@ export class CheckupPreassessmentPdfTemplateService {
     ], 2);
   }
 
-  private drawSectionNative(doc: any, payload: ReportPayload, macro: ReportMacro, section: ReportSection) {
+  private drawSectionNative(doc: any, payload: ReportPayload, macro: ReportMacro, section: ReportSection, sectionDest: string) {
     const startX = 54;
     const bodyWidth = 487;
     const questionWidth = 200;
@@ -825,7 +870,7 @@ export class CheckupPreassessmentPdfTemplateService {
       const isNA = !!payload.naFields[field.id];
       const rawValue = isNA ? 'N/A' : ((payload.data[field.id] || '').trim().replace(/[✅✔️✔🟢🟩]/g, ''));
       const value = rawValue.includes('||') ? rawValue.split('||').join(', ') : rawValue;
-      const safeLabel = payload.pdfConfig.showAsterisks ? field.label : field.label.replace(/\s*\*+\s*$/g, '');
+      const safeLabel = field.label.replace(/\s*\*+\s*$/g, '');
       const userNote = payload.pdfConfig.showUserNotes && !isNA ? (payload.userFieldNotes[field.id] || '').trim() : '';
       const consultantNote = payload.includeConsultantNotes && payload.pdfConfig.showConsultantNotes && !isNA ? (payload.fieldNotes[field.id] || '').trim() : '';
       const fieldDocs = payload.pdfConfig.showDocuments ? payload.docsByField[field.id] || [] : [];
@@ -894,9 +939,22 @@ export class CheckupPreassessmentPdfTemplateService {
       doc.roundedRect(startX, chunkTop, bodyWidth, macroHeaderHeight, 10).fillAndStroke(borderColor, borderColor);
       doc.restore();
 
+      if (firstChunk) {
+        doc.addNamedDestination(sectionDest, 'XYZ', startX, chunkTop, null);
+      }
       doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10).text(this.formatMacroTitle(macro.id, macro.label).toUpperCase(), startX + 20, chunkTop + 9, {
         width: bodyWidth - 40,
         characterSpacing: 1.2,
+      });
+
+      const backLabel = 'Torna all\'indice';
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const backWidth = doc.widthOfString(backLabel);
+      doc.fillColor('#ffffff').text(backLabel, startX + bodyWidth - backWidth - 18, chunkTop + 10, {
+        width: backWidth + 2,
+        lineBreak: false,
+        goTo: 'toc',
+        underline: true,
       });
 
       let cursorY = chunkTop + macroHeaderHeight;
@@ -904,7 +962,7 @@ export class CheckupPreassessmentPdfTemplateService {
       doc.roundedRect(startX + 1, cursorY, bodyWidth - 2, sectionTitleHeight, 0).fill('#ffffff');
       doc.restore();
       const sectionTitle = this.stripSectionCodePrefix(section.title, sectionCode);
-      doc.fillColor(borderColor).font('Helvetica-Bold').fontSize(15).text(`${sectionCode} ${sectionTitle}`, startX + 14, cursorY + 10, {
+      doc.fillColor(borderColor).font('Helvetica-Bold').fontSize(15).text(`${sectionCode} - ${sectionTitle}`, startX + 14, cursorY + 10, {
         width: bodyWidth - 28,
       });
       cursorY += sectionTitleHeight;
@@ -983,9 +1041,9 @@ export class CheckupPreassessmentPdfTemplateService {
     }
   }
 
-  private drawPageShell(doc: any, title: string, rightLabel: string) {
+  private drawPageShell(doc: any, title: string, rightLabel: string, showIndexLink = false, leftKicker = 'Questionario') {
     doc.roundedRect(44, 44, 507, 754, 14).fill('#ffffff').stroke('#d9e2f0');
-    doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8).text('Pre-Assessment', 64, 64, { characterSpacing: 1.2 });
+    doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8).text(leftKicker, 64, 64, { characterSpacing: 1.2 });
     doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(22).text(title, 64, 80, { width: 320 });
     doc.fillColor('#94a3b8').font('Helvetica').fontSize(9).text(rightLabel, 394, 64, { width: 137, align: 'right' });
     doc.moveTo(64, 112).lineTo(531, 112).strokeColor('#e2e8f0').stroke();
@@ -1114,14 +1172,17 @@ export class CheckupPreassessmentPdfTemplateService {
     const normalized = (sectionId || '').replace(/_/g, '.').replace(/-/g, '.');
     const match = normalized.match(/([A-Z])\D*(\d+(?:\.\d+)*)/i);
     if (match) return `${match[1].toUpperCase()}.${match[2]}`;
-    const macro = (macroCode || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+    const macro = this.getMacroReference(macroCode);
     return `${macro || 'S'}.1`;
   }
 
   private stripSectionCodePrefix(title: string, sectionCode: string) {
     const cleanTitle = (title || '').trim();
     const escapedCode = sectionCode.replace('.', '\\.?');
-    return cleanTitle.replace(new RegExp(`^${escapedCode}\\s*[-–—:]?\\s*`, 'i'), '').trim() || cleanTitle;
+    return cleanTitle
+      .replace(/^[A-Z0-9]+_[A-Z]\.\d+(?:\.\d+)?\s*[-–—:]?\s*/i, '')
+      .replace(new RegExp(`^${escapedCode}\\s*[-–—:]?\\s*`, 'i'), '')
+      .trim() || cleanTitle;
   }
 
   private resolveMacroColor(macro: ReportMacro) {

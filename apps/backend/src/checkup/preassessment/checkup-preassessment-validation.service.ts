@@ -25,6 +25,10 @@ export const OWNER_EMAIL_FIELDS: ReadonlySet<string> = new Set(Object.values(OWN
 
 export interface SectionMeta {
   macroId: string;
+  /**
+   * Question fields that must be answered before validation.
+   * N/A is handled separately and counts as a valid answer.
+   */
   requiredFields: string[];
 }
 
@@ -172,8 +176,7 @@ export class CheckupPreassessmentValidationService {
   // ── Structure lookups ──────────────────────────────────────────────────────
 
   /**
-   * Returns a map from section code → { macroId, requiredFields[] } for the
-   * given question model.
+   * Returns a map from section code → macro and question fields to complete.
    */
   async getSectionMetaByModel(modelId: string): Promise<Map<string, SectionMeta>> {
     const structure = await this.questionManagementService.getCompleteStructure(modelId);
@@ -182,9 +185,7 @@ export class CheckupPreassessmentValidationService {
       (macro.sections || []).forEach((section) => {
         map.set(section.code, {
           macroId: macro.code,
-          requiredFields: (section.fields || [])
-            .filter((f) => f.required)
-            .map((f) => f.fieldId),
+          requiredFields: (section.fields || []).map((f) => f.fieldId),
         });
       });
     });
@@ -204,9 +205,7 @@ export class CheckupPreassessmentValidationService {
       (macro.sections || []).forEach((section) => {
         sectionMeta.set(section.code, {
           macroId: macro.code,
-          requiredFields: (section.fields || [])
-            .filter((f) => f.required)
-            .map((f) => f.fieldId),
+          requiredFields: (section.fields || []).map((f) => f.fieldId),
         });
         (section.fields || []).forEach((field) => {
           fieldToMacro.set(field.fieldId, macro.code);

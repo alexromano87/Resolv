@@ -153,7 +153,7 @@ export default function StudioDashboardPage() {
     const data = entry.preassessment?.data || {};
     const naFields = entry.preassessment?.naFields || {};
     const countedSections = SECTIONS.filter((section) => !isOwnerSection(section));
-    const fields = countedSections.flatMap((section) => section.fields.filter((field) => field.required));
+    const fields = countedSections.flatMap((section) => section.fields);
     const total = fields.length;
     const filled = fields.filter((field) => !!naFields[field.id] || !!data[field.id]?.trim()).length;
     return total > 0 ? Math.round((filled / total) * 100) : 0;
