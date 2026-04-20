@@ -3,6 +3,7 @@ import {
   CheckupPreassessmentValidationService,
   OWNER_EMAIL_BY_MACRO,
   OWNER_EMAIL_FIELDS,
+  getOwnerEmailFieldForMacro,
 } from './checkup-preassessment-validation.service';
 import { QuestionManagementService } from '../services/question-management.service';
 
@@ -82,8 +83,8 @@ describe('CheckupPreassessmentValidationService', () => {
   // ── Costanti ────────────────────────────────────────────────────────────────
 
   describe('OWNER_EMAIL_BY_MACRO', () => {
-    it('copre le aree a-j', () => {
-      ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].forEach((k) =>
+    it('copre le aree owner supportate', () => {
+      ['a', 'b', 'c', 'l', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].forEach((k) =>
         expect(OWNER_EMAIL_BY_MACRO).toHaveProperty(k),
       );
     });
@@ -104,6 +105,13 @@ describe('CheckupPreassessmentValidationService', () => {
 
     it('non contiene valori estranei', () => {
       expect(OWNER_EMAIL_FIELDS.size).toBe(Object.keys(OWNER_EMAIL_BY_MACRO).length);
+    });
+  });
+
+  describe('getOwnerEmailFieldForMacro()', () => {
+    it('risolve anche codici macro prefissati da modello', () => {
+      expect(getOwnerEmailFieldForMacro('m231_a')).toBe('m231_owner_a_email');
+      expect(getOwnerEmailFieldForMacro('m231_l')).toBe('m231_owner_l_email');
     });
   });
 

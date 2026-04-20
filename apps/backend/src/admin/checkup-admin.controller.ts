@@ -73,6 +73,7 @@ export class CheckupAdminController {
     a: { name: 'owner_a_nome', role: 'owner_a_ruolo', email: 'owner_a_email' },
     b: { name: 'owner_b_nome', role: 'owner_b_ruolo', email: 'owner_b_email' },
     c: { name: 'owner_c_nome', role: 'owner_c_ruolo', email: 'owner_c_email' },
+    l: { name: 'owner_l_nome', role: 'owner_l_ruolo', email: 'owner_l_email' },
     d: { name: 'owner_d_nome', role: 'owner_d_ruolo', email: 'owner_d_email' },
     e: { name: 'owner_e_nome', role: 'owner_e_ruolo', email: 'owner_e_email' },
     f: { name: 'owner_f_nome', role: 'owner_f_ruolo', email: 'owner_f_email' },
@@ -81,6 +82,20 @@ export class CheckupAdminController {
     i: { name: 'owner_i_nome', role: 'owner_i_ruolo', email: 'owner_i_email' },
     j: { name: 'owner_j_nome', role: 'owner_j_ruolo', email: 'owner_j_email' },
   };
+
+  private static getOwnerFieldsForMacro(macroId: string) {
+    const base = CheckupAdminController.OWNER_FIELDS_BY_MACRO[macroId]
+      ? macroId
+      : macroId.split('_').pop() || macroId;
+    const fields = CheckupAdminController.OWNER_FIELDS_BY_MACRO[base];
+    if (!fields || base === macroId) return fields;
+    const prefix = macroId.slice(0, -(base.length + 1));
+    return {
+      name: `${prefix}_${fields.name}`,
+      role: `${prefix}_${fields.role}`,
+      email: `${prefix}_${fields.email}`,
+    };
+  }
 
   private isOwnerMacroArea(code: string, label?: string | null) {
     if (code === 'k') return true;
@@ -208,7 +223,7 @@ export class CheckupAdminController {
     const record = await this.getOrCreatePreassessment(clientId, user.id);
     const data = { ...(record.data || {}) };
     normalized.forEach((macroId) => {
-      const fields = CheckupAdminController.OWNER_FIELDS_BY_MACRO[macroId];
+      const fields = CheckupAdminController.getOwnerFieldsForMacro(macroId);
       if (!fields) return;
       data[fields.name] = `${user.nome} ${user.cognome}`.trim();
       data[fields.role] = 'Cliente';
@@ -225,7 +240,7 @@ export class CheckupAdminController {
     if (!record) return;
     const data = { ...(record.data || {}) };
     normalized.forEach((macroId) => {
-      const fields = CheckupAdminController.OWNER_FIELDS_BY_MACRO[macroId];
+      const fields = CheckupAdminController.getOwnerFieldsForMacro(macroId);
       if (!fields) return;
       data[fields.name] = '';
       data[fields.role] = '';

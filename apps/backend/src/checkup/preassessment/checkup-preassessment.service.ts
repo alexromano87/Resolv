@@ -15,6 +15,10 @@ import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
 import { CheckupPreassessmentNotificationsService } from './checkup-preassessment-notifications.service';
 import { CheckupPreassessmentRenderService } from './checkup-preassessment-render.service';
 
+function isOwnerEmailField(fieldId: string) {
+  return OWNER_EMAIL_FIELDS.has(fieldId) || /(^|_)owner_[a-z]_email$/.test(fieldId);
+}
+
 @Injectable()
 export class CheckupPreassessmentService {
   private readonly logger = new Logger(CheckupPreassessmentService.name);
@@ -177,10 +181,9 @@ export class CheckupPreassessmentService {
     // isOwnerForMacro always checks the staff-assigned values, not what the
     // client just sent.
     const frozenOwnerEmails: Record<string, string> = {};
-    for (const field of OWNER_EMAIL_FIELDS) {
-      const existing = record.data?.[field];
-      if (existing !== undefined) frozenOwnerEmails[field] = existing;
-    }
+    Object.entries(record.data || {}).forEach(([field, value]) => {
+      if (isOwnerEmailField(field) && value !== undefined) frozenOwnerEmails[field] = value;
+    });
 
     const vs = this.validationService;
     const assignedMacroAreas =
@@ -219,10 +222,10 @@ export class CheckupPreassessmentService {
       if (user.ruolo === 'cliente') {
         // Merge incoming data but preserve all owner email fields from the DB
         const sanitized = { ...nextData };
-        for (const field of OWNER_EMAIL_FIELDS) {
-          if (frozenOwnerEmails[field] !== undefined) sanitized[field] = frozenOwnerEmails[field];
-          else delete sanitized[field];
-        }
+        Object.keys(sanitized).filter(isOwnerEmailField).forEach((field) => {
+          if (frozenOwnerEmails[field] === undefined) delete sanitized[field];
+        });
+        Object.entries(frozenOwnerEmails).forEach(([field, value]) => { sanitized[field] = value; });
         record.data = sanitized;
       } else {
         record.data = nextData;

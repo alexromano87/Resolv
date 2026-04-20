@@ -23,6 +23,7 @@ export interface MacroAreaSpec {
   id: string;
   label: string;
   color: string;
+  displayRef?: string;
 }
 
 export const MACRO_AREAS: MacroAreaSpec[] = [

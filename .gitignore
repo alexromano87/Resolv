@@ -60,3 +60,4 @@ apps/frontend/playwright-report/
 
 # Varie
 apps/backend/generate-preassessment-excel.js
+supporto/

@@ -83,6 +83,7 @@ export const OWNER_EMAIL_BY_MACRO: Record<string, string> = {
   a: 'owner_a_email',
   b: 'owner_b_email',
   c: 'owner_c_email',
+  l: 'owner_l_email',
   d: 'owner_d_email',
   e: 'owner_e_email',
   f: 'owner_f_email',
@@ -96,6 +97,7 @@ export const OWNER_FIELDS_BY_MACRO: Record<string, { name: string; role: string;
   a: { name: 'owner_a_nome', role: 'owner_a_ruolo', email: 'owner_a_email' },
   b: { name: 'owner_b_nome', role: 'owner_b_ruolo', email: 'owner_b_email' },
   c: { name: 'owner_c_nome', role: 'owner_c_ruolo', email: 'owner_c_email' },
+  l: { name: 'owner_l_nome', role: 'owner_l_ruolo', email: 'owner_l_email' },
   d: { name: 'owner_d_nome', role: 'owner_d_ruolo', email: 'owner_d_email' },
   e: { name: 'owner_e_nome', role: 'owner_e_ruolo', email: 'owner_e_email' },
   f: { name: 'owner_f_nome', role: 'owner_f_ruolo', email: 'owner_f_email' },
@@ -104,6 +106,26 @@ export const OWNER_FIELDS_BY_MACRO: Record<string, { name: string; role: string;
   i: { name: 'owner_i_nome', role: 'owner_i_ruolo', email: 'owner_i_email' },
   j: { name: 'owner_j_nome', role: 'owner_j_ruolo', email: 'owner_j_email' },
 };
+
+export function getBaseMacroCode(macroId: string) {
+  return OWNER_EMAIL_BY_MACRO[macroId] ? macroId : macroId.split('_').pop() || macroId;
+}
+
+export function getMacroCodePrefix(macroId: string) {
+  const base = getBaseMacroCode(macroId);
+  return base === macroId ? '' : macroId.slice(0, -(base.length + 1));
+}
+
+export function getOwnerEmailFieldForMacro(macroId: string) {
+  const base = getBaseMacroCode(macroId);
+  const field = OWNER_EMAIL_BY_MACRO[base];
+  const prefix = getMacroCodePrefix(macroId);
+  return field && prefix ? `${prefix}_${field}` : field;
+}
+
+export function isOwnerFieldId(fieldId: string) {
+  return /(^|_)owner_[a-z]_/.test(fieldId);
+}
 
 export function getOptionLabel(field: FieldSpec, value: string) {
   if (!DOC_ICON_FIELDS.has(field.id)) return value;
@@ -165,7 +187,17 @@ export function getInitialNaFields(sectionsData: SectionSpec[]) {
 
 export function getOwnerInfo(data: Record<string, string> | null | undefined, macroId: string) {
   if (!data) return null;
-  const fields = OWNER_FIELDS_BY_MACRO[macroId];
+  const base = getBaseMacroCode(macroId);
+  const baseFields = OWNER_FIELDS_BY_MACRO[base];
+  if (!baseFields) return null;
+  const prefix = getMacroCodePrefix(macroId);
+  const fields = prefix
+    ? {
+      name: `${prefix}_${baseFields.name}`,
+      role: `${prefix}_${baseFields.role}`,
+      email: `${prefix}_${baseFields.email}`,
+    }
+    : baseFields;
   if (!fields) return null;
   const name = (data[fields.name] || '').trim();
   const role = (data[fields.role] || '').trim();

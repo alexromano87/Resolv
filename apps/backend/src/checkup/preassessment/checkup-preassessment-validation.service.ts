@@ -11,6 +11,7 @@ export const OWNER_EMAIL_BY_MACRO: Readonly<Record<string, string>> = {
   a: 'owner_a_email',
   b: 'owner_b_email',
   c: 'owner_c_email',
+  l: 'owner_l_email',
   d: 'owner_d_email',
   e: 'owner_e_email',
   f: 'owner_f_email',
@@ -22,6 +23,22 @@ export const OWNER_EMAIL_BY_MACRO: Readonly<Record<string, string>> = {
 
 /** Set of all owner-email field keys, derived from OWNER_EMAIL_BY_MACRO. */
 export const OWNER_EMAIL_FIELDS: ReadonlySet<string> = new Set(Object.values(OWNER_EMAIL_BY_MACRO));
+
+export function getBaseMacroCode(macroId: string): string {
+  return OWNER_EMAIL_BY_MACRO[macroId] ? macroId : macroId.split('_').pop() || macroId;
+}
+
+export function getMacroCodePrefix(macroId: string): string {
+  const base = getBaseMacroCode(macroId);
+  return base === macroId ? '' : macroId.slice(0, -(base.length + 1));
+}
+
+export function getOwnerEmailFieldForMacro(macroId: string): string | undefined {
+  const base = getBaseMacroCode(macroId);
+  const field = OWNER_EMAIL_BY_MACRO[base];
+  const prefix = getMacroCodePrefix(macroId);
+  return field && prefix ? `${prefix}_${field}` : field;
+}
 
 export interface SectionMeta {
   macroId: string;
@@ -67,7 +84,7 @@ export class CheckupPreassessmentValidationService {
    */
   isOwnerForMacro(record: CheckupPreassessment, user: CheckupCurrentUserData, macroId: string): boolean {
     if (user.ruolo !== 'cliente') return false;
-    const field = OWNER_EMAIL_BY_MACRO[macroId];
+    const field = getOwnerEmailFieldForMacro(macroId);
     if (!field) return false;
     const ownerEmail = (record.data?.[field] || '').trim().toLowerCase();
     return ownerEmail !== '' && ownerEmail === user.email.toLowerCase();

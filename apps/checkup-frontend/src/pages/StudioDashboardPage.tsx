@@ -22,6 +22,7 @@ import { studiosApi, CheckupSublicenseOption, CheckupStudioProfile } from '../ap
 import type { CheckupUser } from '../api/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { SECTIONS } from '../data/preassessment';
+import { isOwnerFieldId } from '../features/preassessment/preassessment-utils';
 
 const formatPercent = (value: number) => `${Math.round(value)}%`;
 
@@ -44,7 +45,7 @@ export default function StudioDashboardPage() {
   const [unreadCounts, setUnreadCounts] = useState<Record<string, { tickets: number; alerts: number; chat: number }>>({});
 
   const isOwnerSection = useCallback(
-    (section: (typeof SECTIONS)[number]) => section.macro === 'k' || section.fields.some((field) => /^owner_[a-j]_/.test(field.id)),
+    (section: (typeof SECTIONS)[number]) => section.macro === 'k' || section.fields.some((field) => isOwnerFieldId(field.id)),
     [],
   );
 

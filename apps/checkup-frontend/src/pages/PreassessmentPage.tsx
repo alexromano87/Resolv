@@ -49,11 +49,12 @@ import { DocumentPreviewModal } from '../components/DocumentPreviewModal';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { downloadTextFile, formatDateTime, sanitizeFilename } from '../utils/textExport';
 import {
-  OWNER_EMAIL_BY_MACRO,
   buildPreassessmentCsv,
   getInitialData,
   getInitialNaFields,
+  getOwnerEmailFieldForMacro,
   getOwnerInfo,
+  isOwnerFieldId,
 } from '../features/preassessment/preassessment-utils';
 import { FormField } from '../features/preassessment/FormField';
 
@@ -72,23 +73,38 @@ const getMacroReference = (macroId: string) => {
   return (lastAlpha || macroId || 's').slice(-1).toUpperCase();
 };
 
-const stripMacroPrefix = (label: string) =>
-  (label || '').replace(/^(?:[A-Z0-9]+[_-])?[A-Z]\s*[-–—:]\s*/i, '').trim() || label;
+const getAlphabeticReference = (index: number) => {
+  let value = Math.max(0, index);
+  let reference = '';
+  do {
+    reference = String.fromCharCode(65 + (value % 26)) + reference;
+    value = Math.floor(value / 26) - 1;
+  } while (value >= 0);
+  return reference;
+};
 
-const formatMacroHeading = (macroId: string, label: string) => `${getMacroReference(macroId)} - ${stripMacroPrefix(label)}`;
+const stripMacroPrefix = (label: string) =>
+  (label || '').replace(/^(?:[A-Z0-9]+[_-])?[A-Z]\s*[-–—:.]\s*/i, '').trim() || label;
+
+const formatMacroHeading = (macroId: string, label: string, displayRef?: string) =>
+  `${displayRef || getMacroReference(macroId)} - ${stripMacroPrefix(label)}`;
 
 const stripSectionPrefix = (title: string) =>
-  (title || '').replace(/^(?:[A-Z0-9]+[_-])?[A-Z](?:[._]\d+)+\s*[-–—:]?\s*/i, '').trim() || title;
+  (title || '')
+    .replace(/^[A-Z][A-Z0-9.]*(?:\s*[-–—:]\s*)+[A-Z]\.\d+(?:\.\d+)?\s*[-–—:]?\s*/i, '')
+    .replace(/^(?:[A-Z0-9]+[_-])?[A-Z](?:[._]\d+)+\s*[-–—:]?\s*/i, '')
+    .trim() || title;
 
-const getSectionReference = (sectionId: string, macroId: string, fallbackIndex: number) => {
+const getSectionReference = (sectionId: string, macroId: string, fallbackIndex: number, displayRef?: string) => {
+  if (displayRef) return `${displayRef}.${fallbackIndex + 1}`;
   const normalized = (sectionId || '').replace(/-/g, '_');
   const match = normalized.match(/(?:^|_)([a-z])_(\d+(?:_\d+)*)$/i);
   if (match) return `${match[1].toUpperCase()}.${match[2].replace(/_/g, '.')}`;
   return `${getMacroReference(macroId)}.${fallbackIndex + 1}`;
 };
 
-const formatSectionHeading = (section: SectionSpec, fallbackIndex: number) =>
-  `${getSectionReference(section.id, section.macro, fallbackIndex)} - ${stripSectionPrefix(section.title)}`;
+const formatSectionHeading = (section: SectionSpec, fallbackIndex: number, displayRef?: string) =>
+  `${getSectionReference(section.id, section.macro, fallbackIndex, displayRef)} - ${stripSectionPrefix(section.title)}`;
 
 const getInitials = (name: string) => {
   return name
@@ -145,10 +161,11 @@ export default function PreassessmentPage() {
       .getCompleteStructure(modelId)
       .then((data) => {
         if (cancelled) return;
-        const nextMacroAreas: MacroAreaSpec[] = data.map((macro) => ({
+        const nextMacroAreas: MacroAreaSpec[] = data.map((macro, index) => ({
           id: macro.code,
           label: macro.label,
           color: macro.color,
+          displayRef: getAlphabeticReference(index),
         }));
         const nextSections: SectionSpec[] = data.flatMap((macro) =>
           (macro.sections || []).map((section) => ({
@@ -947,7 +964,7 @@ export default function PreassessmentPage() {
   }, [confirm, finalValidation, isClient, user?.superOwner]);
 
   const isOwnerSection = useCallback(
-    (section: SectionSpec) => section.macro === 'k' || section.fields.some((field) => /^owner_[a-j]_/.test(field.id)),
+    (section: SectionSpec) => section.macro === 'k' || section.fields.some((field) => isOwnerFieldId(field.id)),
     [],
   );
   const countedSections = useMemo(
@@ -1022,7 +1039,7 @@ export default function PreassessmentPage() {
 
   const isOwnerForMacro = (macroId: string) => {
     if (!isClient || !user?.email) return false;
-    const ownerField = OWNER_EMAIL_BY_MACRO[macroId];
+    const ownerField = getOwnerEmailFieldForMacro(macroId);
     if (!ownerField) return false;
     const ownerEmail = (data[ownerField] || '').trim().toLowerCase();
     return ownerEmail !== '' && ownerEmail === user.email.toLowerCase();
@@ -1648,7 +1665,7 @@ export default function PreassessmentPage() {
                         {expandedMacros.has(row.id)
                           ? <ChevronDown size={13} className="text-slate-400 flex-shrink-0" />
                           : <ChevronRight size={13} className="text-slate-400 flex-shrink-0" />}
-                        <span style={{ color: row.color }} className="font-semibold">{formatMacroHeading(row.id, row.label)}</span>
+                        <span style={{ color: row.color }} className="font-semibold">{formatMacroHeading(row.id, row.label, row.displayRef)}</span>
                       </span>
                     </td>
                     <td className="px-3 py-3">
@@ -1789,7 +1806,7 @@ export default function PreassessmentPage() {
                                         setPanel(null);
                                       }}
                                     >
-                                      <td className="px-3 py-2 font-medium text-slate-700">{formatSectionHeading(s, rowSects.findIndex((section) => section.id === s.id))}</td>
+                                      <td className="px-3 py-2 font-medium text-slate-700">{formatSectionHeading(s, rowSects.findIndex((section) => section.id === s.id), row.displayRef)}</td>
                                       <td className="px-3 py-2 text-slate-500">{total}</td>
                                       <td className="px-3 py-2 text-slate-500">{done}</td>
                                       <td className="px-3 py-2">
@@ -1860,7 +1877,7 @@ export default function PreassessmentPage() {
     const sectionValidation = sectionValidations[activeSection.id];
     const ownerInfo = getOwnerInfo(data, activeSection.macro);
     const isSectionValidated = !!sectionValidation;
-    const isOwnerSection = activeSection.fields.some((f) => /^owner_[a-j]_/.test(f.id));
+    const isOwnerSection = activeSection.fields.some((f) => isOwnerFieldId(f.id));
     const unresolvedFields = activeSection.fields.filter((field) => !isFieldResolved(field));
     const missingAnswersCount = unresolvedFields.length;
     const canValidateSection = sTotal(activeSection) > 0 && missingAnswersCount === 0;
@@ -1929,7 +1946,7 @@ export default function PreassessmentPage() {
                         key={m.id}
                         className={`rounded-lg border px-3 py-2 text-xs ${val ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}
                       >
-                        <div className="font-semibold text-slate-700 truncate">{formatMacroHeading(m.id, m.label)}</div>
+                        <div className="font-semibold text-slate-700 truncate">{formatMacroHeading(m.id, m.label, m.displayRef)}</div>
                         {val ? (
                           <div className="mt-0.5 text-emerald-600 font-medium truncate">✓ {val.by.name}</div>
                         ) : (
@@ -1980,7 +1997,7 @@ export default function PreassessmentPage() {
                 onConsultantNoteChange={handleFieldNote}
                 onUserNoteChange={handleUserFieldNote}
                 readOnly={readOnly}
-                ownerProtected={isClient && /^owner_[a-j]_/.test(f.id)}
+                ownerProtected={isClient && isOwnerFieldId(f.id)}
                 fieldMeta={fieldMeta[f.id]}
                 activeEditor={activeEditors[f.id]}
                 currentUserId={user?.id}
@@ -1989,7 +2006,7 @@ export default function PreassessmentPage() {
                 naChecked={!!naFields[f.id]}
                 onNaChange={handleNaChange}
                 canEditConsultantNotes={!isClient}
-                canEditUserNotes={!readOnly && isClient && !/^owner_[a-j]_/.test(f.id)}
+                canEditUserNotes={!readOnly && isClient && !isOwnerFieldId(f.id)}
                 highlightCompletionState={isClient}
                 documents={documentsByField[f.id] || []}
                 documentsLoading={documentsLoading}
@@ -2094,8 +2111,8 @@ export default function PreassessmentPage() {
   const breadcrumbs = [
     { label: modelDisplayName, onClick: () => { setView('dashboard'); setPanel(null); } },
     panel ? { label: panel === 'chat' ? 'Chat' : panel === 'tickets' ? 'Ticket' : 'Alert' } : null,
-    !panel && activeSection ? { label: activeMacro ? formatMacroHeading(activeMacro.id, activeMacro.label) : '' } : null,
-    !panel && activeSection ? { label: formatSectionHeading(activeSection, sections.filter((s) => s.macro === activeSection.macro).findIndex((s) => s.id === activeSection.id)) } : null,
+    !panel && activeSection ? { label: activeMacro ? formatMacroHeading(activeMacro.id, activeMacro.label, activeMacro.displayRef) : '' } : null,
+    !panel && activeSection ? { label: formatSectionHeading(activeSection, sections.filter((s) => s.macro === activeSection.macro).findIndex((s) => s.id === activeSection.id), activeMacro?.displayRef) } : null,
     !panel && !activeSection ? { label: 'Dashboard' } : null,
   ].filter(Boolean) as { label: string; onClick?: () => void }[];
 
@@ -2324,7 +2341,7 @@ function PreassessmentSidebar({
   setPanel: (val: 'chat' | 'tickets' | 'alerts' | null) => void;
   search: string;
   setSearch: (val: string) => void;
-  grouped: { id: string; label: string; color: string; sections: SectionSpec[] }[];
+  grouped: { id: string; label: string; color: string; displayRef?: string; sections: SectionSpec[] }[];
   sections: SectionSpec[];
   collapsed: Record<string, boolean>;
   setCollapsed: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
@@ -2365,7 +2382,7 @@ function PreassessmentSidebar({
                   }
                   className="flex w-full items-center justify-between px-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400"
                 >
-                  {formatMacroHeading(g.id, g.label)}
+                  {formatMacroHeading(g.id, g.label, g.displayRef)}
                   <ChevronDown className={`h-3 w-3 text-slate-500 transition ${collapsed[g.id] ? '-rotate-90' : ''}`} />
                 </button>
                 {!collapsed[g.id] && g.sections.map((s, sIdx) => {
@@ -2375,7 +2392,7 @@ function PreassessmentSidebar({
                   const total = sTotal(s);
                   const na = sNA(s);
                   const isValidated = !!validations[s.macro];
-                  const sectionNum = getSectionReference(s.id, g.id, sIdx);
+                  const sectionNum = getSectionReference(s.id, g.id, sIdx, g.displayRef);
                   return (
                     <button
                       key={s.id}

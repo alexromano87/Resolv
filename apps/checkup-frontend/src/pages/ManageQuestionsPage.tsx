@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Save, X, HelpCircle, GripVertical, Folder, FileText, List } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, HelpCircle, GripVertical, Folder, FileText, List, AlertTriangle } from 'lucide-react';
 import * as questionApi from '../api/questionManagement';
 
 interface EditingMacro {
@@ -47,9 +47,14 @@ export default function ManageQuestionsPage() {
   const [editingMacro, setEditingMacro] = useState<EditingMacro | null>(null);
   const [editingSection, setEditingSection] = useState<EditingSection | null>(null);
   const [editingField, setEditingField] = useState<EditingField | null>(null);
+  const [deleteTargetModel, setDeleteTargetModel] = useState<questionApi.QuestionModel | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const deleteConfirmationText = deleteTargetModel ? `Confermo ${deleteTargetModel.label.trim()}` : '';
+  const canConfirmDeleteModel = deleteConfirmation.trim() === deleteConfirmationText;
 
   useEffect(() => {
     loadModels();
@@ -159,14 +164,27 @@ export default function ManageQuestionsPage() {
     }
   };
 
-  const handleDeleteModel = async (id: string) => {
-    if (!confirm('Eliminare questo modello? Verranno eliminate tutte le macro-aree e domande associate.')) return;
+  const handleOpenDeleteModel = (model: questionApi.QuestionModel) => {
+    setDeleteTargetModel(model);
+    setDeleteConfirmation('');
+  };
+
+  const handleCloseDeleteModel = () => {
+    if (loading) return;
+    setDeleteTargetModel(null);
+    setDeleteConfirmation('');
+  };
+
+  const handleDeleteModel = async () => {
+    if (!deleteTargetModel || !canConfirmDeleteModel) return;
     try {
       setLoading(true);
-      await questionApi.deleteModel(id);
-      if (selectedModelId === id) {
+      await questionApi.deleteModel(deleteTargetModel.id);
+      if (selectedModelId === deleteTargetModel.id) {
         setSelectedModelId('');
       }
+      setDeleteTargetModel(null);
+      setDeleteConfirmation('');
       await loadModels();
     } catch (err: any) {
       setError(err.message || 'Failed to delete model');
@@ -475,7 +493,10 @@ export default function ManageQuestionsPage() {
                     Modifica
                   </button>
                   <button
-                    onClick={() => handleDeleteModel(selectedModelId)}
+                    onClick={() => {
+                      const model = models.find((m) => m.id === selectedModelId);
+                      if (model) handleOpenDeleteModel(model);
+                    }}
                     className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -688,6 +709,81 @@ export default function ManageQuestionsPage() {
             </div>
           </div>
         </div>
+
+        {deleteTargetModel && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]">
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleDeleteModel();
+              }}
+              className="bg-white rounded-lg shadow-xl max-w-lg w-full"
+            >
+              <div className="p-6 border-b border-gray-200 flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+                    <AlertTriangle className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">Eliminare il modello?</h3>
+                    <p className="mt-1 text-sm text-gray-600">
+                      Questa azione elimina macro-aree, sezioni e domande associate.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCloseDeleteModel}
+                  disabled={loading}
+                  className="p-2 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="rounded-lg border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                  Stai eliminando <span className="font-semibold">{deleteTargetModel.label}</span>. Per confermare digita:
+                  <div className="mt-2 select-all rounded-md bg-white px-3 py-2 font-mono text-sm text-rose-900">
+                    {deleteConfirmationText}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Testo di conferma</label>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={deleteConfirmation}
+                    onChange={(e) => setDeleteConfirmation(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:border-transparent"
+                    placeholder={deleteConfirmationText}
+                    disabled={loading}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleCloseDeleteModel}
+                    disabled={loading}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Annulla
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!canConfirmDeleteModel || loading}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {loading ? 'Eliminazione...' : 'Elimina modello'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        )}
 
         {/* EDIT MODAL */}
         {(editingModel || editingMacro || editingSection || editingField) && (

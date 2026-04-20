@@ -30,6 +30,7 @@ type ReportSection = {
   id: string;
   title: string;
   macroId: string;
+  displayCode: string;
   fields: ReportField[];
 };
 
@@ -37,6 +38,7 @@ type ReportMacro = {
   id: string;
   label: string;
   color: string;
+  displayRef: string;
   sections: ReportSection[];
 };
 
@@ -198,9 +200,10 @@ export class CheckupPreassessmentPdfTemplateService {
       .join('');
 
     const sectionsByMacro = reportMacros.map((macro) => ({
-      macro: macro.label,
+      macro: this.formatMacroTitleForMacro(macro),
       color: macro.color,
       code: macro.id,
+      displayRef: macro.displayRef,
       sections: macro.sections,
     })).filter((group) => group.sections.length > 0);
 
@@ -257,7 +260,7 @@ export class CheckupPreassessmentPdfTemplateService {
       : '';
 
     const activeMacros = sectionsByMacro.map((group, macroIndex) => {
-      const sectionBlocks = group.sections.map((section, sectionIndex) => {
+      const sectionBlocks = group.sections.map((section) => {
         const fields = section.fields.filter((field) => !(excludeNA && naFields[field.id]));
         if (!fields.length) return '';
         const rows = fields.map((field) => {
@@ -285,10 +288,10 @@ export class CheckupPreassessmentPdfTemplateService {
         return `
           <section class="report-section" id="section-${escapeHtml(section.id)}">
             <div class="section-heading">
-              <span class="section-index">${macroIndex + 1}.${sectionIndex + 1}</span>
+              <span class="section-index">${escapeHtml(section.displayCode)}</span>
               <div>
-                <div class="section-kicker">${escapeHtml(this.formatMacroTitle(group.code, group.macro))}</div>
-                <h2>${escapeHtml(section.title)}</h2>
+                <div class="section-kicker">${escapeHtml(group.macro)}</div>
+                <h2>${escapeHtml(`${section.displayCode} - ${this.stripSectionCodePrefix(section.title, section.displayCode)}`)}</h2>
               </div>
             </div>
             <table class="qa-table">
@@ -313,7 +316,7 @@ export class CheckupPreassessmentPdfTemplateService {
             <header class="report-header">
               <div class="report-header-meta">
                 <div class="eyebrow">Pre-Assessment</div>
-                <h1>${escapeHtml(this.formatMacroTitle(group.code, group.macro))}</h1>
+                <h1>${escapeHtml(group.macro)}</h1>
               </div>
               <div class="report-header-side">
                 <div class="report-meta-label">Cliente</div>
@@ -541,22 +544,25 @@ export class CheckupPreassessmentPdfTemplateService {
     return `Questionario ${modelDisplayName}`.trim();
   }
 
-  private getMacroReference(code: string) {
-    const normalized = (code || '').replace(/[_\-\s]+/g, '_').trim();
-    const match = normalized.match(/(?:^|_)([A-Z])(?:$|_)/i);
-    if (match) return match[1].toUpperCase();
-    return (normalized || 'A').charAt(0).toUpperCase();
+  private getAlphabeticReference(index: number) {
+    let value = Math.max(0, index);
+    let reference = '';
+    do {
+      reference = String.fromCharCode(65 + (value % 26)) + reference;
+      value = Math.floor(value / 26) - 1;
+    } while (value >= 0);
+    return reference;
   }
 
   private stripMacroPrefix(label: string) {
     return (label || '')
-      .replace(/^[A-Z0-9]+_[A-Z]\s*[-–—:]?\s*/i, '')
-      .replace(/^[A-Z]\s*[-–—:]\s*/i, '')
+      .replace(/^[A-Z0-9]+_[A-Z]\s*[-–—:.]?\s*/i, '')
+      .replace(/^[A-Z]\s*[-–—:.]\s*/i, '')
       .trim();
   }
 
-  private formatMacroTitle(code: string, label: string) {
-    return `${this.getMacroReference(code)} - ${this.stripMacroPrefix(label).toUpperCase()}`;
+  private formatMacroTitleForMacro(macro: ReportMacro) {
+    return `${macro.displayRef} - ${this.stripMacroPrefix(macro.label).toUpperCase()}`;
   }
 
   private escapeHtmlStatic(value?: string) {
@@ -581,21 +587,26 @@ export class CheckupPreassessmentPdfTemplateService {
       order: { createdAt: 'ASC' },
     });
 
-    const reportMacros: ReportMacro[] = structure.map((macro) => ({
-      id: macro.code,
-      label: macro.label,
-      color: macro.color,
-      sections: (macro.sections || []).map((section) => ({
-        id: section.code,
-        title: section.title,
-        macroId: macro.code,
-        fields: (section.fields || []).map((field: QuestionField) => ({
-          id: field.fieldId,
-          label: field.label,
-          required: field.required,
+    const reportMacros: ReportMacro[] = structure.map((macro, macroIndex) => {
+      const displayRef = this.getAlphabeticReference(macroIndex);
+      return {
+        id: macro.code,
+        label: macro.label,
+        color: macro.color,
+        displayRef,
+        sections: (macro.sections || []).map((section, sectionIndex) => ({
+          id: section.code,
+          title: section.title,
+          macroId: macro.code,
+          displayCode: `${displayRef}.${sectionIndex + 1}`,
+          fields: (section.fields || []).map((field: QuestionField) => ({
+            id: field.fieldId,
+            label: field.label,
+            required: field.required,
+          })),
         })),
-      })),
-    }));
+      };
+    });
 
     const nowDate = new Date();
     const nowLabel = nowDate.toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -682,7 +693,7 @@ export class CheckupPreassessmentPdfTemplateService {
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
 
-    const sectionsForIndex: Array<{ macroLabel: string; title: string; color: string; page: number; dest: string }> = [];
+    const sectionsForIndex: Array<{ macroLabel: string; sectionCode: string; title: string; color: string; page: number; dest: string }> = [];
 
     this.drawNativeCover(doc, payload);
     this.drawNativeIntro(doc, payload);
@@ -698,7 +709,8 @@ export class CheckupPreassessmentPdfTemplateService {
       visibleSections.forEach((section) => {
         const sectionDest = `section-${macro.id}-${section.id}`;
         sectionsForIndex.push({
-          macroLabel: this.formatMacroTitle(macro.id, macro.label),
+          macroLabel: this.formatMacroTitleForMacro(macro),
+          sectionCode: section.displayCode,
           title: section.title,
           color: macro.color,
           page: doc.bufferedPageRange().start + doc.bufferedPageRange().count,
@@ -803,7 +815,7 @@ export class CheckupPreassessmentPdfTemplateService {
     this.drawPageShell(doc, 'Indice', 'Sommario del documento', false, this.getQuestionnaireKicker(payload.modelDisplayName));
   }
 
-  private drawNativeToc(doc: any, payload: ReportPayload, sections: Array<{ macroLabel: string; title: string; color: string; page: number; dest: string }>) {
+  private drawNativeToc(doc: any, payload: ReportPayload, sections: Array<{ macroLabel: string; sectionCode: string; title: string; color: string; page: number; dest: string }>) {
     this.drawPageShell(doc, 'Indice', 'Sommario del documento', false, this.getQuestionnaireKicker(payload.modelDisplayName));
     doc.addNamedDestination('toc', 'XYZ', 54, 118, null);
     let y = 120;
@@ -822,13 +834,12 @@ export class CheckupPreassessmentPdfTemplateService {
         doc.fillColor(section.color).font('Helvetica-Bold').fontSize(9).text(currentMacro.toUpperCase(), x, y, { width: colWidth });
         y += 14;
       }
-      const sectionCode = this.formatSectionCode(section.title, section.macroLabel);
+      const sectionCode = section.sectionCode;
       const sectionTitle = this.stripSectionCodePrefix(section.title, sectionCode);
       const tocLabel = `${sectionCode} - ${sectionTitle}`;
       doc.fillColor('#0f172a').font('Helvetica').fontSize(9.5).text(tocLabel, x, y, {
         width: colWidth - 22,
         goTo: section.dest,
-        underline: true,
       });
       doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(9.5).text(String(section.page), x + colWidth - 18, y, { width: 18, align: 'right' });
       y += Math.max(16, doc.heightOfString(tocLabel, { width: colWidth - 22, align: 'left' }) + 6);
@@ -836,7 +847,7 @@ export class CheckupPreassessmentPdfTemplateService {
   }
 
   private drawMacroPageHeader(doc: any, payload: ReportPayload, macro: ReportMacro) {
-    this.drawPageShell(doc, this.formatMacroTitle(macro.id, macro.label), payload.clientName, true, this.getQuestionnaireKicker(payload.modelDisplayName));
+    this.drawPageShell(doc, this.formatMacroTitleForMacro(macro), payload.clientName, true, this.getQuestionnaireKicker(payload.modelDisplayName));
   }
 
   private drawNativeFinalPage(doc: any, payload: ReportPayload) {
@@ -863,7 +874,7 @@ export class CheckupPreassessmentPdfTemplateService {
     const questionWidth = 200;
     const answerWidth = bodyWidth - questionWidth;
     const borderColor = this.resolveMacroColor(macro);
-    const sectionCode = this.formatSectionCode(section.id, macro.id);
+    const sectionCode = section.displayCode;
 
     const visibleFields = section.fields.filter((field) => !(payload.excludeNA && payload.naFields[field.id]));
     const rowMetrics: SectionRowMetric[] = visibleFields.map((field) => {
@@ -942,9 +953,10 @@ export class CheckupPreassessmentPdfTemplateService {
       if (firstChunk) {
         doc.addNamedDestination(sectionDest, 'XYZ', startX, chunkTop, null);
       }
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10).text(this.formatMacroTitle(macro.id, macro.label).toUpperCase(), startX + 20, chunkTop + 9, {
-        width: bodyWidth - 40,
-        characterSpacing: 1.2,
+      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9.5).text(this.formatMacroTitleForMacro(macro).toUpperCase(), startX + 20, chunkTop + 9, {
+        width: bodyWidth - 158,
+        characterSpacing: 0.9,
+        lineBreak: false,
       });
 
       const backLabel = 'Torna all\'indice';
@@ -954,7 +966,6 @@ export class CheckupPreassessmentPdfTemplateService {
         width: backWidth + 2,
         lineBreak: false,
         goTo: 'toc',
-        underline: true,
       });
 
       let cursorY = chunkTop + macroHeaderHeight;
@@ -1044,10 +1055,35 @@ export class CheckupPreassessmentPdfTemplateService {
   private drawPageShell(doc: any, title: string, rightLabel: string, showIndexLink = false, leftKicker = 'Questionario') {
     doc.roundedRect(44, 44, 507, 754, 14).fill('#ffffff').stroke('#d9e2f0');
     doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8).text(leftKicker, 64, 64, { characterSpacing: 1.2 });
-    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(22).text(title, 64, 80, { width: 320 });
+    this.drawSingleLineText(doc, title, 64, 80, 320, 22, 14, '#0f172a', 'Helvetica-Bold');
     doc.fillColor('#94a3b8').font('Helvetica').fontSize(9).text(rightLabel, 394, 64, { width: 137, align: 'right' });
     doc.moveTo(64, 112).lineTo(531, 112).strokeColor('#e2e8f0').stroke();
     doc.y = 120;
+  }
+
+  private drawSingleLineText(
+    doc: any,
+    text: string,
+    x: number,
+    y: number,
+    width: number,
+    maxFontSize: number,
+    minFontSize: number,
+    color: string,
+    font: string,
+    options: Record<string, any> = {},
+  ) {
+    let fontSize = maxFontSize;
+    doc.font(font).fontSize(fontSize);
+    while (fontSize > minFontSize && doc.widthOfString(text) > width) {
+      fontSize -= 0.5;
+      doc.fontSize(fontSize);
+    }
+    doc.fillColor(color).font(font).fontSize(fontSize).text(text, x, y, {
+      width,
+      lineBreak: false,
+      ...options,
+    });
   }
 
   private drawInfoCard(doc: any, x: number, y: number, w: number, h: number, title: string, rows: Array<[string, string]>, columns = 2) {
@@ -1168,25 +1204,19 @@ export class CheckupPreassessmentPdfTemplateService {
     return element.text || fallback;
   }
 
-  private formatSectionCode(sectionId: string, macroCode: string) {
-    const normalized = (sectionId || '').replace(/_/g, '.').replace(/-/g, '.');
-    const match = normalized.match(/([A-Z])\D*(\d+(?:\.\d+)*)/i);
-    if (match) return `${match[1].toUpperCase()}.${match[2]}`;
-    const macro = this.getMacroReference(macroCode);
-    return `${macro || 'S'}.1`;
-  }
-
   private stripSectionCodePrefix(title: string, sectionCode: string) {
     const cleanTitle = (title || '').trim();
     const escapedCode = sectionCode.replace('.', '\\.?');
     return cleanTitle
       .replace(/^[A-Z0-9]+_[A-Z]\.\d+(?:\.\d+)?\s*[-–—:]?\s*/i, '')
+      .replace(/^[A-Z][A-Z0-9.]*(?:\s*[-–—:]\s*)+[A-Z]\.\d+(?:\.\d+)?\s*[-–—:]?\s*/i, '')
+      .replace(/^[A-Z]\.\d+(?:\.\d+)?\s*[-–—:]?\s*/i, '')
       .replace(new RegExp(`^${escapedCode}\\s*[-–—:]?\\s*`, 'i'), '')
       .trim() || cleanTitle;
   }
 
   private resolveMacroColor(macro: ReportMacro) {
-    const normalized = (macro.id || '').replace(/[^a-z]/gi, '').toLowerCase();
+    const normalized = (macro.displayRef || macro.id || '').replace(/[^a-z]/gi, '').toLowerCase();
     const fallbackByCode: Record<string, string> = {
       a: '#3b82f6',
       b: '#7c3aed',
