@@ -154,11 +154,11 @@ export const DEFAULT_PDF_CONFIG: PdfConfig = {
 
   showMacroLetter: false,
 
-  coverTitle: 'CHECKUP',
-  coverSubtitle: 'Checkup Governance • Pre-Assessment',
+  coverTitle: 'REPORT RISERVATO',
+  coverSubtitle: 'Analisi Governance • Report riservato',
   coverKicker: 'Report Riservato',
-  coverHeading: 'Pre-Assessment Tool',
-  coverDetail: 'Gestione professionale del checkup governance per studi legali e aziende. Un report strutturato per decisioni rapide e tracciabilità completa.',
+  coverHeading: 'Analisi Governance',
+  coverDetail: 'Documento operativo di sintesi per la valutazione preliminare del sistema di governance, compliance e controllo interno. Redatto per supportare decisioni rapide, tracciabilità delle evidenze e pianificazione degli interventi di adeguamento.',
   coverFeatures: [
     'Tracking completo e stato avanzamento in tempo reale',
     'Sicurezza, compliance e audit trail integrato',
@@ -177,7 +177,7 @@ export const DEFAULT_PDF_CONFIG: PdfConfig = {
   coverShowFeatures: true,
   coverShowChip: true,
   coverShowFooterNote: true,
-  coverShowConsultant: true,
+  coverShowConsultant: false,
   coverShowDate: true,
 
   coverBgStart: '#1e3a8a',
@@ -189,13 +189,13 @@ export const DEFAULT_PDF_CONFIG: PdfConfig = {
 
   coverTextAlign: 'left',
 
-  coverTitleFontSize: 28,
-  coverHeadingFontSize: 36,
+  coverTitleFontSize: 24,
+  coverHeadingFontSize: 34,
   coverKickerFontSize: 12,
   coverDetailFontSize: 12,
   coverFeaturesFontSize: 11,
 
-  coverTitleFontWeight: 'bold',
+  coverTitleFontWeight: 'normal',
   coverHeadingFontWeight: 'bold',
   coverKickerFontWeight: 'normal',
   coverDetailFontWeight: 'normal',
@@ -217,17 +217,17 @@ export const DEFAULT_PDF_CONFIG: PdfConfig = {
 
 export const DEFAULT_COVER_ELEMENTS: CoverElement[] = [
   { id: 'logo', name: 'Logo', type: 'logo', visible: true, x: 4, y: 4, width: 18, height: 8, zIndex: 20, fontSize: 12, fontWeight: 'normal', color: '#ffffff', align: 'left', opacity: 1, borderRadius: 2 },
-  { id: 'title', name: 'Titolo app', type: 'text', visible: true, x: 25, y: 4.5, width: 36, height: 4, zIndex: 21, text: 'CHECKUP', fontSize: 28, fontWeight: 'bold', color: '#eef2ff', align: 'left', opacity: 1, letterSpacing: 0.02, lineHeight: 1.15 },
-  { id: 'subtitle', name: 'Sottotitolo', type: 'text', visible: true, x: 25, y: 9.3, width: 42, height: 3.5, zIndex: 21, text: 'Checkup Governance • Pre-Assessment', fontSize: 10, fontWeight: 'normal', color: '#dbeafe', align: 'left', opacity: 0.85, lineHeight: 1.3 },
+  { id: 'title', name: 'Titolo app', type: 'text', visible: true, x: 25, y: 4.5, width: 42, height: 4, zIndex: 21, text: 'REPORT RISERVATO', fontSize: 24, fontWeight: 'normal', color: '#eef2ff', align: 'left', opacity: 1, letterSpacing: 0.02, lineHeight: 1.15 },
+  { id: 'subtitle', name: 'Sottotitolo', type: 'text', visible: true, x: 25, y: 9.3, width: 42, height: 3.5, zIndex: 21, text: 'Analisi Governance • Report riservato', fontSize: 10, fontWeight: 'normal', color: '#dbeafe', align: 'left', opacity: 0.85, lineHeight: 1.3 },
   { id: 'chip', name: 'Badge versione', type: 'chip', visible: true, x: 78, y: 5, width: 13, height: 4, zIndex: 22, text: 'v6.0', fontSize: 10, fontWeight: 'bold', color: '#ffffff', align: 'center', backgroundColor: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.18)', borderWidth: 1, borderRadius: 999, opacity: 1, letterSpacing: 0.04, lineHeight: 1.2 },
   { id: 'kicker', name: 'Etichetta', type: 'text', visible: true, x: 8, y: 22, width: 34, height: 3.5, zIndex: 15, text: 'Report Riservato', fontSize: 12, fontWeight: 'normal', color: '#cbd5f5', align: 'left', opacity: 0.8, letterSpacing: 0.28, lineHeight: 1.2, uppercase: true },
-  { id: 'heading', name: 'Titolo principale', type: 'text', visible: true, x: 8, y: 29, width: 58, height: 8, zIndex: 15, text: 'Pre-Assessment Tool', fontSize: 36, fontWeight: 'bold', color: '#ffffff', align: 'left', opacity: 1, lineHeight: 1.12 },
+  { id: 'heading', name: 'Titolo principale', type: 'text', visible: true, x: 8, y: 29, width: 58, height: 8, zIndex: 15, text: 'Analisi Governance', fontSize: 34, fontWeight: 'bold', color: '#ffffff', align: 'left', opacity: 1, lineHeight: 1.12 },
   { id: 'company', name: 'Azienda', type: 'company', visible: true, x: 8, y: 38.5, width: 58, height: 4, zIndex: 15, fontSize: 18, fontWeight: 'normal', color: '#dbeafe', align: 'left', opacity: 1, lineHeight: 1.25 },
   { id: 'date', name: 'Data generazione', type: 'date', visible: true, x: 8, y: 43, width: 50, height: 3.5, zIndex: 15, fontSize: 12, fontWeight: 'normal', color: '#c7d2fe', align: 'left', opacity: 1, lineHeight: 1.2 },
-  { id: 'detail', name: 'Testo descrittivo', type: 'text', visible: true, x: 8, y: 50, width: 58, height: 11, zIndex: 15, text: 'Gestione professionale del checkup governance per studi legali e aziende. Un report strutturato per decisioni rapide e tracciabilità completa.', fontSize: 12, fontWeight: 'normal', color: '#dbeafe', align: 'left', opacity: 1, lineHeight: 1.65 },
+  { id: 'detail', name: 'Testo descrittivo', type: 'text', visible: true, x: 8, y: 50, width: 62, height: 12, zIndex: 15, text: 'Documento operativo di sintesi per la valutazione preliminare del sistema di governance, compliance e controllo interno. Redatto per supportare decisioni rapide, tracciabilità delle evidenze e pianificazione degli interventi di adeguamento.', fontSize: 12, fontWeight: 'normal', color: '#dbeafe', align: 'left', opacity: 1, lineHeight: 1.55 },
   { id: 'features', name: 'Bullet point', type: 'features', visible: true, x: 8, y: 64, width: 72, height: 16, zIndex: 15, items: ['Tracking completo e stato avanzamento in tempo reale', 'Sicurezza, compliance e audit trail integrato', 'Dashboard e report con KPI immediati', 'Collaborazione studio-cliente con controllo accessi'], fontSize: 11, fontWeight: 'normal', color: '#e2e8f0', align: 'left', opacity: 1, lineHeight: 1.45 },
   { id: 'footer-note', name: 'Nota footer copertina', type: 'text', visible: true, x: 8, y: 93.5, width: 40, height: 3, zIndex: 12, text: 'Documento ad uso interno e cliente', fontSize: 10, fontWeight: 'normal', color: '#cbd5f5', align: 'left', opacity: 1, lineHeight: 1.2 },
-  { id: 'consultant', name: 'Consulente', type: 'consultant', visible: true, x: 60, y: 93.5, width: 30, height: 3, zIndex: 12, fontSize: 11, fontWeight: 'normal', color: 'rgba(255,255,255,0.65)', align: 'right', opacity: 1, lineHeight: 1.2 },
+  { id: 'consultant', name: 'Consulente', type: 'consultant', visible: false, x: 60, y: 93.5, width: 30, height: 3, zIndex: 12, fontSize: 11, fontWeight: 'normal', color: 'rgba(255,255,255,0.65)', align: 'right', opacity: 1, lineHeight: 1.2 },
 ];
 
 DEFAULT_PDF_CONFIG.coverElements = cloneDefaultCoverElements();

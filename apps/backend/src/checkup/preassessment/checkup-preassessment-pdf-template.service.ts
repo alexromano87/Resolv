@@ -756,30 +756,60 @@ export class CheckupPreassessmentPdfTemplateService {
     doc.rect(0, 0, pageWidth, pageHeight).fill(gradient);
     doc.restore();
 
-    const title = payload.modelDisplayName;
-    const subtitle = this.getCoverText(payload.pdfConfig, 'subtitle', 'Questionario strutturato per la profilazione governance, compliance, risk e documentazione.');
-    const company = payload.clientName;
-    const consultant = `Consulente: ${payload.consultantName}`;
+    const modelTitle = this.getCoverModelTitle(payload.modelDisplayName);
+    const coverDescription = this.getCoverDescription(payload.pdfConfig, payload.modelDisplayName);
+    const centerWidth = pageWidth - leftPad - rightPad;
     if (payload.logoUrl?.startsWith('data:')) {
       try {
         const base64 = payload.logoUrl.split(',')[1] || payload.logoUrl;
         doc.image(Buffer.from(base64, 'base64'), leftPad, 56, { fit: [180, 72], align: 'left', valign: 'center' });
       } catch {}
     }
-    doc.fillColor('#e2e8f0').fontSize(12).font('Helvetica-Bold').text(this.getCoverText(payload.pdfConfig, 'kicker', 'CHECKUP'), leftPad, 156, {
-      width: pageWidth - leftPad - rightPad,
+    doc.fillColor('#e2e8f0').fontSize(11).font('Helvetica').text('REPORT RISERVATO', leftPad, 150, {
+      width: centerWidth,
+      align: 'center',
+      characterSpacing: 2.2,
     });
-    doc.fillColor('#ffffff').fontSize(34).font('Helvetica-Bold').text(title, leftPad, 196, {
-      width: pageWidth - leftPad - rightPad,
+    doc.fillColor('#ffffff').fontSize(28).font('Helvetica-Bold').text('ANALISI GOVERNANCE', leftPad, 198, {
+      width: centerWidth,
+      align: 'center',
+      characterSpacing: 0.8,
     });
-    doc.fillColor('#dbeafe').fontSize(16).font('Helvetica').text(subtitle, leftPad, 252, {
-      width: pageWidth - leftPad - rightPad - 35,
+    doc.fillColor('#dbeafe').fontSize(34).font('Helvetica').text(modelTitle, leftPad, 236, {
+      width: centerWidth,
+      align: 'center',
     });
-    doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold').text(company, leftPad, pageHeight - 170, { width: 300 });
-    doc.fillColor('#cbd5e1').fontSize(10).font('Helvetica').text(`${payload.nowLabel} · ${payload.nowTime}`, leftPad, pageHeight - 142);
-    doc.fillColor('#cbd5e1').fontSize(10).font('Helvetica').text(consultant, leftPad, pageHeight - 74, {
-      width: pageWidth - leftPad - rightPad,
-      align: 'right',
+    doc.save();
+    doc.moveTo(leftPad + 118, 292).lineTo(pageWidth - rightPad - 118, 292).strokeColor('#dbeafe').lineWidth(1).stroke();
+    doc.restore();
+
+    const drawCoverMeta = (label: string, value: string, y: number) => {
+      doc.fillColor('#bfdbfe').fontSize(9.5).font('Helvetica-Bold').text(label, leftPad, y, {
+        width: centerWidth,
+        align: 'center',
+        characterSpacing: 1.6,
+      });
+      doc.fillColor('#ffffff').fontSize(16).font('Helvetica').text(value || '-', leftPad + 42, y + 17, {
+        width: centerWidth - 84,
+        align: 'center',
+      });
+    };
+
+    drawCoverMeta('CLIENTE', payload.clientName, 316);
+    drawCoverMeta('CONSULENTE', payload.consultantName, 374);
+
+    doc.fillColor('#dbeafe').fontSize(12.5).font('Helvetica').text(coverDescription, leftPad + 34, 460, {
+      width: centerWidth - 68,
+      align: 'center',
+      lineGap: 4,
+    });
+    doc.fillColor('#cbd5e1').fontSize(9.5).font('Helvetica').text('Documento riservato ad uso interno del cliente e del consulente', leftPad, pageHeight - 96, {
+      width: centerWidth,
+      align: 'center',
+    });
+    doc.fillColor('#cbd5e1').fontSize(9.5).font('Helvetica').text(`Generato il ${payload.nowLabel} · ${payload.nowTime}`, leftPad, pageHeight - 74, {
+      width: centerWidth,
+      align: 'center',
     });
   }
 
@@ -1202,6 +1232,24 @@ export class CheckupPreassessmentPdfTemplateService {
     if (!element) return fallback;
     if (type === 'features') return fallback;
     return element.text || fallback;
+  }
+
+  private getCoverModelTitle(modelDisplayName: string) {
+    const normalized = (modelDisplayName || '').trim();
+    if (!normalized) return 'MODELLO';
+    if (/^modello\b/i.test(normalized)) return normalized.toUpperCase();
+    if (/^\d+[A-Za-z]?$/.test(normalized)) return `MODELLO ${normalized.toUpperCase()}`;
+    return normalized.toUpperCase();
+  }
+
+  private getCoverDescription(config: PdfConfigDto, modelDisplayName: string) {
+    const oldDefault = 'Gestione professionale del checkup governance per studi legali e aziende. Un report strutturato per decisioni rapide e tracciabilità completa.';
+    const generalDefault = 'Documento operativo di sintesi per la valutazione preliminare del sistema di governance, compliance e controllo interno. Redatto per supportare decisioni rapide, tracciabilità delle evidenze e pianificazione degli interventi di adeguamento.';
+    const model231Default = 'Report strutturato per l\'analisi preliminare dei presidi organizzativi, dei flussi informativi e delle evidenze documentali rilevanti ai fini del Modello 231. Pensato per supportare valutazioni rapide, tracciabilità completa e definizione delle priorità di intervento.';
+    const configured = this.getCoverText(config, 'detail', '').trim();
+    const knownDefaults = new Set([oldDefault, generalDefault, model231Default]);
+    if (configured && !knownDefaults.has(configured)) return configured;
+    return /231/.test(modelDisplayName || '') ? model231Default : generalDefault;
   }
 
   private stripSectionCodePrefix(title: string, sectionCode: string) {
