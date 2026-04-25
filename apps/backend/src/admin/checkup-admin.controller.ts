@@ -809,6 +809,7 @@ export class CheckupAdminController {
       password: hashedPassword,
       nome: dto.nome.trim(),
       cognome: dto.cognome.trim(),
+      titolo: dto.titolo?.trim() || null,
       telefono: dto.telefono?.trim() || null,
       ruolo: dto.ruolo,
       studioId: dto.ruolo === 'cliente' ? null : dto.studioId ?? null,
@@ -853,6 +854,7 @@ export class CheckupAdminController {
 
     if (dto.nome !== undefined) user.nome = dto.nome.trim();
     if (dto.cognome !== undefined) user.cognome = dto.cognome.trim();
+    if (dto.titolo !== undefined) user.titolo = dto.titolo?.trim() || null;
     if (dto.telefono !== undefined) user.telefono = dto.telefono?.trim() || null;
     if (dto.azienda !== undefined) user.azienda = dto.azienda?.trim() || null;
 

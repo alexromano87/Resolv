@@ -8,6 +8,21 @@ import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { Pagination } from '../components/Pagination';
 
 export default function AdminCheckupStudiosPage() {
+  const emptyStaffForm = {
+    nome: '',
+    cognome: '',
+    email: '',
+    password: '',
+    ruolo: 'admin_studio' as 'admin_studio' | 'segreteria' | 'collaboratore',
+    telefono: '',
+  };
+  const emptyEditableStaffForm = {
+    nome: '',
+    cognome: '',
+    email: '',
+    ruolo: 'admin_studio' as 'admin_studio' | 'segreteria' | 'collaboratore',
+    telefono: '',
+  };
   const formatDate = (value?: string | null) => {
     if (!value) return '—';
     const date = new Date(value);
@@ -52,14 +67,10 @@ export default function AdminCheckupStudiosPage() {
 
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [keepUserIds, setKeepUserIds] = useState<string[]>([]);
-  const [staffForm, setStaffForm] = useState({
-    nome: '',
-    cognome: '',
-    email: '',
-    password: '',
-    ruolo: 'admin_studio' as 'admin_studio' | 'segreteria' | 'collaboratore',
-    telefono: '',
-  });
+  const [staffForm, setStaffForm] = useState(emptyStaffForm);
+  const [showEditStaffModal, setShowEditStaffModal] = useState(false);
+  const [editingStaffUser, setEditingStaffUser] = useState<CheckupAdminUser | null>(null);
+  const [editingStaffForm, setEditingStaffForm] = useState(emptyEditableStaffForm);
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
   const [selectedStaffUser, setSelectedStaffUser] = useState<CheckupAdminUser | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState('');
@@ -117,6 +128,10 @@ export default function AdminCheckupStudiosPage() {
     });
     setKeepUserIds([]);
     setShowStaffForm(false);
+    setStaffForm(emptyStaffForm);
+    setShowEditStaffModal(false);
+    setEditingStaffUser(null);
+    setEditingStaffForm(emptyEditableStaffForm);
     setShowModal(true);
   };
 
@@ -145,6 +160,10 @@ export default function AdminCheckupStudiosPage() {
     setKeepUserIds([]);
 
     setShowStaffForm(false);
+    setStaffForm(emptyStaffForm);
+    setShowEditStaffModal(false);
+    setEditingStaffUser(null);
+    setEditingStaffForm(emptyEditableStaffForm);
     setShowModal(true);
   };
 
@@ -154,6 +173,10 @@ export default function AdminCheckupStudiosPage() {
     setShowStaffForm(false);
     setFormErrors({});
     setKeepUserIds([]);
+    setStaffForm(emptyStaffForm);
+    setShowEditStaffModal(false);
+    setEditingStaffUser(null);
+    setEditingStaffForm(emptyEditableStaffForm);
   };
 
   const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -409,14 +432,7 @@ export default function AdminCheckupStudiosPage() {
         telefono: staffForm.telefono || undefined,
       });
       success('Utente studio creato');
-      setStaffForm({
-        nome: '',
-        cognome: '',
-        email: '',
-        password: '',
-        ruolo: 'admin_studio',
-        telefono: '',
-      });
+      setStaffForm(emptyStaffForm);
       setShowStaffForm(false);
       loadData();
     } catch (err: any) {
@@ -424,21 +440,69 @@ export default function AdminCheckupStudiosPage() {
     }
   };
 
+  const handleOpenEditStaff = (user: CheckupAdminUser) => {
+    setEditingStaffUser(user);
+    setEditingStaffForm({
+      nome: user.nome || '',
+      cognome: user.cognome || '',
+      email: user.email || '',
+      ruolo: user.ruolo as 'admin_studio' | 'segreteria' | 'collaboratore',
+      telefono: user.telefono || '',
+    });
+    setShowEditStaffModal(true);
+  };
+
+  const handleCloseEditStaffModal = () => {
+    setShowEditStaffModal(false);
+    setEditingStaffUser(null);
+    setEditingStaffForm(emptyEditableStaffForm);
+  };
+
+  const handleUpdateStaffUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStaffUser) return;
+    if (!editingStaffForm.nome.trim() || !editingStaffForm.cognome.trim() || !editingStaffForm.email.trim()) {
+      toastError('Compila tutti i campi obbligatori');
+      return;
+    }
+    const confirmed = await confirm({
+      title: 'Confermare modifica utente?',
+      message: `Vuoi salvare le modifiche per "${editingStaffForm.nome.trim()} ${editingStaffForm.cognome.trim()}"?`,
+      confirmText: 'Salva utente',
+      variant: 'info',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.updateAdminUser(editingStaffUser.id, {
+        nome: editingStaffForm.nome.trim(),
+        cognome: editingStaffForm.cognome.trim(),
+        email: editingStaffForm.email.trim(),
+        ruolo: editingStaffForm.ruolo,
+        telefono: editingStaffForm.telefono.trim(),
+      });
+      success('Utente studio aggiornato');
+      handleCloseEditStaffModal();
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante il salvataggio utente');
+    }
+  };
+
   const handleToggleStaffActive = async (user: CheckupAdminUser) => {
     const confirmed = await confirm({
-      title: user.attivo ? 'Disattivare utente?' : 'Attivare utente?',
-      message: `Sei sicuro di voler ${user.attivo ? 'disattivare' : 'attivare'} ${user.nome} ${user.cognome}?`,
-      confirmText: user.attivo ? 'Disattiva' : 'Attiva',
+      title: user.attivo ? 'Eliminare utente?' : 'Ripristinare utente?',
+      message: `Sei sicuro di voler ${user.attivo ? 'eliminare' : 'ripristinare'} ${user.nome} ${user.cognome}?`,
+      confirmText: user.attivo ? 'Elimina' : 'Ripristina',
       variant: 'warning',
     });
     if (!confirmed) return;
     try {
       if (user.attivo) {
         await checkupAdminApi.deactivateAdminUser(user.id);
-        success('Utente disattivato');
+        success('Utente eliminato');
       } else {
         await checkupAdminApi.updateAdminUser(user.id, { attivo: true });
-        success('Utente attivato');
+        success('Utente ripristinato');
       }
       loadData();
     } catch (err: any) {
@@ -987,6 +1051,13 @@ export default function AdminCheckupStudiosPage() {
                                 </span>
                                 <button
                                   type="button"
+                                  onClick={() => handleOpenEditStaff(user)}
+                                  className="rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:border-slate-300"
+                                >
+                                  Modifica
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => handleOpenResetPassword(user)}
                                   className="rounded-full border border-blue-200 px-2 py-0.5 text-[10px] font-semibold text-blue-700 hover:border-blue-300"
                                 >
@@ -1001,7 +1072,7 @@ export default function AdminCheckupStudiosPage() {
                                       : 'border-emerald-200 text-emerald-700 hover:border-emerald-300'
                                   }`}
                                 >
-                                  {user.attivo ? 'Disattiva' : 'Attiva'}
+                                  {user.attivo ? 'Elimina' : 'Ripristina'}
                                 </button>
                               </div>
                             </div>
@@ -1135,6 +1206,88 @@ export default function AdminCheckupStudiosPage() {
                   <button type="submit" className="wow-button">
                     <Key className="h-4 w-4" />
                     Reimposta
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </BodyPortal>
+      )}
+
+      {showEditStaffModal && editingStaffUser && (
+        <BodyPortal>
+          <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4">
+            <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                <h2 className="text-lg font-semibold text-slate-900">Modifica utente studio</h2>
+                <button
+                  onClick={handleCloseEditStaffModal}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <form onSubmit={handleUpdateStaffUser} className="space-y-4 p-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Nome</label>
+                    <input
+                      value={editingStaffForm.nome}
+                      onChange={(e) => setEditingStaffForm((p) => ({ ...p, nome: e.target.value }))}
+                      className={inputClassName}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Cognome</label>
+                    <input
+                      value={editingStaffForm.cognome}
+                      onChange={(e) => setEditingStaffForm((p) => ({ ...p, cognome: e.target.value }))}
+                      className={inputClassName}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Email</label>
+                    <input
+                      type="email"
+                      value={editingStaffForm.email}
+                      onChange={(e) => setEditingStaffForm((p) => ({ ...p, email: e.target.value }))}
+                      className={inputClassName}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Ruolo</label>
+                    <div className="mt-1">
+                      <CustomSelect
+                        value={editingStaffForm.ruolo}
+                        onChange={(val) =>
+                          setEditingStaffForm((p) => ({
+                            ...p,
+                            ruolo: val as 'admin_studio' | 'segreteria' | 'collaboratore',
+                          }))
+                        }
+                        options={staffRoleOptions}
+                      />
+                    </div>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-slate-700">Telefono (opzionale)</label>
+                    <input
+                      value={editingStaffForm.telefono}
+                      onChange={(e) => setEditingStaffForm((p) => ({ ...p, telefono: e.target.value }))}
+                      className={inputClassName}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={handleCloseEditStaffModal} className="wow-button-ghost">
+                    Annulla
+                  </button>
+                  <button type="submit" className="wow-button">
+                    <Edit2 className="h-4 w-4" />
+                    Salva utente
                   </button>
                 </div>
               </form>

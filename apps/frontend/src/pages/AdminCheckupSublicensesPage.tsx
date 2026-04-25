@@ -9,6 +9,13 @@ import { DateField } from '../components/ui/DateField';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 
 export default function AdminCheckupSublicensesPage() {
+  const getSublicenseClientDisplayName = (sublicense: Pick<CheckupSublicense, 'client' | 'clienteStudio'>) =>
+    sublicense.client?.nome
+    || sublicense.client?.ragioneSociale
+    || sublicense.clienteStudio?.nome
+    || sublicense.clienteStudio?.ragioneSociale
+    || '—';
+
   const sublicenseTypeOptions = [
     { value: 'Standard', label: 'Standard (preset)' },
     { value: 'Professional', label: 'Professional (preset)' },
@@ -227,7 +234,9 @@ export default function AdminCheckupSublicensesPage() {
         s.license?.numeroLicenza,
         s.license?.studio?.nome,
         s.client?.nome,
+        s.client?.ragioneSociale,
         s.clienteStudio?.nome,
+        s.clienteStudio?.ragioneSociale,
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term));
@@ -323,7 +332,7 @@ export default function AdminCheckupSublicensesPage() {
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{s.numeroSublicenza || '—'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">
-                      {s.client?.nome || s.clienteStudio?.nome || '—'}
+                      {getSublicenseClientDisplayName(s)}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{s.tipo || '—'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{s.numeroUtenze}</td>

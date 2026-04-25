@@ -25,6 +25,7 @@ export interface CheckupAdminUser {
   email: string;
   nome: string;
   cognome: string;
+  titolo?: string | null;
   telefono?: string | null;
   ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   studioId: string | null;
@@ -156,6 +157,7 @@ export interface CreateCheckupAdminUserDto {
   password: string;
   nome: string;
   cognome: string;
+  titolo?: string;
   studioId?: string;
   clientId?: string;
   sublicenseId?: string;
@@ -171,6 +173,7 @@ export interface UpdateCheckupAdminUserDto {
   email?: string;
   nome?: string;
   cognome?: string;
+  titolo?: string;
   telefono?: string;
   studioId?: string;
   clientId?: string;

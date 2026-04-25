@@ -31,6 +31,9 @@ export class CheckupUser {
   @Column({ length: 100 })
   cognome: string;
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  titolo: string | null;
+
   @Column({ type: 'varchar', length: 30, nullable: true })
   telefono: string | null;
 

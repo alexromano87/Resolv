@@ -1,4 +1,15 @@
-import { BookOpen, ClipboardCheck, FileText, ShieldCheck, Users, AlertTriangle, UploadCloud, KeyRound, MessageCircle, ListChecks } from 'lucide-react';
+import {
+  AlertTriangle,
+  BookOpen,
+  CheckCircle2,
+  ClipboardCheck,
+  FileText,
+  KeyRound,
+  MessageCircle,
+  ShieldCheck,
+  UploadCloud,
+  Users,
+} from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const SectionTitle = ({ icon: Icon, title }: { icon: typeof BookOpen; title: string }) => (
@@ -10,6 +21,28 @@ const SectionTitle = ({ icon: Icon, title }: { icon: typeof BookOpen; title: str
   </div>
 );
 
+const GuideSection = ({
+  icon,
+  title,
+  intro,
+  points,
+}: {
+  icon: typeof BookOpen;
+  title: string;
+  intro: string;
+  points: string[];
+}) => (
+  <section className="wow-panel p-6 space-y-4">
+    <SectionTitle icon={icon} title={title} />
+    <p className="text-sm text-slate-600">{intro}</p>
+    <ul className="list-disc space-y-2 pl-5 text-sm text-slate-700">
+      {points.map((point) => (
+        <li key={point}>{point}</li>
+      ))}
+    </ul>
+  </section>
+);
+
 export default function HelpPage() {
   const { user } = useAuth();
   const isCliente = user?.ruolo === 'cliente';
@@ -19,149 +52,165 @@ export default function HelpPage() {
       <div className="wow-card p-6 md:p-8">
         <span className="wow-chip w-fit">Guida operativa</span>
         <h1 className="mt-4 text-3xl font-semibold text-slate-900 display-font">
-          Help {isCliente ? 'Cliente' : 'Licenziatario'} Pre-Assessment
+          Guida {isCliente ? 'Sublicenziatario' : 'Licenziatario'}
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Questa guida descrive in modo dettagliato come utilizzare il Pre-Assessment.
-          Segui i passaggi nell’ordine indicato per evitare errori di compilazione e gestione.
+          Una guida semplice per usare il software in modo corretto. Le funzioni disponibili cambiano in base al tuo ruolo:
+          il licenziatario coordina il lavoro, il sublicenziatario compila il questionario e condivide i documenti richiesti.
         </p>
       </div>
 
       {isCliente ? (
         <>
-          <section className="wow-panel p-6 space-y-4">
-            <SectionTitle icon={ClipboardCheck} title="1. Come iniziare" />
-            <p className="text-sm text-slate-600">
-              Dopo il login, accedi al checkup assegnato. Il sistema mostra lo stato di avanzamento e le
-              sezioni da completare.
-            </p>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
-              <li>Verifica che il checkup sia quello corretto (nome cliente e data).</li>
-              <li>Leggi le note del licenziatario se presenti.</li>
-              <li>Compila le sezioni in ordine logico per evitare informazioni mancanti.</li>
-            </ul>
-          </section>
+          <GuideSection
+            icon={ClipboardCheck}
+            title="1. Da dove iniziare"
+            intro="Dopo il login entri nell’ambiente del tuo questionario. Il tuo obiettivo è completare le sezioni assegnate in modo ordinato."
+            points={[
+              'Apri il questionario e controlla in alto il nome del cliente e lo stato di avanzamento.',
+              'Usa la sidebar a sinistra per aprire le macroaree e passare rapidamente tra le sezioni.',
+              'Compila una sezione alla volta: è il modo più semplice per non lasciare campi incompleti.',
+              'Se collabori con altre persone, verifica sempre di essere nella sezione corretta prima di scrivere.',
+            ]}
+          />
+
+          <GuideSection
+            icon={FileText}
+            title="2. Come compilare il questionario"
+            intro="Ogni sezione contiene domande, campi testuali, selezioni o richieste documentali. La compilazione deve essere chiara e coerente."
+            points={[
+              'Rispondi in modo completo e concreto, evitando testi troppo generici.',
+              'Se una domanda non si applica al tuo caso, usa l’opzione N/A quando disponibile.',
+              'Controlla i dati inseriti prima di passare alla sezione successiva.',
+              'Se hai un dubbio su una richiesta, fermati e usa la chat invece di inserire una risposta approssimativa.',
+            ]}
+          />
+
+          <GuideSection
+            icon={UploadCloud}
+            title="3. Caricamento documenti"
+            intro="Alcune risposte richiedono allegati di supporto. I documenti aiutano il licenziatario a verificare le informazioni inserite."
+            points={[
+              'Carica solo file pertinenti alla domanda o alla sezione in cui stai lavorando.',
+              'Usa nomi file chiari, per esempio “Organigramma_2026.pdf” o “Policy_Accessi.pdf”.',
+              'Il sistema accetta PDF, documenti Office, immagini, file di testo e CSV.',
+              'La dimensione massima per ogni file è 30 MB.',
+            ]}
+          />
+
+          <GuideSection
+            icon={MessageCircle}
+            title="4. Chat, ticket e richieste di chiarimento"
+            intro="Se ti serve supporto, usa gli strumenti di comunicazione interni invece di lasciare il questionario incompleto o ambiguo."
+            points={[
+              'Usa la chat per richieste rapide collegate a una sezione specifica.',
+              'Apri un ticket se il problema richiede una gestione più strutturata o un’azione del team.',
+              'Quando scrivi, indica sempre la sezione o l’argomento a cui ti riferisci.',
+              'Evita di inviare dati sensibili non necessari nei messaggi.',
+            ]}
+          />
+
+          <GuideSection
+            icon={CheckCircle2}
+            title="5. Prima di considerare il lavoro concluso"
+            intro="Prima di chiudere la sessione, fai un controllo veloce del lavoro svolto."
+            points={[
+              'Verifica che tutte le domande richieste abbiano una risposta oppure N/A.',
+              'Controlla che gli allegati richiesti siano stati caricati correttamente.',
+              'Rivedi le sezioni rimaste incomplete o con informazioni poco chiare.',
+              'Se il licenziatario deve fare una revisione finale, assicurati di avergli lasciato tutte le informazioni utili.',
+            ]}
+          />
 
           <section className="wow-panel p-6 space-y-4">
-            <SectionTitle icon={FileText} title="2. Compilazione delle sezioni" />
-            <p className="text-sm text-slate-600">
-              Ogni domanda del questionario deve ricevere una risposta. Se non è applicabile, seleziona N/A.
-            </p>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
-              <li>Salva frequentemente: lo stato di avanzamento viene aggiornato in tempo reale.</li>
-              <li>Usa i filtri (Tutti, Completati, Da completare, N/A) per gestire il lavoro.</li>
-              <li>Se una domanda non è applicabile, utilizza l’opzione N/A.</li>
-              <li>Concludi il checkup solo quando tutte le informazioni richieste sono complete.</li>
+            <SectionTitle icon={AlertTriangle} title="Problemi frequenti" />
+            <ul className="list-disc space-y-2 pl-5 text-sm text-slate-700">
+              <li>Se un file non viene caricato, controlla formato e dimensione.</li>
+              <li>Se non trovi una sezione, apri la macroarea corretta dalla sidebar.</li>
+              <li>Se una risposta non è chiara, aggiorna il campo prima di chiedere la revisione finale.</li>
+              <li>Se la sessione scade, effettua di nuovo l’accesso e riprendi dal questionario.</li>
             </ul>
-          </section>
-
-          <section className="wow-panel p-6 space-y-4">
-            <SectionTitle icon={UploadCloud} title="3. Documenti e allegati" />
-            <p className="text-sm text-slate-600">
-              Alcuni campi richiedono documenti a supporto. Carica file chiari e pertinenti.
-            </p>
-            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-              <span>La dimensione massima consentita per ogni singolo file è di <strong>30 MB</strong>. File di dimensioni superiori verranno rifiutati dal sistema.</span>
-            </div>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
-              <li>Controlla il formato richiesto: PDF, documenti Office (Word, Excel, PowerPoint), immagini (JPEG, PNG, GIF, WebP), testo o CSV.</li>
-              <li>Evita file duplicati o incompleti.</li>
-              <li>Rinomina i file in modo descrittivo (es. "Organigramma_2026.pdf").</li>
-              <li>Se il caricamento fallisce, verifica che il file non superi i <strong>30 MB</strong> e che il formato sia tra quelli supportati.</li>
-            </ul>
-          </section>
-
-          <section className="wow-panel p-6 space-y-4">
-            <SectionTitle icon={MessageCircle} title="4. Chat e comunicazioni" />
-            <p className="text-sm text-slate-600">
-              Usa la chat per chiarimenti con il licenziatario. I messaggi non sostituiscono i dati del checkup.
-            </p>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
-              <li>Specifica sempre la sezione a cui ti riferisci.</li>
-              <li>Evita di condividere dati sensibili non necessari.</li>
-            </ul>
-          </section>
-
-          <section className="wow-panel p-6 space-y-4">
-            <SectionTitle icon={ListChecks} title="Checklist prima della consegna" />
-            <ol className="list-decimal pl-5 text-sm text-slate-700 space-y-2">
-              <li>Tutte le domande sono compilate oppure marcate N/A.</li>
-              <li>Gli allegati richiesti sono presenti.</li>
-              <li>Le note sono state controllate per errori.</li>
-              <li>Il riepilogo del completamento è superiore al 95%.</li>
-            </ol>
           </section>
         </>
       ) : (
         <>
+          <GuideSection
+            icon={Users}
+            title="1. Il tuo ruolo nel software"
+            intro="Il licenziatario usa la piattaforma per coordinare i clienti, monitorare l’avanzamento dei questionari e fare le verifiche finali."
+            points={[
+              'Dalla dashboard puoi vedere clienti, questionari, ticket, alert e chat.',
+              'Il tuo compito principale è controllare che i dati inseriti dal sublicenziatario siano completi e coerenti.',
+              'Usa le sezioni del menu per passare rapidamente tra attività operative e controllo dello stato dei lavori.',
+              'Quando lavori su più clienti, entra sempre nel questionario corretto prima di modificare o validare qualcosa.',
+            ]}
+          />
+
+          <GuideSection
+            icon={ClipboardCheck}
+            title="2. Come seguire un questionario"
+            intro="Ogni questionario va seguito in due momenti: durante la compilazione e nella revisione finale."
+            points={[
+              'Durante la compilazione controlla lo stato delle sezioni e le eventuali richieste aperte.',
+              'Usa la sidebar per aprire le macroaree e verificare rapidamente quali sezioni sono complete e quali no.',
+              'Rivedi le risposte inserite dal sublicenziatario prima di considerare conclusa la raccolta dati.',
+              'Se mancano informazioni o allegati, chiedi un’integrazione tramite chat o ticket.',
+            ]}
+          />
+
+          <GuideSection
+            icon={MessageCircle}
+            title="3. Comunicazione con il sublicenziatario"
+            intro="La qualità del lavoro dipende molto da richieste chiare e tracciabili."
+            points={[
+              'Usa la chat per chiarimenti rapidi su singole sezioni o singole domande.',
+              'Usa ticket e alert quando vuoi tenere traccia di attività, anomalie o richieste da risolvere.',
+              'Scrivi istruzioni brevi e precise: cosa manca, dove manca e cosa ti aspetti di ricevere.',
+              'Dopo una risposta del sublicenziatario, torna nella sezione interessata e verifica che il punto sia davvero risolto.',
+            ]}
+          />
+
+          <GuideSection
+            icon={UploadCloud}
+            title="4. Verifica dei documenti"
+            intro="I documenti allegati servono a supportare il questionario. Devono essere leggibili, pertinenti e coerenti con le risposte inserite."
+            points={[
+              'Controlla che ogni documento corrisponda effettivamente alla sezione o al requisito richiesto.',
+              'Se il file è incompleto, errato o non aggiornato, chiedi un nuovo caricamento.',
+              'I formati supportati includono PDF, Office, immagini, testo e CSV.',
+              'La dimensione massima di ogni file è 30 MB.',
+            ]}
+          />
+
+          <GuideSection
+            icon={KeyRound}
+            title="5. Utenti e organizzazione del lavoro"
+            intro="Se il tuo profilo lo consente, puoi organizzare il lavoro del team dello studio in modo più efficiente."
+            points={[
+              'Admin studio: gestisce utenti, ruoli e configurazioni operative principali.',
+              'Segreteria: supporta le attività operative, i caricamenti e il monitoraggio.',
+              'Collaboratore: lavora su sezioni, verifiche e validazioni secondo i permessi assegnati.',
+              'Assegna a ciascuno il ruolo corretto per evitare accessi o modifiche non coerenti.',
+            ]}
+          />
+
           <section className="wow-panel p-6 space-y-4">
-            <SectionTitle icon={Users} title="1. Gestione clienti" />
-            <p className="text-sm text-slate-600">
-              Accedi alla dashboard del licenziatario per visualizzare l’elenco clienti e lo stato dei checkup.
-            </p>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
-              <li>Usa la ricerca per individuare rapidamente un cliente.</li>
-              <li>Apri il checkup corretto prima di effettuare modifiche.</li>
-              <li>Verifica sempre il modello associato al cliente.</li>
+            <SectionTitle icon={ShieldCheck} title="Buone pratiche" />
+            <ul className="list-disc space-y-2 pl-5 text-sm text-slate-700">
+              <li>Controlla sempre completezza, coerenza e qualità dei dati prima della validazione finale.</li>
+              <li>Non modificare contenuti del cliente senza un motivo chiaro e tracciabile.</li>
+              <li>Usa note, ticket e chat per lasciare uno storico ordinato delle attività.</li>
+              <li>Se qualcosa non torna, chiedi integrazione prima di procedere con il completamento del checkup.</li>
             </ul>
           </section>
 
           <section className="wow-panel p-6 space-y-4">
-            <SectionTitle icon={ClipboardCheck} title="2. Compilazione e validazione" />
-            <p className="text-sm text-slate-600">
-              Il licenziatario coordina la compilazione e verifica la completezza dei dati.
-              La valutazione del checkup avviene dopo la conclusione da parte del cliente.
-            </p>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
-              <li>Controlla che ogni domanda sia compilata oppure marcata N/A prima della chiusura del questionario.</li>
-              <li>Usa le note consulente per guidare il cliente.</li>
-              <li>Non procedere alla valutazione se mancano allegati richiesti.</li>
-            </ul>
-          </section>
-
-          <section className="wow-panel p-6 space-y-4">
-            <SectionTitle icon={KeyRound} title="3. Utenti e ruoli" />
-            <p className="text-sm text-slate-600">
-              Gestisci gli utenti dello studio e assegna i ruoli corretti per garantire accessi coerenti.
-            </p>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
-              <li>Admin studio: gestione utenti e configurazioni principali.</li>
-              <li>Segreteria: supporto operativo e caricamenti.</li>
-              <li>Collaboratore: compilazione e validazione dove previsto.</li>
-            </ul>
-          </section>
-
-          <section className="wow-panel p-6 space-y-4">
-            <SectionTitle icon={UploadCloud} title="4. Gestione documenti" />
-            <p className="text-sm text-slate-600">
-              I documenti caricati dal cliente devono essere verificati per coerenza e completezza.
-            </p>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
-              <li>Verifica formato, data e pertinenza dei file.</li>
-              <li>Il sistema accetta file fino a <strong>30 MB</strong> per allegato. Formati supportati: PDF, Office, immagini, testo e CSV.</li>
-              <li>Se necessario, richiedi un nuovo caricamento tramite chat.</li>
-            </ul>
-          </section>
-
-          <section className="wow-panel p-6 space-y-4">
-            <SectionTitle icon={ShieldCheck} title="5. Sicurezza e qualità dati" />
-            <p className="text-sm text-slate-600">
-              Mantieni standard elevati di qualità dati per report affidabili e auditabili.
-            </p>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
-              <li>Evita modifiche non concordate con il cliente.</li>
-              <li>Documenta le eccezioni nelle note.</li>
-              <li>Usa gli alert per tracciabilità interna.</li>
-            </ul>
-          </section>
-
-          <section className="wow-panel p-6 space-y-4">
-            <SectionTitle icon={AlertTriangle} title="Troubleshooting rapido" />
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-2">
-              <li>Se il salvataggio fallisce, controlla la connessione e riprova.</li>
-              <li>Se una sezione non è valida, verifica domande mancanti e allegati.</li>
-              <li>Se i dati sembrano incoerenti, ricarica il checkup.</li>
+            <SectionTitle icon={AlertTriangle} title="Problemi frequenti" />
+            <ul className="list-disc space-y-2 pl-5 text-sm text-slate-700">
+              <li>Se una sezione risulta incompleta, controlla campi vuoti, N/A e allegati mancanti.</li>
+              <li>Se un documento non è utilizzabile, richiedi un nuovo upload invece di procedere comunque.</li>
+              <li>Se un cliente segnala un dubbio, usa chat o ticket per mantenere il confronto tracciato.</li>
+              <li>Se non vedi dati aggiornati, ricarica il questionario e verifica lo stato corrente.</li>
             </ul>
           </section>
         </>

@@ -20,6 +20,10 @@ export class CreateCheckupUserDto {
 
   @IsOptional()
   @IsString()
+  titolo?: string;
+
+  @IsOptional()
+  @IsString()
   telefono?: string;
 
   @IsEnum(['admin_studio', 'segreteria', 'collaboratore', 'cliente'])

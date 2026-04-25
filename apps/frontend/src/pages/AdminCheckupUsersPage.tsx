@@ -9,6 +9,8 @@ import { Pagination } from '../components/Pagination';
 
 export default function AdminCheckupUsersPage() {
   const { success, error: toastError } = useToast();
+  const formatUserDisplayName = (user: Pick<CheckupAdminUser, 'titolo' | 'nome' | 'cognome'>) =>
+    [user.titolo?.trim(), user.nome, user.cognome].filter(Boolean).join(' ');
   const [users, setUsers] = useState<CheckupAdminUser[]>([]);
   const [studios, setStudios] = useState<CheckupStudio[]>([]);
   const [clients, setClients] = useState<CheckupClient[]>([]);
@@ -29,6 +31,7 @@ export default function AdminCheckupUsersPage() {
   const [formData, setFormData] = useState({
     nome: '',
     cognome: '',
+    titolo: '',
     email: '',
     password: '',
     studioId: '',
@@ -87,6 +90,7 @@ export default function AdminCheckupUsersPage() {
     setFormData({
       nome: '',
       cognome: '',
+      titolo: '',
       email: '',
       password: '',
       studioId: '',
@@ -119,6 +123,7 @@ export default function AdminCheckupUsersPage() {
     setFormData({
       nome: user.nome,
       cognome: user.cognome,
+      titolo: user.titolo || '',
       email: user.email,
       password: '',
       studioId,
@@ -170,7 +175,7 @@ export default function AdminCheckupUsersPage() {
       toastError('Limite utenti sublicenza raggiunto');
       return;
     }
-    const userName = `${formData.nome.trim()} ${formData.cognome.trim()}`.trim();
+    const userName = [formData.titolo.trim(), formData.nome.trim(), formData.cognome.trim()].filter(Boolean).join(' ');
     const confirmed = await confirm({
       title: isEditing ? 'Confermare modifica utente?' : 'Confermare creazione utente?',
       message: isEditing
@@ -185,6 +190,7 @@ export default function AdminCheckupUsersPage() {
         await checkupAdminApi.updateAdminUser(selectedUser.id, {
           nome: formData.nome.trim(),
           cognome: formData.cognome.trim(),
+          titolo: formData.titolo.trim() || undefined,
           email: formData.email.trim(),
           studioId: undefined,
           clientId: formData.clientId,
@@ -201,6 +207,7 @@ export default function AdminCheckupUsersPage() {
         await checkupAdminApi.createAdminUser({
           nome: formData.nome.trim(),
           cognome: formData.cognome.trim(),
+          titolo: formData.titolo.trim() || undefined,
           email: formData.email.trim(),
           password: formData.password,
           studioId: undefined,
@@ -291,7 +298,7 @@ export default function AdminCheckupUsersPage() {
     : null;
 
   useEffect(() => {
-    const modelId = selectedSublicense?.license?.model?.id || selectedSublicense?.license?.modelId;
+    const modelId = selectedSublicense?.modelId || null;
     if (!modelId) {
       setMacroAreas([]);
       return;
@@ -307,7 +314,7 @@ export default function AdminCheckupUsersPage() {
       })
       .catch(() => setMacroAreas([]))
       .finally(() => setMacroLoading(false));
-  }, [selectedSublicense?.license?.model?.id, selectedSublicense?.license?.modelId]);
+  }, [selectedSublicense?.modelId]);
 
   useEffect(() => {
     if (macroAreas.length === 0) return;
@@ -358,6 +365,7 @@ export default function AdminCheckupUsersPage() {
     return [
       u.nome,
       u.cognome,
+      u.titolo,
       u.email,
       u.client?.nome,
       u.azienda,
@@ -447,7 +455,7 @@ export default function AdminCheckupUsersPage() {
               <tbody className="divide-y divide-slate-200">
                 {paginatedUsers.map((u) => (
                   <tr key={u.id} className={`hover:bg-slate-50/70 ${u.attivo ? '' : 'opacity-60'}`}>
-                    <td className="px-4 py-3 text-sm font-medium text-slate-900">{u.nome} {u.cognome}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-slate-900">{formatUserDisplayName(u)}</td>
                     <td className="px-4 py-3 text-sm text-slate-500">{u.email}</td>
                     <td className="px-4 py-3 text-sm text-slate-500">
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${roleBadges[u.ruolo].className}`}>
@@ -534,6 +542,17 @@ export default function AdminCheckupUsersPage() {
               </div>
               <form onSubmit={handleSubmitUser} className="flex min-h-0 flex-1 flex-col">
                 <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-6">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Titolo</label>
+                    <input
+                      value={formData.titolo}
+                      onChange={(e) => setFormData((p) => ({ ...p, titolo: e.target.value }))}
+                      className={inputClassName}
+                      placeholder="Es. Dr., Dr.ssa, Avv."
+                    />
+                  </div>
+                </div>
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <div>
                     <label className={labelClass('nome')}>Nome <span className="text-rose-600">*</span></label>

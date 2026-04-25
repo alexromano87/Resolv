@@ -361,6 +361,7 @@ export class CheckupUsersService {
       password: hashedPassword,
       nome: dto.nome,
       cognome: dto.cognome,
+      titolo: dto.titolo?.trim() || null,
       telefono: dto.telefono || null,
       ruolo: dto.ruolo,
       studioId: isClient ? null : targetStudioId,
@@ -474,6 +475,7 @@ export class CheckupUsersService {
 
     if (dto.nome !== undefined) updates.nome = dto.nome;
     if (dto.cognome !== undefined) updates.cognome = dto.cognome;
+    if (dto.titolo !== undefined) updates.titolo = dto.titolo?.trim() || null;
     if (dto.telefono !== undefined) updates.telefono = dto.telefono;
     if (dto.azienda !== undefined) updates.azienda = dto.azienda;
     if (dto.ruolo !== undefined) updates.ruolo = dto.ruolo;

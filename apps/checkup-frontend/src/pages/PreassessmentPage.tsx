@@ -344,6 +344,27 @@ export default function PreassessmentPage() {
     });
   }, [sections, macroAreas, data, naFields, macroValidations, chatUnreadCount, ticketUnreadCount, alertUnreadCount, activeClientId, isClient]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (macroAreas.length === 0) return;
+    setCollapsed((prev) => {
+      let changed = false;
+      const next: Record<string, boolean> = {};
+
+      macroAreas.forEach((macro) => {
+        const hasSections = sections.some((section) => section.macro === macro.id);
+        if (!hasSections) return;
+        if (prev[macro.id] === undefined) {
+          next[macro.id] = true;
+          changed = true;
+        } else {
+          next[macro.id] = prev[macro.id];
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [macroAreas, sections, setCollapsed]);
+
   // ── Scroll to top when section changes ───────────────────────────────────────
   useEffect(() => {
     if (typeof view === 'number') {

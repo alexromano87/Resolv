@@ -16,6 +16,10 @@ export class UpdateCheckupUserDto {
 
   @IsOptional()
   @IsString()
+  titolo?: string;
+
+  @IsOptional()
+  @IsString()
   telefono?: string;
 
   @IsOptional()
