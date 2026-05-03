@@ -102,6 +102,13 @@ export class CheckupAuthService {
         ? {
             id: clientSublicense.id,
             modelId: clientSublicense.modelId,
+            model: clientSublicense.model
+              ? {
+                  id: clientSublicense.model.id,
+                  code: clientSublicense.model.code,
+                  label: clientSublicense.model.label,
+                }
+              : null,
             allowDocuments: clientSublicense.allowDocuments,
           }
         : null,

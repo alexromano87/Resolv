@@ -17,6 +17,7 @@ export interface PreassessmentNavState {
   clientId: string | null;
   hasAssessment: boolean;
   isClient: boolean;
+  questionnaireLabel?: string;
 }
 
 interface PreassessmentNavContextValue {

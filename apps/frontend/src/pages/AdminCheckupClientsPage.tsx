@@ -8,6 +8,7 @@ import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { Pagination } from '../components/Pagination';
 
 export default function AdminCheckupClientsPage() {
+  const UNASSIGNED_SUBLICENSE_VALUE = '__unassigned_sublicense__';
   const { success, error: toastError } = useToast();
   const { confirm, ConfirmDialog } = useConfirmDialog();
   const [clients, setClients] = useState<CheckupClient[]>([]);
@@ -107,12 +108,15 @@ export default function AdminCheckupClientsPage() {
 
   const sublicenseOptions = useMemo(
     () =>
-      availableSublicenses.map((s) => ({
+      [
+        ...(isEditing ? [{ value: UNASSIGNED_SUBLICENSE_VALUE, label: 'Nessuna sublicenza assegnata' }] : []),
+        ...availableSublicenses.map((s) => ({
         value: s.id,
         label: `${s.license?.studio?.nome || 'Licenza'} · ${s.numeroSublicenza || '—'}`,
         sublabel: `Utenze ${s.numeroUtenze} · ${s.dataInizioValidita || '—'} → ${s.dataScadenza || '—'}`,
-      })),
-    [availableSublicenses],
+        })),
+      ],
+    [availableSublicenses, isEditing, UNASSIGNED_SUBLICENSE_VALUE],
   );
 
   useEffect(() => {
@@ -314,7 +318,6 @@ export default function AdminCheckupClientsPage() {
   const updateSublicenseAssignment = async (clientId: string, newSublicenseId: string) => {
     const current = sublicensesByClient.get(clientId);
     if (current && current.id !== newSublicenseId) {
-      if (!ensureSublicenseAssignable(current)) return;
       await checkupAdminApi.upsertSublicense({
         id: current.id,
         licenseId: current.licenseId,
@@ -326,6 +329,10 @@ export default function AdminCheckupClientsPage() {
         clientId: '',
         attiva: current.attiva,
       });
+    }
+
+    if (!newSublicenseId) {
+      return;
     }
 
     const next = sublicenses.find((s) => s.id === newSublicenseId);
@@ -360,7 +367,7 @@ export default function AdminCheckupClientsPage() {
     if (!selectedStudioId) {
       nextErrors.studioId = true;
     }
-    if (!selectedSublicenseId) {
+    if (!isEditing && !selectedSublicenseId) {
       nextErrors.sublicenseId = true;
     }
     if (Object.keys(nextErrors).length > 0) {
@@ -369,6 +376,8 @@ export default function AdminCheckupClientsPage() {
       return;
     }
 
+    const normalizedSublicenseId =
+      selectedSublicenseId === UNASSIGNED_SUBLICENSE_VALUE ? '' : selectedSublicenseId;
     const clientDisplayName = nome || ragioneSociale;
     const confirmed = await confirm({
       title: isEditing ? 'Confermare modifica cliente?' : 'Confermare creazione cliente?',
@@ -404,7 +413,7 @@ export default function AdminCheckupClientsPage() {
       } else {
         client = await checkupAdminApi.createClient({
           nome,
-          sublicenseId: selectedSublicenseId,
+          sublicenseId: normalizedSublicenseId,
           ragioneSociale,
           partitaIva: formData.partitaIva.trim(),
           codiceFiscale: formData.codiceFiscale.trim(),
@@ -422,7 +431,7 @@ export default function AdminCheckupClientsPage() {
         success('Cliente creato');
       }
 
-      await updateSublicenseAssignment(client.id, selectedSublicenseId);
+      await updateSublicenseAssignment(client.id, normalizedSublicenseId);
 
       handleCloseModal();
       loadData();
@@ -651,7 +660,9 @@ export default function AdminCheckupClientsPage() {
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <h3 className="text-sm font-semibold text-slate-800">Sublicenza associata <span className="text-rose-600">*</span></h3>
+                  <h3 className="text-sm font-semibold text-slate-800">
+                    Sublicenza associata {!isEditing && <span className="text-rose-600">*</span>}
+                  </h3>
                   <div className="mt-3">
                     <CustomSelect
                       value={selectedSublicenseId}
@@ -666,7 +677,9 @@ export default function AdminCheckupClientsPage() {
                       triggerClassName={selectTriggerClass('sublicenseId')}
                     />
                     <p className="mt-2 text-xs text-slate-500">
-                      Sono selezionabili solo sublicenze attive e non scadute.
+                      {isEditing
+                        ? 'Puoi anche rimuovere l’assegnazione per liberare la sublicenza e riassegnarla in seguito.'
+                        : 'Sono selezionabili solo sublicenze attive e non scadute.'}
                     </p>
                   </div>
                 </div>

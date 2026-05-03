@@ -52,6 +52,15 @@ type SectionRowMetric = {
   rowHeight: number;
 };
 
+type TocSection = {
+  macroLabel: string;
+  sectionCode: string;
+  title: string;
+  color: string;
+  page: number;
+  dest: string;
+};
+
 type ReportPayload = {
   preassessment: any;
   client: CheckupClient;
@@ -67,6 +76,7 @@ type ReportPayload = {
   consultantName: string;
   modelDisplayName: string;
   logoUrl: string;
+  footerLogoUrl: string;
   superOwnerName: string;
   nowDate: Date;
   nowLabel: string;
@@ -621,7 +631,8 @@ export class CheckupPreassessmentPdfTemplateService {
     const clientName = client.ragioneSociale || client.nome || 'Società non specificata';
     const consultantName = modelInfo.studioName || 'Studio non specificato';
     const modelDisplayName = this.getModelDisplayName(modelInfo.modelCode, modelInfo.modelLabel);
-    const logoUrl = this.getResolvLogoDataUri();
+    const logoUrl = this.getSclnLogoDataUri();
+    const footerLogoUrl = this.getResolvLogoDataUri();
     const superOwner = await this.userRepository.findOne({
       where: { clientId: client.id, attivo: true, superOwner: true },
       order: { updatedAt: 'DESC' },
@@ -663,6 +674,7 @@ export class CheckupPreassessmentPdfTemplateService {
       consultantName,
       modelDisplayName,
       logoUrl,
+      footerLogoUrl,
       superOwnerName,
       nowDate,
       nowLabel,
@@ -693,7 +705,7 @@ export class CheckupPreassessmentPdfTemplateService {
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
 
-    const sectionsForIndex: Array<{ macroLabel: string; sectionCode: string; title: string; color: string; page: number; dest: string }> = [];
+    const sectionsForIndex: TocSection[] = [];
 
     this.drawNativeCover(doc, payload);
     this.drawNativeIntro(doc, payload);
@@ -708,15 +720,15 @@ export class CheckupPreassessmentPdfTemplateService {
       this.drawMacroPageHeader(doc, payload, macro);
       visibleSections.forEach((section) => {
         const sectionDest = `section-${macro.id}-${section.id}`;
+        const page = this.drawSectionNative(doc, payload, macro, section, sectionDest);
         sectionsForIndex.push({
           macroLabel: this.formatMacroTitleForMacro(macro),
           sectionCode: section.displayCode,
           title: section.title,
           color: macro.color,
-          page: doc.bufferedPageRange().start + doc.bufferedPageRange().count,
+          page,
           dest: sectionDest,
         });
-        this.drawSectionNative(doc, payload, macro, section, sectionDest);
       });
     });
 
@@ -845,11 +857,12 @@ export class CheckupPreassessmentPdfTemplateService {
     this.drawPageShell(doc, 'Indice', 'Sommario del documento', false, this.getQuestionnaireKicker(payload.modelDisplayName));
   }
 
-  private drawNativeToc(doc: any, payload: ReportPayload, sections: Array<{ macroLabel: string; sectionCode: string; title: string; color: string; page: number; dest: string }>) {
+  private drawNativeToc(doc: any, payload: ReportPayload, sections: TocSection[]) {
     this.drawPageShell(doc, 'Indice', 'Sommario del documento', false, this.getQuestionnaireKicker(payload.modelDisplayName));
     doc.addNamedDestination('toc', 'XYZ', 54, 118, null);
     let y = 120;
-    const colWidth = 155;
+    const colGap = 32;
+    const colWidth = (487 - colGap) / 2;
     const startX = 54;
     let col = 0;
     let currentMacro = '';
@@ -857,27 +870,32 @@ export class CheckupPreassessmentPdfTemplateService {
       if (y > 730) {
         col += 1;
         y = 120;
+        currentMacro = '';
       }
-      const x = startX + (col % 3) * (colWidth + 12);
+      const x = startX + Math.min(col, 1) * (colWidth + colGap);
       if (section.macroLabel !== currentMacro) {
         currentMacro = section.macroLabel;
-        doc.fillColor(section.color).font('Helvetica-Bold').fontSize(9).text(currentMacro.toUpperCase(), x, y, { width: colWidth });
+        doc.fillColor(section.color).font('Helvetica-Bold').fontSize(8.4).text(currentMacro.toUpperCase(), x, y, { width: colWidth, lineGap: 0 });
         y += 14;
       }
       const sectionCode = section.sectionCode;
       const sectionTitle = this.stripSectionCodePrefix(section.title, sectionCode);
       const tocLabel = `${sectionCode} - ${sectionTitle}`;
-      doc.fillColor('#0f172a').font('Helvetica').fontSize(9.5).text(tocLabel, x, y, {
-        width: colWidth - 22,
+      const pageWidth = 22;
+      const labelWidth = colWidth - pageWidth - 10;
+      const compactLabel = this.fitTextWithEllipsis(doc, tocLabel, labelWidth, 8, 'Helvetica');
+      doc.fillColor('#0f172a').font('Helvetica').fontSize(8).text(compactLabel, x, y, {
+        width: labelWidth,
+        lineBreak: false,
         goTo: section.dest,
       });
-      doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(9.5).text(String(section.page), x + colWidth - 18, y, { width: 18, align: 'right' });
-      y += Math.max(16, doc.heightOfString(tocLabel, { width: colWidth - 22, align: 'left' }) + 6);
+      doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8.5).text(String(section.page), x + colWidth - pageWidth, y, { width: pageWidth, align: 'right', lineBreak: false });
+      y += 14;
     });
   }
 
   private drawMacroPageHeader(doc: any, payload: ReportPayload, macro: ReportMacro) {
-    this.drawPageShell(doc, this.formatMacroTitleForMacro(macro), payload.clientName, true, this.getQuestionnaireKicker(payload.modelDisplayName));
+    this.drawPageShell(doc, '', payload.clientName, true, this.getQuestionnaireKicker(payload.modelDisplayName));
   }
 
   private drawNativeFinalPage(doc: any, payload: ReportPayload) {
@@ -898,7 +916,7 @@ export class CheckupPreassessmentPdfTemplateService {
     ], 2);
   }
 
-  private drawSectionNative(doc: any, payload: ReportPayload, macro: ReportMacro, section: ReportSection, sectionDest: string) {
+  private drawSectionNative(doc: any, payload: ReportPayload, macro: ReportMacro, section: ReportSection, sectionDest: string): number {
     const startX = 54;
     const bodyWidth = 487;
     const questionWidth = 200;
@@ -946,6 +964,7 @@ export class CheckupPreassessmentPdfTemplateService {
 
     let rowIndex = 0;
     let firstChunk = true;
+    let sectionStartPage = doc.bufferedPageRange().start + doc.bufferedPageRange().count;
     while (rowIndex < rowMetrics.length || (firstChunk && rowMetrics.length === 0)) {
       const headerReserve = macroHeaderHeight + sectionTitleHeight + tableHeaderHeight + 10;
       if (availableHeight() < headerReserve + 40) {
@@ -982,6 +1001,7 @@ export class CheckupPreassessmentPdfTemplateService {
 
       if (firstChunk) {
         doc.addNamedDestination(sectionDest, 'XYZ', startX, chunkTop, null);
+        sectionStartPage = doc.bufferedPageRange().start + doc.bufferedPageRange().count;
       }
       doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9.5).text(this.formatMacroTitleForMacro(macro).toUpperCase(), startX + 20, chunkTop + 9, {
         width: bodyWidth - 158,
@@ -1003,7 +1023,7 @@ export class CheckupPreassessmentPdfTemplateService {
       doc.roundedRect(startX + 1, cursorY, bodyWidth - 2, sectionTitleHeight, 0).fill('#ffffff');
       doc.restore();
       const sectionTitle = this.stripSectionCodePrefix(section.title, sectionCode);
-      doc.fillColor(borderColor).font('Helvetica-Bold').fontSize(15).text(`${sectionCode} - ${sectionTitle}`, startX + 14, cursorY + 10, {
+      doc.fillColor(borderColor).font('Helvetica-Bold').fontSize(13).text(`${sectionCode} - ${sectionTitle}`, startX + 14, cursorY + 10, {
         width: bodyWidth - 28,
       });
       cursorY += sectionTitleHeight;
@@ -1080,12 +1100,14 @@ export class CheckupPreassessmentPdfTemplateService {
       doc.y = chunkTop + contentHeight + 14;
       firstChunk = false;
     }
+
+    return sectionStartPage;
   }
 
-  private drawPageShell(doc: any, title: string, rightLabel: string, showIndexLink = false, leftKicker = 'Questionario') {
+  private drawPageShell(doc: any, title: string, rightLabel: string, showIndexLink = false, leftKicker = 'Questionario', titleMaxFontSize = 22, titleMinFontSize = 14) {
     doc.roundedRect(44, 44, 507, 754, 14).fill('#ffffff').stroke('#d9e2f0');
     doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8).text(leftKicker, 64, 64, { characterSpacing: 1.2 });
-    this.drawSingleLineText(doc, title, 64, 80, 320, 22, 14, '#0f172a', 'Helvetica-Bold');
+    this.drawSingleLineText(doc, title, 64, 80, 320, titleMaxFontSize, titleMinFontSize, '#0f172a', 'Helvetica-Bold');
     doc.fillColor('#94a3b8').font('Helvetica').fontSize(9).text(rightLabel, 394, 64, { width: 137, align: 'right' });
     doc.moveTo(64, 112).lineTo(531, 112).strokeColor('#e2e8f0').stroke();
     doc.y = 120;
@@ -1114,6 +1136,24 @@ export class CheckupPreassessmentPdfTemplateService {
       lineBreak: false,
       ...options,
     });
+  }
+
+  private fitTextWithEllipsis(doc: any, text: string, width: number, fontSize: number, font: string) {
+    const clean = (text || '').replace(/\s+/g, ' ').trim();
+    doc.font(font).fontSize(fontSize);
+    if (doc.widthOfString(clean) <= width) return clean;
+
+    const ellipsis = '...';
+    let low = 0;
+    let high = clean.length;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      const candidate = `${clean.slice(0, mid).trimEnd()}${ellipsis}`;
+      if (doc.widthOfString(candidate) <= width) low = mid;
+      else high = mid - 1;
+    }
+
+    return `${clean.slice(0, low).trimEnd()}${ellipsis}`;
   }
 
   private drawInfoCard(doc: any, x: number, y: number, w: number, h: number, title: string, rows: Array<[string, string]>, columns = 2) {
@@ -1150,9 +1190,9 @@ export class CheckupPreassessmentPdfTemplateService {
     gradient.stop(0, '#10233f').stop(1, '#183f68');
     doc.rect(footerX, footerY, footerW, footerH).fill(gradient);
 
-    if (showLogo && payload.logoUrl?.startsWith('data:')) {
+    if (showLogo && payload.footerLogoUrl?.startsWith('data:')) {
       try {
-        const base64 = payload.logoUrl.split(',')[1] || payload.logoUrl;
+        const base64 = payload.footerLogoUrl.split(',')[1] || payload.footerLogoUrl;
         doc.image(Buffer.from(base64, 'base64'), footerX + 54, footerY + 20, { fit: [104, 28], align: 'left', valign: 'center' });
       } catch {}
     }
@@ -1292,11 +1332,19 @@ export class CheckupPreassessmentPdfTemplateService {
   }
 
   private getResolvLogoDataUri() {
+    return this.getPngAssetDataUri('logo_resolv.png');
+  }
+
+  private getSclnLogoDataUri() {
+    return this.getPngAssetDataUri('logo_SCLN.png');
+  }
+
+  private getPngAssetDataUri(filename: string) {
     const candidates = [
-      join(process.cwd(), 'src', 'assets', 'logo_resolv.png'),
-      join(process.cwd(), '..', 'checkup-frontend', 'public', 'logo_resolv.png'),
-      join(process.cwd(), '..', 'frontend', 'public', 'logo_resolv.png'),
-      join(process.cwd(), '..', '..', 'website', 'public', 'logo_resolv.png'),
+      join(process.cwd(), 'src', 'assets', filename),
+      join(process.cwd(), '..', 'checkup-frontend', 'public', filename),
+      join(process.cwd(), '..', 'frontend', 'public', filename),
+      join(process.cwd(), '..', '..', 'website', 'public', filename),
     ];
     for (const filePath of candidates) {
       if (existsSync(filePath)) {

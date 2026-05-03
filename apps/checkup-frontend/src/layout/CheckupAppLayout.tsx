@@ -163,10 +163,10 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     if (location.pathname.startsWith('/checkup/clienti')) {
       if (location.pathname.endsWith('/tickets')) return 'Ticket';
       if (location.pathname.endsWith('/alerts')) return 'Alert';
-      return modelDisplayName;
+      return navState?.questionnaireLabel || modelDisplayName;
     }
     return modelDisplayName;
-  }, [location.pathname, modelDisplayName, user?.ruolo]);
+  }, [location.pathname, modelDisplayName, navState?.questionnaireLabel, user?.ruolo]);
   const { logoUrl: studioLogoUrl, nome: studioNome } = useStudio();
   const isStaff = user ? user.ruolo !== 'cliente' : false;
   const isClientChatRoute = !isStaff && location.pathname.startsWith('/checkup/chat');
@@ -560,7 +560,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
             <div className={`overflow-hidden transition-all duration-400 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
               <img src="/logo_resolv.png" alt="RESOLV" className="h-14 w-auto" />
               <div className="mt-3 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-bold uppercase tracking-[0.24em] text-white/90 shadow-sm">
-                {modelDisplayName}
+                {navState?.questionnaireLabel || modelDisplayName}
               </div>
             </div>
             <div className="flex items-center gap-2">

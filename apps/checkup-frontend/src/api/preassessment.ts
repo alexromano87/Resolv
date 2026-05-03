@@ -58,6 +58,11 @@ export interface PreassessmentClientEntry {
     sublicense?: {
       id: string;
       modelId?: string | null;
+      model?: {
+        id: string;
+        code: string;
+        label: string;
+      } | null;
       allowDocuments?: boolean;
     } | null;
   };

@@ -59,9 +59,9 @@ import {
 import { FormField } from '../features/preassessment/FormField';
 
 const CHAT_SECTION_ID = 'general';
-const getModelDisplayName = (user?: { license?: { model?: { code?: string | null; label?: string | null } | null } | null } | null) => {
-  const code = user?.license?.model?.code?.trim();
-  const label = user?.license?.model?.label?.trim();
+const getQuestionnaireDisplayName = (model?: { code?: string | null; label?: string | null } | null) => {
+  const code = model?.code?.trim();
+  const label = model?.label?.trim();
   if (code && code.toLowerCase() !== 'preassessment') return code.toUpperCase();
   if (label) return label;
   return 'Pre-Assessment';
@@ -122,7 +122,6 @@ export default function PreassessmentPage() {
   const { setNavState, collapsed, setCollapsed, search, setSearch, registerSectionClick, unregisterSectionClick } = usePreassessmentNav();
   const isClient = user?.ruolo === 'cliente';
   const isStaff = !!user && user.ruolo !== 'cliente';
-  const modelDisplayName = useMemo(() => getModelDisplayName(user), [user]);
   const canChat = user?.ruolo === 'cliente'
     || user?.ruolo === 'collaboratore'
     || user?.ruolo === 'admin_studio'
@@ -140,71 +139,6 @@ export default function PreassessmentPage() {
     );
     return values.length > 0 ? new Set(values) : null;
   }, [isClient, user?.macroAreaAssignments]);
-
-  useEffect(() => {
-    const modelId = user?.license?.model?.id;
-    if (!modelId) {
-      setMacroAreas(DEFAULT_MACRO_AREAS);
-      setSections(DEFAULT_SECTIONS);
-      return;
-    }
-
-    let cancelled = false;
-    const normalizeFieldType = (value: string): FieldSpec['type'] => {
-      if (value === 'textarea' || value === 'select' || value === 'multiselect' || value === 'number') {
-        return value;
-      }
-      return 'text';
-    };
-
-    questionManagementApi
-      .getCompleteStructure(modelId)
-      .then((data) => {
-        if (cancelled) return;
-        const nextMacroAreas: MacroAreaSpec[] = data.map((macro, index) => ({
-          id: macro.code,
-          label: macro.label,
-          color: macro.color,
-          displayRef: getAlphabeticReference(index),
-        }));
-        const nextSections: SectionSpec[] = data.flatMap((macro) =>
-          (macro.sections || []).map((section) => ({
-            id: section.code,
-            macro: macro.code,
-            title: section.title,
-            description: section.description || '',
-            fields: (section.fields || []).map((field) => ({
-              id: field.fieldId,
-              label: field.label,
-              type: normalizeFieldType(field.type),
-              options: field.options || undefined,
-              required: field.required || false,
-              help: field.help || undefined,
-              allowDocuments: field.allowDocuments ?? true,
-              weight: typeof field.weight === 'number' ? field.weight : 1,
-            })),
-          }))
-        );
-        const visibleMacroAreas = assignedClientMacroAreas
-          ? nextMacroAreas.filter((macro) => assignedClientMacroAreas.has(macro.id))
-          : nextMacroAreas;
-        const visibleSections = assignedClientMacroAreas
-          ? nextSections.filter((section) => assignedClientMacroAreas.has(section.macro))
-          : nextSections;
-
-        setMacroAreas(visibleMacroAreas.length || assignedClientMacroAreas ? visibleMacroAreas : DEFAULT_MACRO_AREAS);
-        setSections(visibleSections.length || assignedClientMacroAreas ? visibleSections : DEFAULT_SECTIONS);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setMacroAreas(DEFAULT_MACRO_AREAS);
-        setSections(DEFAULT_SECTIONS);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [assignedClientMacroAreas, user?.license?.model?.id]);
 
   const [clients, setClients] = useState<PreassessmentClientEntry[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);
@@ -299,12 +233,27 @@ export default function PreassessmentPage() {
   const sidebarTarget = typeof document !== 'undefined' ? document.getElementById('checkup-subnav') : null;
 
   const activeClientId = isClient ? user?.clientId ?? null : selectedClientId;
+  const activeQuestionnaireModel = isStaff && activeClientId
+    ? (clientInfo?.sublicense?.model || null)
+    : (user?.sublicense?.model || user?.license?.model || null);
+  const activeQuestionnaireModelId = isStaff && activeClientId
+    ? clientInfo?.sublicense?.modelId || clientInfo?.sublicense?.model?.id || null
+    : user?.sublicense?.modelId || user?.sublicense?.model?.id || user?.license?.model?.id || null;
+  const modelDisplayName = useMemo(
+    () => getQuestionnaireDisplayName(activeQuestionnaireModel),
+    [activeQuestionnaireModel],
+  );
   const isFinalClosed = assessmentStatus === 'concluso' && !!finalValidation;
   const canEditAnswers = isClient ? !isFinalClosed : false;
   const readOnly = !canEditAnswers;
   const showAssessment = !!activeClientId && !!preassessmentId;
   const activeSection = typeof view === 'number' ? sections[view] : null;
   const activeMacro = activeSection ? macroAreas.find((m) => m.id === activeSection.macro) : null;
+
+  useEffect(() => {
+    if (!isStaff) return;
+    setClientInfo(null);
+  }, [activeClientId, isStaff]);
 
   // ── Register section click in nav context (useLayoutEffect: sincrono pre-paint, no flash) ──
   useLayoutEffect(() => {
@@ -316,6 +265,76 @@ export default function PreassessmentPage() {
       unregisterSectionClick();
     };
   }, [registerSectionClick, unregisterSectionClick]);
+
+  useEffect(() => {
+    const modelId = activeQuestionnaireModelId;
+    if (isStaff && activeClientId && !clientInfo) {
+      setMacroAreas([]);
+      setSections([]);
+      return;
+    }
+    if (!modelId) {
+      setMacroAreas(DEFAULT_MACRO_AREAS);
+      setSections(DEFAULT_SECTIONS);
+      return;
+    }
+
+    let cancelled = false;
+    const normalizeFieldType = (value: string): FieldSpec['type'] => {
+      if (value === 'textarea' || value === 'select' || value === 'multiselect' || value === 'number') {
+        return value;
+      }
+      return 'text';
+    };
+
+    questionManagementApi
+      .getCompleteStructure(modelId)
+      .then((data) => {
+        if (cancelled) return;
+        const nextMacroAreas: MacroAreaSpec[] = data.map((macro, index) => ({
+          id: macro.code,
+          label: macro.label,
+          color: macro.color,
+          displayRef: getAlphabeticReference(index),
+        }));
+        const nextSections: SectionSpec[] = data.flatMap((macro) =>
+          (macro.sections || []).map((section) => ({
+            id: section.code,
+            macro: macro.code,
+            title: section.title,
+            description: section.description || '',
+            fields: (section.fields || []).map((field) => ({
+              id: field.fieldId,
+              label: field.label,
+              type: normalizeFieldType(field.type),
+              options: field.options || undefined,
+              required: field.required || false,
+              help: field.help || undefined,
+              allowDocuments: field.allowDocuments ?? true,
+              weight: typeof field.weight === 'number' ? field.weight : 1,
+            })),
+          }))
+        );
+        const visibleMacroAreas = assignedClientMacroAreas
+          ? nextMacroAreas.filter((macro) => assignedClientMacroAreas.has(macro.id))
+          : nextMacroAreas;
+        const visibleSections = assignedClientMacroAreas
+          ? nextSections.filter((section) => assignedClientMacroAreas.has(section.macro))
+          : nextSections;
+
+        setMacroAreas(visibleMacroAreas.length || assignedClientMacroAreas ? visibleMacroAreas : DEFAULT_MACRO_AREAS);
+        setSections(visibleSections.length || assignedClientMacroAreas ? visibleSections : DEFAULT_SECTIONS);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMacroAreas(DEFAULT_MACRO_AREAS);
+        setSections(DEFAULT_SECTIONS);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeClientId, activeQuestionnaireModelId, assignedClientMacroAreas, clientInfo, isStaff]);
 
   // ── Populate nav context for sidebar persistence across routes ──────────────
   useEffect(() => {
@@ -341,8 +360,9 @@ export default function PreassessmentPage() {
       clientId: activeClientId || null,
       hasAssessment: !!activeClientId,
       isClient,
+      questionnaireLabel: modelDisplayName,
     });
-  }, [sections, macroAreas, data, naFields, macroValidations, chatUnreadCount, ticketUnreadCount, alertUnreadCount, activeClientId, isClient]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sections, macroAreas, data, naFields, macroValidations, chatUnreadCount, ticketUnreadCount, alertUnreadCount, activeClientId, isClient, modelDisplayName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (macroAreas.length === 0) return;

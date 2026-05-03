@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { KeyRound, Pencil, RefreshCcw, Trash2, X } from 'lucide-react';
+import { KeyRound, Pencil, Power, PowerOff, RefreshCcw, Trash2, X } from 'lucide-react';
 import { checkupAdminApi, type CheckupLicense, type CheckupSublicense } from '../api/checkupAdmin';
 import * as questionApi from '../api/checkupQuestions';
 import { CustomSelect } from '../components/ui/CustomSelect';
@@ -160,6 +160,36 @@ export default function AdminCheckupSublicensesPage() {
       loadData();
     } catch (err: any) {
       toastError(err.message || "Errore durante l'eliminazione");
+    }
+  };
+
+  const handleToggleActive = async (sublicense: CheckupSublicense) => {
+    const nextAttiva = !sublicense.attiva;
+    const confirmed = await confirm({
+      title: nextAttiva ? 'Attivare sublicenza?' : 'Disattivare sublicenza?',
+      message: `Vuoi ${nextAttiva ? 'attivare' : 'disattivare'} la sublicenza ${sublicense.numeroSublicenza ? `#${sublicense.numeroSublicenza}` : ''}?`,
+      confirmText: nextAttiva ? 'Attiva' : 'Disattiva',
+      variant: nextAttiva ? 'info' : 'warning',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.upsertSublicense({
+        id: sublicense.id,
+        licenseId: sublicense.licenseId,
+        modelId: sublicense.modelId,
+        tipo: sublicense.tipo || '',
+        numeroUtenze: sublicense.numeroUtenze,
+        dataInizioValidita: sublicense.dataInizioValidita || '',
+        dataScadenza: sublicense.dataScadenza || '',
+        clienteStudioId: sublicense.clienteStudioId || undefined,
+        clientId: sublicense.clientId || undefined,
+        attiva: nextAttiva,
+        allowDocuments: sublicense.allowDocuments ?? true,
+      });
+      success(nextAttiva ? 'Sublicenza attivata' : 'Sublicenza disattivata');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante l\'operazione');
     }
   };
 
@@ -365,6 +395,18 @@ export default function AdminCheckupSublicensesPage() {
                           className="inline-flex items-center justify-center rounded-full border border-indigo-200 p-2 text-indigo-600 hover:border-indigo-300 hover:text-indigo-700"
                         >
                           <RefreshCcw className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleToggleActive(s)}
+                          title={s.attiva ? 'Disattiva sublicenza' : 'Attiva sublicenza'}
+                          aria-label={s.attiva ? 'Disattiva sublicenza' : 'Attiva sublicenza'}
+                          className={`inline-flex items-center justify-center rounded-full border p-2 ${
+                            s.attiva
+                              ? 'border-amber-200 text-amber-600 hover:border-amber-300 hover:text-amber-700'
+                              : 'border-emerald-200 text-emerald-600 hover:border-emerald-300 hover:text-emerald-700'
+                          }`}
+                        >
+                          {s.attiva ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />}
                         </button>
                         <button
                           onClick={() => handleDeleteSublicense(s)}

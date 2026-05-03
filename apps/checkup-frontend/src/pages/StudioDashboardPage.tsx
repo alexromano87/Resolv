@@ -26,6 +26,14 @@ import { isOwnerFieldId } from '../features/preassessment/preassessment-utils';
 
 const formatPercent = (value: number) => `${Math.round(value)}%`;
 
+const getQuestionnaireDisplayName = (model?: { code?: string | null; label?: string | null } | null) => {
+  const code = model?.code?.trim();
+  const label = model?.label?.trim();
+  if (code && code.toLowerCase() !== 'preassessment') return code.toUpperCase();
+  if (label) return label;
+  return '—';
+};
+
 export default function StudioDashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -206,13 +214,6 @@ export default function StudioDashboardPage() {
   const usersByClientId = activeClientUsers.reduce<Record<string, number>>((acc, u) => {
     if (u.clientId) {
       acc[u.clientId] = (acc[u.clientId] || 0) + 1;
-    }
-    return acc;
-  }, {});
-
-  const sublicensesByClientId = sublicenses.reduce<Record<string, number>>((acc, s) => {
-    if (s.clientId) {
-      acc[s.clientId] = (acc[s.clientId] || 0) + 1;
     }
     return acc;
   }, {});
@@ -536,9 +537,9 @@ export default function StudioDashboardPage() {
                   <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.2em] text-slate-400">
                     <tr>
                       <th className="px-4 py-3 text-left">Azienda</th>
+                      <th className="px-4 py-3 text-left">Modello</th>
                       <th className="px-4 py-3 text-left">Referente</th>
                       <th className="px-4 py-3 text-center">Utenti</th>
-                      <th className="px-4 py-3 text-center">Sublicenze</th>
                       <th className="px-4 py-3 text-center">Completamento</th>
                       <th className="px-4 py-3 text-center">Aggiornamento</th>
                       <th className="px-4 py-3 text-right">Azioni</th>
@@ -547,9 +548,9 @@ export default function StudioDashboardPage() {
                   <tbody className="divide-y divide-slate-200">
                     {filteredClients.map((entry) => {
                       const company = entry.client.azienda || entry.client.ragioneSociale || entry.client.nome;
+                      const modelName = getQuestionnaireDisplayName(entry.client.sublicense?.model);
                       const referent = `${entry.client.nome || ''} ${entry.client.cognome || ''}`.trim();
                       const usersCount = usersByClientId[entry.client.id] || 0;
-                      const sublicensesCount = sublicensesByClientId[entry.client.id] || 0;
                       const usageInfo = usageByClientId.get(entry.client.id);
                       const isOnline = entry.preassessment?.id ? onlineIds.has(entry.preassessment.id) : false;
                                       const preId = entry.preassessment?.id ?? '';
@@ -569,16 +570,16 @@ export default function StudioDashboardPage() {
                               )}
                             </span>
                           </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
+                              {modelName}
+                            </span>
+                          </td>
                           <td className="px-4 py-3 text-slate-500">{referent}</td>
                           <td className="px-4 py-3 text-center">
                             <div className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">
                               {usersCount}
                               {usageInfo ? ` / ${usageInfo.maxUsers}` : ''}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs text-amber-700">
-                              {sublicensesCount}
                             </div>
                           </td>
                           <td className="px-4 py-3 text-center">

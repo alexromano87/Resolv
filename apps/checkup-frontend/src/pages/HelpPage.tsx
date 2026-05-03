@@ -52,7 +52,7 @@ export default function HelpPage() {
       <div className="wow-card p-6 md:p-8">
         <span className="wow-chip w-fit">Guida operativa</span>
         <h1 className="mt-4 text-3xl font-semibold text-slate-900 display-font">
-          Guida {isCliente ? 'Sublicenziatario' : 'Licenziatario'}
+          Guida {isCliente ? 'Utente' : 'Licenziatario'}
         </h1>
         <p className="mt-2 text-sm text-slate-600">
           Una guida semplice per usare il software in modo corretto. Le funzioni disponibili cambiano in base al tuo ruolo:

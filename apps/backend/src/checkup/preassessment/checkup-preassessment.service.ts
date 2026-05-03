@@ -522,6 +522,23 @@ export class CheckupPreassessmentService {
     return { preassessment, client, allowDocuments };
   }
 
+  private serializeSublicense(sublicense: CheckupSublicense | null) {
+    return sublicense
+      ? {
+          id: sublicense.id,
+          modelId: sublicense.modelId,
+          model: sublicense.model
+            ? {
+                id: sublicense.model.id,
+                code: sublicense.model.code,
+                label: sublicense.model.label,
+              }
+            : null,
+          allowDocuments: sublicense.allowDocuments,
+        }
+      : null;
+  }
+
   async getClient(clientId: string, currentUser: CheckupCurrentUserData) {
     const client = await this.clientRepository.findOne({ where: { id: clientId, attivo: true } });
     if (!client) {
@@ -532,6 +549,7 @@ export class CheckupPreassessmentService {
     const preassessment = await this.getOrCreateByClientId(client.id, currentUser);
     const sublicense = await this.sublicenseRepository.findOne({
       where: { clientId: client.id, attiva: true },
+      relations: ['model'],
     });
 
     // Resolve licenziatario studio from sublicense → license → studio
@@ -556,13 +574,7 @@ export class CheckupPreassessmentService {
         ragioneSociale: client.ragioneSociale || null,
         studioId,
         studioNome,
-        sublicense: sublicense
-          ? {
-              id: sublicense.id,
-              modelId: sublicense.modelId,
-              allowDocuments: sublicense.allowDocuments,
-            }
-          : null,
+        sublicense: this.serializeSublicense(sublicense),
       },
       preassessment,
     };
@@ -644,6 +656,7 @@ export class CheckupPreassessmentService {
 
     const sublicenses = await this.sublicenseRepository.find({
       where: { licenseId: license.id, attiva: true, clientId: Not(IsNull()) },
+      relations: ['model'],
     });
     const clientIds = sublicenses.map((s) => s.clientId!).filter(Boolean);
     if (clientIds.length === 0) return [];
@@ -677,13 +690,7 @@ export class CheckupPreassessmentService {
           ragioneSociale: client.ragioneSociale || null,
           studioId: currentUser.studioId ?? null,
           studioNome,
-          sublicense: sublicense
-            ? {
-                id: sublicense.id,
-                modelId: sublicense.modelId,
-                allowDocuments: sublicense.allowDocuments,
-              }
-            : null,
+          sublicense: this.serializeSublicense(sublicense),
         },
         preassessment: pre
           ? {
