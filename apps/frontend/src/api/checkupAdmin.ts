@@ -34,6 +34,8 @@ export interface CheckupAdminUser {
   client?: CheckupClient | null;
   sublicenseId?: string | null;
   sublicense?: CheckupSublicense | null;
+  anagraficaId?: string | null;
+  anagrafica?: CheckupAnagraficaLicenziatario | null;
   azienda?: string | null;
   macroAreaOwner?: string[] | null;
   macroAreaAssignments?: string[] | null;
@@ -69,6 +71,7 @@ export interface CheckupSublicense {
   modelId: string;
   clienteStudioId?: string | null;
   clientId?: string | null;
+  consultantAnagraficaId?: string | null;
   numeroSublicenza?: string | null;
   tipo?: string | null;
   numeroUtenze: number;
@@ -79,9 +82,31 @@ export interface CheckupSublicense {
   license?: CheckupLicense | null;
   clienteStudio?: CheckupStudio | null;
   client?: CheckupClient | null;
+  consultantAnagrafica?: CheckupAnagraficaLicenziatario | null;
   activeSublicensesCount?: number;
   inactiveSublicensesCount?: number;
   isActivated?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CheckupAnagraficaLicenziatario {
+  id: string;
+  studioId: string;
+  studio?: CheckupStudio | null;
+  users?: CheckupAdminUser[];
+  titolo?: string | null;
+  nome: string;
+  cognome: string;
+  email?: string | null;
+  pec?: string | null;
+  partitaIva?: string | null;
+  codiceFiscale?: string | null;
+  telefono?: string | null;
+  indirizzo?: string | null;
+  citta?: string | null;
+  provincia?: string | null;
+  attiva: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -164,6 +189,7 @@ export interface CreateCheckupAdminUserDto {
   azienda?: string;
   ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
   telefono?: string;
+  anagraficaId?: string;
   macroAreaOwner?: string[];
   macroAreaAssignments?: string[];
   superOwner?: boolean;
@@ -175,6 +201,7 @@ export interface UpdateCheckupAdminUserDto {
   cognome?: string;
   titolo?: string;
   telefono?: string;
+  anagraficaId?: string;
   studioId?: string;
   clientId?: string;
   sublicenseId?: string;
@@ -207,6 +234,7 @@ export interface UpsertCheckupSublicenseDto {
   clientId?: string;
   attiva?: boolean;
   allowDocuments?: boolean;
+  consultantAnagraficaId?: string;
 }
 
 export interface CheckupDashboardStats {
@@ -340,6 +368,27 @@ export const checkupAdminApi = {
 
   resetAdminPassword: async (id: string, newPassword: string): Promise<CheckupAdminUser> => {
     return api.put<CheckupAdminUser>(`/admin/checkup/users/${id}/reset-password`, { newPassword });
+  },
+
+  getAnagraficheLicenziatario: async (params?: { search?: string; studioId?: string }): Promise<CheckupAnagraficaLicenziatario[]> => {
+    const search = new URLSearchParams();
+    if (params?.search) search.set('search', params.search);
+    if (params?.studioId) search.set('studioId', params.studioId);
+    const suffix = search.toString() ? `?${search.toString()}` : '';
+    return api.get<CheckupAnagraficaLicenziatario[]>(`/admin/checkup/anagrafiche-licenziatario${suffix}`);
+  },
+
+  createAnagraficaLicenziatario: async (
+    dto: Partial<CheckupAnagraficaLicenziatario>,
+  ): Promise<CheckupAnagraficaLicenziatario> => {
+    return api.post<CheckupAnagraficaLicenziatario>('/admin/checkup/anagrafiche-licenziatario', dto);
+  },
+
+  updateAnagraficaLicenziatario: async (
+    id: string,
+    dto: Partial<CheckupAnagraficaLicenziatario>,
+  ): Promise<CheckupAnagraficaLicenziatario> => {
+    return api.put<CheckupAnagraficaLicenziatario>(`/admin/checkup/anagrafiche-licenziatario/${id}`, dto);
   },
 
   getClients: async (): Promise<CheckupClient[]> => {

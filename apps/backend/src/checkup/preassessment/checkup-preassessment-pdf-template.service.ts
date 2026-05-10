@@ -19,6 +19,7 @@ import { QuestionManagementService } from '../services/question-management.servi
 import { CheckupPreassessmentValidationService } from './checkup-preassessment-validation.service';
 import { CheckupStudio } from '../studios/checkup-studio.entity';
 import { CheckupUser } from '../users/checkup-user.entity';
+import { CheckupAnagraficaLicenziatario } from '../anagrafiche/checkup-anagrafica-licenziatario.entity';
 
 type ReportField = {
   id: string;
@@ -74,6 +75,7 @@ type ReportPayload = {
   naFields: Record<string, boolean>;
   clientName: string;
   consultantName: string;
+  consultantLabel: string;
   modelDisplayName: string;
   logoUrl: string;
   footerLogoUrl: string;
@@ -498,7 +500,10 @@ export class CheckupPreassessmentPdfTemplateService {
   }
 
   private async resolveModelAndStudio(clientId: string) {
-    const sublicense = await this.sublicenseRepository.findOne({ where: { clientId, attiva: true } });
+    const sublicense = await this.sublicenseRepository.findOne({
+      where: { clientId, attiva: true },
+      relations: ['consultantAnagrafica'],
+    });
     if (!sublicense) {
       throw new NotFoundException('Sublicenza non trovata per il cliente');
     }
@@ -515,9 +520,18 @@ export class CheckupPreassessmentPdfTemplateService {
       modelId,
       modelCode: model?.code || '',
       modelLabel: model?.label || '',
-      studioName: studio?.ragioneSociale || studio?.nome || '',
+      studioName: studio?.nome || studio?.ragioneSociale || '',
       studioLogoUrl: studio?.logoUrl || '',
+      consultantName: this.formatConsultantName(sublicense.consultantAnagrafica)
+        || studio?.ragioneSociale
+        || studio?.nome
+        || '',
     };
+  }
+
+  private formatConsultantName(anagrafica?: CheckupAnagraficaLicenziatario | null) {
+    if (!anagrafica) return '';
+    return [anagrafica.titolo, anagrafica.nome, anagrafica.cognome].filter(Boolean).join(' ').trim();
   }
 
   private buildAddress(client: CheckupClient) {
@@ -629,9 +643,10 @@ export class CheckupPreassessmentPdfTemplateService {
     const fieldNotes = preassessment.fieldNotes || {};
     const naFields = preassessment.naFields || {};
     const clientName = client.ragioneSociale || client.nome || 'Società non specificata';
-    const consultantName = modelInfo.studioName || 'Studio non specificato';
+    const consultantName = modelInfo.consultantName || modelInfo.studioName || 'Studio non specificato';
+    const consultantLabel = `CONSULENTE ${(modelInfo.studioName || '').toUpperCase()}`.trim();
     const modelDisplayName = this.getModelDisplayName(modelInfo.modelCode, modelInfo.modelLabel);
-    const logoUrl = this.getSclnLogoDataUri();
+    const logoUrl = modelInfo.studioLogoUrl || this.getResolvLogoDataUri();
     const footerLogoUrl = this.getResolvLogoDataUri();
     const superOwner = await this.userRepository.findOne({
       where: { clientId: client.id, attivo: true, superOwner: true },
@@ -672,6 +687,7 @@ export class CheckupPreassessmentPdfTemplateService {
       naFields,
       clientName,
       consultantName,
+      consultantLabel,
       modelDisplayName,
       logoUrl,
       footerLogoUrl,
@@ -769,57 +785,49 @@ export class CheckupPreassessmentPdfTemplateService {
     doc.restore();
 
     const modelTitle = this.getCoverModelTitle(payload.modelDisplayName);
-    const coverDescription = this.getCoverDescription(payload.pdfConfig, payload.modelDisplayName);
     const centerWidth = pageWidth - leftPad - rightPad;
     if (payload.logoUrl?.startsWith('data:')) {
       try {
         const base64 = payload.logoUrl.split(',')[1] || payload.logoUrl;
-        doc.image(Buffer.from(base64, 'base64'), leftPad, 56, { fit: [180, 72], align: 'left', valign: 'center' });
+        doc.image(Buffer.from(base64, 'base64'), leftPad, 54, { fit: [180, 72], align: 'left', valign: 'center' });
       } catch {}
     }
-    doc.fillColor('#e2e8f0').fontSize(11).font('Helvetica').text('REPORT RISERVATO', leftPad, 150, {
+    doc.fillColor('#e2e8f0').fontSize(11).font('Helvetica-Bold').text('REPORT RISERVATO', leftPad, 150, {
       width: centerWidth,
       align: 'center',
       characterSpacing: 2.2,
     });
-    doc.fillColor('#ffffff').fontSize(28).font('Helvetica-Bold').text('ANALISI GOVERNANCE', leftPad, 198, {
-      width: centerWidth,
-      align: 'center',
-      characterSpacing: 0.8,
-    });
-    doc.fillColor('#dbeafe').fontSize(34).font('Helvetica').text(modelTitle, leftPad, 236, {
+
+    const dividerLeft = leftPad + 118;
+    const dividerRight = pageWidth - rightPad - 118;
+    doc.save();
+    doc.moveTo(dividerLeft, 292).lineTo(dividerRight, 292).strokeColor('#dbeafe').lineWidth(1).stroke();
+    doc.restore();
+
+    doc.fillColor('#ffffff').fontSize(28).font('Helvetica').text(modelTitle, leftPad, 324, {
       width: centerWidth,
       align: 'center',
     });
     doc.save();
-    doc.moveTo(leftPad + 118, 292).lineTo(pageWidth - rightPad - 118, 292).strokeColor('#dbeafe').lineWidth(1).stroke();
+    doc.moveTo(dividerLeft, 382).lineTo(dividerRight, 382).strokeColor('#dbeafe').lineWidth(1).stroke();
     doc.restore();
 
     const drawCoverMeta = (label: string, value: string, y: number) => {
       doc.fillColor('#bfdbfe').fontSize(9.5).font('Helvetica-Bold').text(label, leftPad, y, {
         width: centerWidth,
-        align: 'center',
+        align: 'left',
         characterSpacing: 1.6,
       });
-      doc.fillColor('#ffffff').fontSize(16).font('Helvetica').text(value || '-', leftPad + 42, y + 17, {
-        width: centerWidth - 84,
-        align: 'center',
+      doc.fillColor('#ffffff').fontSize(14).font('Helvetica').text(value || '-', leftPad, y + 30, {
+        width: centerWidth,
+        align: 'left',
       });
     };
 
-    drawCoverMeta('CLIENTE', payload.clientName, 316);
-    drawCoverMeta('CONSULENTE', payload.consultantName, 374);
+    drawCoverMeta('CLIENTE', payload.clientName, 456);
+    drawCoverMeta(payload.consultantLabel || 'CONSULENTE', payload.consultantName, 558);
 
-    doc.fillColor('#dbeafe').fontSize(12.5).font('Helvetica').text(coverDescription, leftPad + 34, 460, {
-      width: centerWidth - 68,
-      align: 'center',
-      lineGap: 4,
-    });
-    doc.fillColor('#cbd5e1').fontSize(9.5).font('Helvetica').text('Documento riservato ad uso interno del cliente e del consulente', leftPad, pageHeight - 96, {
-      width: centerWidth,
-      align: 'center',
-    });
-    doc.fillColor('#cbd5e1').fontSize(9.5).font('Helvetica').text(`Generato il ${payload.nowLabel} · ${payload.nowTime}`, leftPad, pageHeight - 74, {
+    doc.fillColor('#cbd5e1').fontSize(10).font('Helvetica').text(`Generato il ${payload.nowLabel}`, leftPad, pageHeight - 74, {
       width: centerWidth,
       align: 'center',
     });
@@ -1278,7 +1286,7 @@ export class CheckupPreassessmentPdfTemplateService {
     const normalized = (modelDisplayName || '').trim();
     if (!normalized) return 'MODELLO';
     if (/^modello\b/i.test(normalized)) return normalized.toUpperCase();
-    if (/^\d+[A-Za-z]?$/.test(normalized)) return `MODELLO ${normalized.toUpperCase()}`;
+    if (/^\d+[A-Za-z]?$/.test(normalized)) return `PRE-ASSESSMENT ${normalized.toUpperCase()}`;
     return normalized.toUpperCase();
   }
 

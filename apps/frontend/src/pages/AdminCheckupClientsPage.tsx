@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X, Edit2, Power, PowerOff, Eye, EyeOff, Link2 } from 'lucide-react';
-import { checkupAdminApi, type CheckupClient, type CheckupSublicense, type CheckupStudio } from '../api/checkupAdmin';
+import {
+  checkupAdminApi,
+  type CheckupAnagraficaLicenziatario,
+  type CheckupClient,
+  type CheckupSublicense,
+  type CheckupStudio,
+} from '../api/checkupAdmin';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
@@ -14,6 +20,7 @@ export default function AdminCheckupClientsPage() {
   const [clients, setClients] = useState<CheckupClient[]>([]);
   const [sublicenses, setSublicenses] = useState<CheckupSublicense[]>([]);
   const [studios, setStudios] = useState<CheckupStudio[]>([]);
+  const [anagrafiche, setAnagrafiche] = useState<CheckupAnagraficaLicenziatario[]>([]);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -27,6 +34,7 @@ export default function AdminCheckupClientsPage() {
 
   const [selectedSublicenseId, setSelectedSublicenseId] = useState('');
   const [selectedStudioId, setSelectedStudioId] = useState('');
+  const [selectedConsultantAnagraficaId, setSelectedConsultantAnagraficaId] = useState('');
   const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
   const [formData, setFormData] = useState({
     nome: '',
@@ -59,14 +67,16 @@ export default function AdminCheckupClientsPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [clientsData, sublicensesData, studiosData] = await Promise.all([
+      const [clientsData, sublicensesData, studiosData, anagraficheData] = await Promise.all([
         checkupAdminApi.getClients(),
         checkupAdminApi.getSublicenses(),
         checkupAdminApi.getStudios(),
+        checkupAdminApi.getAnagraficheLicenziatario(),
       ]);
       setClients(clientsData);
       setSublicenses(sublicensesData);
       setStudios(studiosData);
+      setAnagrafiche(anagraficheData);
       setCurrentPage(1);
     } catch (err: any) {
       toastError(err.message || 'Errore durante il caricamento');
@@ -119,6 +129,18 @@ export default function AdminCheckupClientsPage() {
     [availableSublicenses, isEditing, UNASSIGNED_SUBLICENSE_VALUE],
   );
 
+  const consultantOptions = useMemo(() => {
+    if (!selectedStudioId) return [];
+    return anagrafiche
+      .filter((item) => item.studioId === selectedStudioId)
+      .filter((item) => (item.users || []).some((user) => user.attivo && ['admin_studio', 'collaboratore'].includes(user.ruolo)))
+      .map((item) => ({
+        value: item.id,
+        label: [item.titolo, item.nome, item.cognome].filter(Boolean).join(' '),
+        sublabel: item.email || item.pec || undefined,
+      }));
+  }, [anagrafiche, selectedStudioId]);
+
   useEffect(() => {
     if (!selectedStudioId) return;
     if (availableSublicenses.length === 1) {
@@ -134,6 +156,7 @@ export default function AdminCheckupClientsPage() {
     setSelectedClient(null);
     setSelectedStudioId('');
     setSelectedSublicenseId('');
+    setSelectedConsultantAnagraficaId('');
     setFormErrors({});
     setFormData({
       nome: '',
@@ -161,6 +184,7 @@ export default function AdminCheckupClientsPage() {
     const currentSublicense = sublicensesByClient.get(client.id);
     setSelectedSublicenseId(currentSublicense?.id || '');
     setSelectedStudioId(currentSublicense?.license?.studioId || '');
+    setSelectedConsultantAnagraficaId(currentSublicense?.consultantAnagraficaId || '');
     setFormData({
       nome: client.nome || '',
       ragioneSociale: client.ragioneSociale || '',
@@ -184,6 +208,7 @@ export default function AdminCheckupClientsPage() {
     setShowModal(false);
     setSelectedClient(null);
     setSelectedStudioId('');
+    setSelectedConsultantAnagraficaId('');
     setFormErrors({});
   };
 
@@ -196,8 +221,24 @@ export default function AdminCheckupClientsPage() {
       const dataUrl = reader.result as string;
       const img = new Image();
       img.onload = () => {
-        const maxWidth = 400;
-        const maxHeight = 150;
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = img.naturalWidth;
+        sourceCanvas.height = img.naturalHeight;
+        const sourceCtx = sourceCanvas.getContext('2d');
+        if (!sourceCtx) return;
+        sourceCtx.drawImage(img, 0, 0);
+        if (file.type === 'image/png') {
+          const sourceData = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height).data;
+          for (let index = 3; index < sourceData.length; index += 4) {
+            if (sourceData[index] < 255) {
+              setFormData((prev) => ({ ...prev, logoUrl: dataUrl }));
+              return;
+            }
+          }
+        }
+
+        const maxWidth = 1200;
+        const maxHeight = 450;
         const ratio = Math.min(maxWidth / img.naturalWidth, maxHeight / img.naturalHeight, 1);
         const width = Math.round(img.naturalWidth * ratio);
         const height = Math.round(img.naturalHeight * ratio);
@@ -207,6 +248,8 @@ export default function AdminCheckupClientsPage() {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
 
         const imageData = ctx.getImageData(0, 0, width, height);
@@ -315,7 +358,7 @@ export default function AdminCheckupClientsPage() {
     return true;
   };
 
-  const updateSublicenseAssignment = async (clientId: string, newSublicenseId: string) => {
+  const updateSublicenseAssignment = async (clientId: string, newSublicenseId: string, consultantAnagraficaId: string) => {
     const current = sublicensesByClient.get(clientId);
     if (current && current.id !== newSublicenseId) {
       await checkupAdminApi.upsertSublicense({
@@ -328,6 +371,8 @@ export default function AdminCheckupClientsPage() {
         dataScadenza: current.dataScadenza || '',
         clientId: '',
         attiva: current.attiva,
+        allowDocuments: current.allowDocuments ?? true,
+        consultantAnagraficaId: '',
       });
     }
 
@@ -352,6 +397,8 @@ export default function AdminCheckupClientsPage() {
       dataScadenza: next.dataScadenza || '',
       clientId,
       attiva: next.attiva,
+      allowDocuments: next.allowDocuments ?? true,
+      consultantAnagraficaId,
     });
   };
 
@@ -431,7 +478,7 @@ export default function AdminCheckupClientsPage() {
         success('Cliente creato');
       }
 
-      await updateSublicenseAssignment(client.id, normalizedSublicenseId);
+      await updateSublicenseAssignment(client.id, normalizedSublicenseId, selectedConsultantAnagraficaId);
 
       handleCloseModal();
       loadData();
@@ -646,6 +693,7 @@ export default function AdminCheckupClientsPage() {
                       onChange={(val) => {
                         setSelectedStudioId(val);
                         setSelectedSublicenseId('');
+                        setSelectedConsultantAnagraficaId('');
                         setFormErrors((prev) => ({ ...prev, studioId: false }));
                       }}
                       options={licenziatariStudios.map((s) => ({ value: s.id, label: s.nome }))}
@@ -668,6 +716,8 @@ export default function AdminCheckupClientsPage() {
                       value={selectedSublicenseId}
                       onChange={(val) => {
                         setSelectedSublicenseId(val);
+                        const selectedSublicense = sublicenses.find((item) => item.id === val);
+                        setSelectedConsultantAnagraficaId(selectedSublicense?.consultantAnagraficaId || '');
                         setFormErrors((prev) => ({ ...prev, sublicenseId: false }));
                       }}
                       options={sublicenseOptions}
@@ -681,6 +731,30 @@ export default function AdminCheckupClientsPage() {
                         ? 'Puoi anche rimuovere l’assegnazione per liberare la sublicenza e riassegnarla in seguito.'
                         : 'Sono selezionabili solo sublicenze attive e non scadute.'}
                     </p>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <h3 className="text-sm font-semibold text-slate-800">Consulente di riferimento</h3>
+                  <div className="mt-3">
+                    <CustomSelect
+                      value={selectedConsultantAnagraficaId}
+                      onChange={setSelectedConsultantAnagraficaId}
+                      options={[
+                        { value: '', label: 'Nessun consulente selezionato' },
+                        ...consultantOptions,
+                      ]}
+                      placeholder="Seleziona consulente"
+                      searchable
+                      searchPlaceholder="Cerca consulente..."
+                    />
+                    <p className="mt-2 text-xs text-slate-500">
+                      Sono disponibili solo anagrafiche del licenziatario collegate a utenti Admin studio o Collaboratore.
+                    </p>
+                    {selectedStudioId && consultantOptions.length === 0 && (
+                      <p className="mt-2 text-xs text-amber-700">
+                        Nessun consulente disponibile: crea una anagrafica e associala a un utente Admin studio o Collaboratore.
+                      </p>
+                    )}
                   </div>
                 </div>
 

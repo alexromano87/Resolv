@@ -11,6 +11,7 @@ import {
 import { CheckupStudio } from '../studios/checkup-studio.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
+import { CheckupAnagraficaLicenziatario } from '../anagrafiche/checkup-anagrafica-licenziatario.entity';
 
 export type CheckupUserRole = 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
 
@@ -52,6 +53,9 @@ export class CheckupUser {
 
   @Column({ type: 'uuid', nullable: true })
   sublicenseId: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  anagraficaId: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   azienda: string | null;
@@ -109,4 +113,8 @@ export class CheckupUser {
   @ManyToOne(() => CheckupSublicense, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'sublicenseId' })
   sublicense: CheckupSublicense | null;
+
+  @ManyToOne(() => CheckupAnagraficaLicenziatario, (anagrafica) => anagrafica.users, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'anagraficaId' })
+  anagrafica: CheckupAnagraficaLicenziatario | null;
 }

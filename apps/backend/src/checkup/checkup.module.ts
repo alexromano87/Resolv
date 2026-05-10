@@ -28,6 +28,7 @@ import { CheckupPreassessmentExportJob } from './preassessment/checkup-preassess
 import { CheckupStudio } from './studios/checkup-studio.entity';
 import { CheckupLicense } from './licenses/checkup-license.entity';
 import { CheckupSublicense } from './licenses/checkup-sublicense.entity';
+import { CheckupAnagraficaLicenziatario } from './anagrafiche/checkup-anagrafica-licenziatario.entity';
 
 // Auth
 import { CheckupJwtStrategy } from './auth/checkup-jwt.strategy';
@@ -132,6 +133,7 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
       CheckupClient,
       CheckupLicense,
       CheckupSublicense,
+      CheckupAnagraficaLicenziatario,
       QuestionMacroArea,
       QuestionSection,
       QuestionField,

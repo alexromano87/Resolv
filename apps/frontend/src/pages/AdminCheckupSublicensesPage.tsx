@@ -185,6 +185,7 @@ export default function AdminCheckupSublicensesPage() {
         clientId: sublicense.clientId || undefined,
         attiva: nextAttiva,
         allowDocuments: sublicense.allowDocuments ?? true,
+        consultantAnagraficaId: sublicense.consultantAnagraficaId || undefined,
       });
       success(nextAttiva ? 'Sublicenza attivata' : 'Sublicenza disattivata');
       loadData();
@@ -267,6 +268,8 @@ export default function AdminCheckupSublicensesPage() {
         s.client?.ragioneSociale,
         s.clienteStudio?.nome,
         s.clienteStudio?.ragioneSociale,
+        s.consultantAnagrafica?.nome,
+        s.consultantAnagrafica?.cognome,
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term));
@@ -346,6 +349,7 @@ export default function AdminCheckupSublicensesPage() {
                   <th className="px-4 py-3 text-left">Licenza</th>
                   <th className="px-4 py-3 text-left">Sublicenza</th>
                   <th className="px-4 py-3 text-left">Sublicenziatario</th>
+                  <th className="px-4 py-3 text-left">Consulente</th>
                   <th className="px-4 py-3 text-left">Tipo</th>
                   <th className="px-4 py-3 text-left">Utenze</th>
                   <th className="px-4 py-3 text-left">Validità</th>
@@ -363,6 +367,11 @@ export default function AdminCheckupSublicensesPage() {
                     <td className="px-4 py-3 text-sm text-slate-600">{s.numeroSublicenza || '—'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">
                       {getSublicenseClientDisplayName(s)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                      {s.consultantAnagrafica
+                        ? [s.consultantAnagrafica.titolo, s.consultantAnagrafica.nome, s.consultantAnagrafica.cognome].filter(Boolean).join(' ')
+                        : '—'}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{s.tipo || '—'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{s.numeroUtenze}</td>

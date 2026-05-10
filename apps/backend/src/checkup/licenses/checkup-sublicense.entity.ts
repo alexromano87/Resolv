@@ -12,6 +12,7 @@ import { CheckupLicense } from './checkup-license.entity';
 import { CheckupStudio } from '../studios/checkup-studio.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
 import { QuestionModel } from '../entities/question-model.entity';
+import { CheckupAnagraficaLicenziatario } from '../anagrafiche/checkup-anagrafica-licenziatario.entity';
 
 @Entity('checkup_sublicenses')
 export class CheckupSublicense {
@@ -29,6 +30,9 @@ export class CheckupSublicense {
 
   @Column({ type: 'uuid', nullable: true })
   clientId: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  consultantAnagraficaId: string | null;
 
   @Index('UQ_checkup_sublicenses_numero', { unique: true })
   @Column({ type: 'varchar', length: 16, nullable: true })
@@ -73,4 +77,8 @@ export class CheckupSublicense {
   @ManyToOne(() => QuestionModel, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'modelId' })
   model: QuestionModel;
+
+  @ManyToOne(() => CheckupAnagraficaLicenziatario, (anagrafica) => anagrafica.sublicenses, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'consultantAnagraficaId' })
+  consultantAnagrafica: CheckupAnagraficaLicenziatario | null;
 }

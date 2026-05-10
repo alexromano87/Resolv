@@ -116,6 +116,7 @@ const adminCheckupNavSections: Array<{ title: string; items: NavItem[] }> = [
       { path: '/admin/checkup-dashboard', label: 'Dashboard pre-assessment', icon: BarChart3 },
       { path: '/admin/checkup-licenses', label: 'Gestione licenze', icon: KeyRound },
       { path: '/admin/checkup-studios', label: 'Gestione licenziatari', icon: Building2 },
+      { path: '/admin/checkup-anagrafiche', label: 'Anagrafiche licenziatario', icon: Users },
       { path: '/admin/checkup-sublicenses', label: 'Gestione sublicenze', icon: KeyRound },
       { path: '/admin/checkup-clients', label: 'Gestione sublicenziatari', icon: Building2 },
       { path: '/admin/checkup-users', label: 'Gestione utenti', icon: Users },
@@ -196,6 +197,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     pageTitle = 'Gestione licenze checkup';
   } else if (location.pathname === '/admin/checkup-sublicenses') {
     pageTitle = 'Gestione sublicenze checkup';
+  } else if (location.pathname === '/admin/checkup-anagrafiche') {
+    pageTitle = 'Anagrafiche licenziatario';
   } else if (location.pathname === '/admin/checkup-studios') {
     pageTitle = 'Gestione licenziatari';
   } else if (location.pathname === '/admin/checkup-models') {

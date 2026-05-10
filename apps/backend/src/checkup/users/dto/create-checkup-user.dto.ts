@@ -43,6 +43,10 @@ export class CreateCheckupUserDto {
 
   @IsOptional()
   @IsString()
+  anagraficaId?: string;
+
+  @IsOptional()
+  @IsString()
   azienda?: string;
 
   @IsOptional()

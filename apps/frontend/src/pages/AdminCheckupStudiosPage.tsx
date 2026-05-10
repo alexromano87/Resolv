@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X, Edit2, Power, PowerOff, Eye, EyeOff, UserPlus, Key } from 'lucide-react';
-import { checkupAdminApi, type CheckupStudio, type CheckupLicense, type CheckupAdminUser } from '../api/checkupAdmin';
+import {
+  checkupAdminApi,
+  type CheckupStudio,
+  type CheckupLicense,
+  type CheckupAdminUser,
+  type CheckupAnagraficaLicenziatario,
+} from '../api/checkupAdmin';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
@@ -14,14 +20,14 @@ export default function AdminCheckupStudiosPage() {
     email: '',
     password: '',
     ruolo: 'admin_studio' as 'admin_studio' | 'segreteria' | 'collaboratore',
-    telefono: '',
+    anagraficaId: '',
   };
   const emptyEditableStaffForm = {
     nome: '',
     cognome: '',
     email: '',
     ruolo: 'admin_studio' as 'admin_studio' | 'segreteria' | 'collaboratore',
-    telefono: '',
+    anagraficaId: '',
   };
   const formatDate = (value?: string | null) => {
     if (!value) return '—';
@@ -34,6 +40,7 @@ export default function AdminCheckupStudiosPage() {
   const [studios, setStudios] = useState<CheckupStudio[]>([]);
   const [licenses, setLicenses] = useState<CheckupLicense[]>([]);
   const [users, setUsers] = useState<CheckupAdminUser[]>([]);
+  const [anagrafiche, setAnagrafiche] = useState<CheckupAnagraficaLicenziatario[]>([]);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -92,6 +99,8 @@ export default function AdminCheckupStudiosPage() {
       setStudios(studiosData);
       setLicenses(licensesData);
       setUsers(usersData);
+      const anagraficheData = await checkupAdminApi.getAnagraficheLicenziatario();
+      setAnagrafiche(anagraficheData);
       setCurrentPage(1);
     } catch (err: any) {
       toastError(err.message || 'Errore durante il caricamento');
@@ -188,8 +197,24 @@ export default function AdminCheckupStudiosPage() {
       const dataUrl = reader.result as string;
       const img = new Image();
       img.onload = () => {
-        const maxWidth = 400;
-        const maxHeight = 150;
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = img.naturalWidth;
+        sourceCanvas.height = img.naturalHeight;
+        const sourceCtx = sourceCanvas.getContext('2d');
+        if (!sourceCtx) return;
+        sourceCtx.drawImage(img, 0, 0);
+        if (file.type === 'image/png') {
+          const sourceData = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height).data;
+          for (let index = 3; index < sourceData.length; index += 4) {
+            if (sourceData[index] < 255) {
+              setFormData((prev) => ({ ...prev, logoUrl: dataUrl }));
+              return;
+            }
+          }
+        }
+
+        const maxWidth = 1200;
+        const maxHeight = 450;
         const ratio = Math.min(maxWidth / img.naturalWidth, maxHeight / img.naturalHeight, 1);
         const width = Math.round(img.naturalWidth * ratio);
         const height = Math.round(img.naturalHeight * ratio);
@@ -199,6 +224,8 @@ export default function AdminCheckupStudiosPage() {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
 
         const imageData = ctx.getImageData(0, 0, width, height);
@@ -410,26 +437,31 @@ export default function AdminCheckupStudiosPage() {
       toastError('Seleziona prima una licenza per poter creare utenti dello studio');
       return;
     }
-    if (!staffForm.nome.trim() || !staffForm.cognome.trim() || !staffForm.email.trim() || !staffForm.password) {
+    if (!staffForm.anagraficaId || !staffForm.password) {
       toastError('Compila tutti i campi obbligatori');
+      return;
+    }
+    const selectedAnagrafica = anagrafiche.find((item) => item.id === staffForm.anagraficaId);
+    if (!selectedAnagrafica?.email) {
+      toastError('L\'anagrafica selezionata deve avere una email per creare un utente');
       return;
     }
     const confirmed = await confirm({
       title: 'Confermare creazione utente?',
-      message: `Vuoi creare l'utente "${staffForm.nome.trim()} ${staffForm.cognome.trim()}" per questo studio?`,
+      message: `Vuoi creare l'utente "${selectedAnagrafica ? `${selectedAnagrafica.nome} ${selectedAnagrafica.cognome}` : 'selezionato'}" per questo studio?`,
       confirmText: 'Crea utente',
       variant: 'info',
     });
     if (!confirmed) return;
     try {
       await checkupAdminApi.createAdminUser({
-        nome: staffForm.nome.trim(),
-        cognome: staffForm.cognome.trim(),
-        email: staffForm.email.trim(),
+        nome: selectedAnagrafica?.nome || '',
+        cognome: selectedAnagrafica?.cognome || '',
+        email: selectedAnagrafica?.email || '',
         password: staffForm.password,
         ruolo: staffForm.ruolo,
         studioId: selectedStudio.id,
-        telefono: staffForm.telefono || undefined,
+        anagraficaId: staffForm.anagraficaId,
       });
       success('Utente studio creato');
       setStaffForm(emptyStaffForm);
@@ -447,7 +479,7 @@ export default function AdminCheckupStudiosPage() {
       cognome: user.cognome || '',
       email: user.email || '',
       ruolo: user.ruolo as 'admin_studio' | 'segreteria' | 'collaboratore',
-      telefono: user.telefono || '',
+      anagraficaId: user.anagraficaId || '',
     });
     setShowEditStaffModal(true);
   };
@@ -461,24 +493,29 @@ export default function AdminCheckupStudiosPage() {
   const handleUpdateStaffUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStaffUser) return;
-    if (!editingStaffForm.nome.trim() || !editingStaffForm.cognome.trim() || !editingStaffForm.email.trim()) {
-      toastError('Compila tutti i campi obbligatori');
+    if (!editingStaffForm.anagraficaId) {
+      toastError('Seleziona una anagrafica');
+      return;
+    }
+    const selectedAnagrafica = anagrafiche.find((item) => item.id === editingStaffForm.anagraficaId);
+    if (!selectedAnagrafica?.email) {
+      toastError('L\'anagrafica selezionata deve avere una email');
       return;
     }
     const confirmed = await confirm({
       title: 'Confermare modifica utente?',
-      message: `Vuoi salvare le modifiche per "${editingStaffForm.nome.trim()} ${editingStaffForm.cognome.trim()}"?`,
+      message: `Vuoi salvare le modifiche per "${selectedAnagrafica ? `${selectedAnagrafica.nome} ${selectedAnagrafica.cognome}` : editingStaffUser.email}"?`,
       confirmText: 'Salva utente',
       variant: 'info',
     });
     if (!confirmed) return;
     try {
       await checkupAdminApi.updateAdminUser(editingStaffUser.id, {
-        nome: editingStaffForm.nome.trim(),
-        cognome: editingStaffForm.cognome.trim(),
-        email: editingStaffForm.email.trim(),
+        nome: selectedAnagrafica?.nome || editingStaffForm.nome.trim(),
+        cognome: selectedAnagrafica?.cognome || editingStaffForm.cognome.trim(),
+        email: selectedAnagrafica?.email || editingStaffForm.email.trim(),
         ruolo: editingStaffForm.ruolo,
-        telefono: editingStaffForm.telefono.trim(),
+        anagraficaId: editingStaffForm.anagraficaId,
       });
       success('Utente studio aggiornato');
       handleCloseEditStaffModal();
@@ -563,6 +600,14 @@ export default function AdminCheckupStudiosPage() {
       && activeStaffUsersForStudio.length > nextLicense.numeroUtenze,
   );
   const canCreateStaffUsers = Boolean(selectedStudio && formData.licenseId);
+  const anagraficheForSelectedStudio = selectedStudio
+    ? anagrafiche.filter((item) => item.studioId === selectedStudio.id)
+    : [];
+  const anagraficaOptions = anagraficheForSelectedStudio.map((item) => ({
+    value: item.id,
+    label: [item.titolo, item.nome, item.cognome].filter(Boolean).join(' '),
+    sublabel: item.email || item.pec || undefined,
+  }));
 
   const filteredStudios = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -1083,30 +1128,30 @@ export default function AdminCheckupStudiosPage() {
 
                     {showStaffForm && (
                       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700">Nome</label>
-                          <input
-                            value={staffForm.nome}
-                            onChange={(e) => setStaffForm((p) => ({ ...p, nome: e.target.value }))}
-                            className={inputClassName}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700">Cognome</label>
-                          <input
-                            value={staffForm.cognome}
-                            onChange={(e) => setStaffForm((p) => ({ ...p, cognome: e.target.value }))}
-                            className={inputClassName}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700">Email</label>
-                          <input
-                            type="email"
-                            value={staffForm.email}
-                            onChange={(e) => setStaffForm((p) => ({ ...p, email: e.target.value }))}
-                            className={inputClassName}
-                          />
+                        <div className="md:col-span-2">
+                          <label className="block text-sm font-medium text-slate-700">Anagrafica associata</label>
+                          <div className="mt-1">
+                            <CustomSelect
+                              value={staffForm.anagraficaId}
+                              onChange={(val) => {
+                                const selected = anagrafiche.find((item) => item.id === val);
+                                setStaffForm((p) => ({
+                                  ...p,
+                                  anagraficaId: val,
+                                  nome: selected?.nome || '',
+                                  cognome: selected?.cognome || '',
+                                  email: selected?.email || '',
+                                }));
+                              }}
+                              options={anagraficaOptions}
+                              placeholder="Seleziona anagrafica"
+                              searchable
+                              searchPlaceholder="Cerca anagrafica..."
+                            />
+                          </div>
+                          {anagraficaOptions.length === 0 && (
+                            <p className="mt-2 text-xs text-amber-700">Crea prima una anagrafica per questo licenziatario.</p>
+                          )}
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-slate-700">Password</label>
@@ -1131,14 +1176,6 @@ export default function AdminCheckupStudiosPage() {
                               options={staffRoleOptions}
                             />
                           </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700">Telefono (opzionale)</label>
-                          <input
-                            value={staffForm.telefono}
-                            onChange={(e) => setStaffForm((p) => ({ ...p, telefono: e.target.value }))}
-                            className={inputClassName}
-                          />
                         </div>
                         <div className="md:col-span-2 flex justify-end gap-3">
                           <button
@@ -1229,33 +1266,27 @@ export default function AdminCheckupStudiosPage() {
               </div>
               <form onSubmit={handleUpdateStaffUser} className="space-y-4 p-6">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700">Nome</label>
-                    <input
-                      value={editingStaffForm.nome}
-                      onChange={(e) => setEditingStaffForm((p) => ({ ...p, nome: e.target.value }))}
-                      className={inputClassName}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700">Cognome</label>
-                    <input
-                      value={editingStaffForm.cognome}
-                      onChange={(e) => setEditingStaffForm((p) => ({ ...p, cognome: e.target.value }))}
-                      className={inputClassName}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700">Email</label>
-                    <input
-                      type="email"
-                      value={editingStaffForm.email}
-                      onChange={(e) => setEditingStaffForm((p) => ({ ...p, email: e.target.value }))}
-                      className={inputClassName}
-                      required
-                    />
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-slate-700">Anagrafica associata</label>
+                    <div className="mt-1">
+                      <CustomSelect
+                        value={editingStaffForm.anagraficaId}
+                        onChange={(val) => {
+                          const selected = anagrafiche.find((item) => item.id === val);
+                          setEditingStaffForm((p) => ({
+                            ...p,
+                            anagraficaId: val,
+                            nome: selected?.nome || '',
+                            cognome: selected?.cognome || '',
+                            email: selected?.email || '',
+                          }));
+                        }}
+                        options={anagraficaOptions}
+                        placeholder="Seleziona anagrafica"
+                        searchable
+                        searchPlaceholder="Cerca anagrafica..."
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700">Ruolo</label>
@@ -1271,14 +1302,6 @@ export default function AdminCheckupStudiosPage() {
                         options={staffRoleOptions}
                       />
                     </div>
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-slate-700">Telefono (opzionale)</label>
-                    <input
-                      value={editingStaffForm.telefono}
-                      onChange={(e) => setEditingStaffForm((p) => ({ ...p, telefono: e.target.value }))}
-                      className={inputClassName}
-                    />
                   </div>
                 </div>
                 <div className="flex justify-end gap-3 pt-2">

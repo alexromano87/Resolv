@@ -42,4 +42,8 @@ export class CreateCheckupSublicenseDto {
   @IsOptional()
   @IsString()
   clienteStudioId?: string;
+
+  @IsOptional()
+  @IsString()
+  consultantAnagraficaId?: string;
 }

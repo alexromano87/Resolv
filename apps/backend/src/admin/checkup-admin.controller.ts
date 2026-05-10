@@ -15,6 +15,7 @@ import { CheckupClient } from '../checkup/clients/checkup-client.entity';
 import { CheckupUser } from '../checkup/users/checkup-user.entity';
 import { CheckupLicense } from '../checkup/licenses/checkup-license.entity';
 import { CheckupSublicense } from '../checkup/licenses/checkup-sublicense.entity';
+import { CheckupAnagraficaLicenziatario } from '../checkup/anagrafiche/checkup-anagrafica-licenziatario.entity';
 import { CheckupPreassessment } from '../checkup/preassessment/checkup-preassessment.entity';
 import { QuestionMacroArea } from '../checkup/entities/question-macro-area.entity';
 import { QuestionSection } from '../checkup/entities/question-section.entity';
@@ -59,6 +60,8 @@ export class CheckupAdminController {
     private licenseRepository: Repository<CheckupLicense>,
     @InjectRepository(CheckupSublicense)
     private sublicenseRepository: Repository<CheckupSublicense>,
+    @InjectRepository(CheckupAnagraficaLicenziatario)
+    private anagraficaRepository: Repository<CheckupAnagraficaLicenziatario>,
     @InjectRepository(CheckupPreassessment)
     private preassessmentRepository: Repository<CheckupPreassessment>,
     @InjectRepository(QuestionModel)
@@ -703,6 +706,20 @@ export class CheckupAdminController {
     }
   }
 
+  private formatAnagraficaName(anagrafica?: CheckupAnagraficaLicenziatario | null) {
+    if (!anagrafica) return '';
+    return [anagrafica.titolo, anagrafica.nome, anagrafica.cognome].filter(Boolean).join(' ').trim();
+  }
+
+  private async resolveAnagraficaForStudio(studioId: string, anagraficaId?: string | null) {
+    if (!anagraficaId) return null;
+    const anagrafica = await this.anagraficaRepository.findOne({ where: { id: anagraficaId, studioId, attiva: true } });
+    if (!anagrafica) {
+      throw new ConflictException('Anagrafica non trovata per il licenziatario selezionato');
+    }
+    return anagrafica;
+  }
+
   private async resolveClientSublicense(clientId: string, sublicenseId?: string | null) {
     if (sublicenseId) {
       const sublicense = await this.sublicenseRepository.findOne({
@@ -753,9 +770,107 @@ export class CheckupAdminController {
   @Get('users')
   async listUsers(): Promise<CheckupUser[]> {
     return this.userRepository.find({
-      relations: ['studio', 'client', 'sublicense', 'sublicense.license'],
+      relations: ['studio', 'client', 'sublicense', 'sublicense.license', 'anagrafica'],
       order: { createdAt: 'DESC' },
     });
+  }
+
+  @Get('anagrafiche-licenziatario')
+  async listAnagrafiche(
+    @Query('search') search?: string,
+    @Query('studioId') studioId?: string,
+  ): Promise<CheckupAnagraficaLicenziatario[]> {
+    const qb = this.anagraficaRepository
+      .createQueryBuilder('a')
+      .leftJoinAndSelect('a.studio', 'studio')
+      .leftJoinAndSelect('a.users', 'users')
+      .where('a.attiva = :attiva', { attiva: true });
+
+    if (studioId) {
+      qb.andWhere('a.studioId = :studioId', { studioId });
+    }
+
+    const q = search?.trim().toLowerCase();
+    if (q) {
+      const like = `%${q}%`;
+      qb.andWhere(`(
+        LOWER(a.cognome) LIKE :like
+        OR LOWER(a.nome) LIKE :like
+        OR LOWER(a.partitaIva) LIKE :like
+        OR LOWER(a.codiceFiscale) LIKE :like
+        OR LOWER(a.email) LIKE :like
+        OR LOWER(a.pec) LIKE :like
+        OR LOWER(studio.nome) LIKE :like
+        OR LOWER(studio.ragioneSociale) LIKE :like
+      )`, { like });
+    }
+
+    return qb.orderBy('a.cognome', 'ASC').addOrderBy('a.nome', 'ASC').getMany();
+  }
+
+  @Post('anagrafiche-licenziatario')
+  async createAnagrafica(@Body() dto: Partial<CheckupAnagraficaLicenziatario>): Promise<CheckupAnagraficaLicenziatario> {
+    const studioId = dto.studioId?.trim();
+    if (!studioId) {
+      throw new ConflictException('Seleziona il licenziatario');
+    }
+    const studio = await this.studioRepository.findOne({ where: { id: studioId, tipo: 'licenziatario' } });
+    if (!studio) {
+      throw new NotFoundException('Licenziatario non trovato');
+    }
+    if (!dto.nome?.trim() || !dto.cognome?.trim()) {
+      throw new ConflictException('Nome e cognome sono obbligatori');
+    }
+    const anagrafica = this.anagraficaRepository.create({
+      studioId,
+      titolo: dto.titolo?.trim() || null,
+      nome: dto.nome.trim(),
+      cognome: dto.cognome.trim(),
+      email: dto.email?.trim() || null,
+      pec: dto.pec?.trim() || null,
+      partitaIva: dto.partitaIva?.trim() || null,
+      codiceFiscale: dto.codiceFiscale?.trim() || null,
+      telefono: dto.telefono?.trim() || null,
+      indirizzo: dto.indirizzo?.trim() || null,
+      citta: dto.citta?.trim() || null,
+      provincia: dto.provincia?.trim() || null,
+      attiva: true,
+    });
+    return this.anagraficaRepository.save(anagrafica);
+  }
+
+  @Put('anagrafiche-licenziatario/:id')
+  async updateAnagrafica(
+    @Param('id') id: string,
+    @Body() dto: Partial<CheckupAnagraficaLicenziatario>,
+  ): Promise<CheckupAnagraficaLicenziatario> {
+    const anagrafica = await this.anagraficaRepository.findOne({ where: { id } });
+    if (!anagrafica) {
+      throw new NotFoundException('Anagrafica non trovata');
+    }
+    if (dto.studioId !== undefined) {
+      const studioId = dto.studioId?.trim();
+      if (!studioId) throw new ConflictException('Seleziona il licenziatario');
+      const studio = await this.studioRepository.findOne({ where: { id: studioId, tipo: 'licenziatario' } });
+      if (!studio) throw new NotFoundException('Licenziatario non trovato');
+      anagrafica.studioId = studioId;
+    }
+    if (dto.nome !== undefined) anagrafica.nome = dto.nome.trim();
+    if (dto.cognome !== undefined) anagrafica.cognome = dto.cognome.trim();
+    if (!anagrafica.nome || !anagrafica.cognome) {
+      throw new ConflictException('Nome e cognome sono obbligatori');
+    }
+    if (dto.titolo !== undefined) anagrafica.titolo = dto.titolo?.trim() || null;
+    if (dto.email !== undefined) anagrafica.email = dto.email?.trim() || null;
+    if (dto.pec !== undefined) anagrafica.pec = dto.pec?.trim() || null;
+    if (dto.partitaIva !== undefined) anagrafica.partitaIva = dto.partitaIva?.trim() || null;
+    if (dto.codiceFiscale !== undefined) anagrafica.codiceFiscale = dto.codiceFiscale?.trim() || null;
+    if (dto.telefono !== undefined) anagrafica.telefono = dto.telefono?.trim() || null;
+    if (dto.indirizzo !== undefined) anagrafica.indirizzo = dto.indirizzo?.trim() || null;
+    if (dto.citta !== undefined) anagrafica.citta = dto.citta?.trim() || null;
+    if (dto.provincia !== undefined) anagrafica.provincia = dto.provincia?.trim() || null;
+    if (dto.attiva !== undefined) anagrafica.attiva = Boolean(dto.attiva);
+    return this.anagraficaRepository.save(anagrafica);
   }
 
   @Post('users')
@@ -768,6 +883,8 @@ export class CheckupAdminController {
 
     let resolvedSublicenseId: string | null = null;
     let resolvedModelId: string | null = null;
+    let resolvedAnagrafica: CheckupAnagraficaLicenziatario | null = null;
+    let nextEmail = email;
     if (dto.ruolo === 'cliente') {
       if (!dto.clientId) {
         throw new ConflictException('Seleziona il cliente per l\'utente');
@@ -799,22 +916,31 @@ export class CheckupAdminController {
       if (studio.tipo !== 'licenziatario') {
         throw new ConflictException('Gli utenti staff possono essere creati solo per studi licenziatari');
       }
+      resolvedAnagrafica = await this.resolveAnagraficaForStudio(dto.studioId, dto.anagraficaId);
+      nextEmail = resolvedAnagrafica?.email?.toLowerCase().trim() || email;
+      if (nextEmail !== email) {
+        const existingAnagraficaEmail = await this.userRepository.findOne({ where: { email: nextEmail } });
+        if (existingAnagraficaEmail) {
+          throw new ConflictException('Email anagrafica già in uso');
+        }
+      }
       await this.ensureStudioCapacity(dto.studioId);
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
     const user = this.userRepository.create({
-      email,
+      email: nextEmail,
       password: hashedPassword,
-      nome: dto.nome.trim(),
-      cognome: dto.cognome.trim(),
-      titolo: dto.titolo?.trim() || null,
-      telefono: dto.telefono?.trim() || null,
+      nome: resolvedAnagrafica?.nome || dto.nome.trim(),
+      cognome: resolvedAnagrafica?.cognome || dto.cognome.trim(),
+      titolo: resolvedAnagrafica?.titolo || dto.titolo?.trim() || null,
+      telefono: null,
       ruolo: dto.ruolo,
       studioId: dto.ruolo === 'cliente' ? null : dto.studioId ?? null,
       clientId: dto.ruolo === 'cliente' ? dto.clientId ?? null : null,
       sublicenseId: dto.ruolo === 'cliente' ? resolvedSublicenseId : null,
+      anagraficaId: dto.ruolo === 'cliente' ? null : resolvedAnagrafica?.id ?? null,
       azienda: dto.azienda?.trim() || null,
       macroAreaOwner: dto.ruolo === 'cliente' ? this.normalizeMacroOwnerList(dto.macroAreaOwner) : null,
       macroAreaAssignments: dto.ruolo === 'cliente' ? this.normalizeMacroAssignmentList(dto.macroAreaAssignments) : null,
@@ -855,7 +981,7 @@ export class CheckupAdminController {
     if (dto.nome !== undefined) user.nome = dto.nome.trim();
     if (dto.cognome !== undefined) user.cognome = dto.cognome.trim();
     if (dto.titolo !== undefined) user.titolo = dto.titolo?.trim() || null;
-    if (dto.telefono !== undefined) user.telefono = dto.telefono?.trim() || null;
+    if (dto.telefono !== undefined) user.telefono = null;
     if (dto.azienda !== undefined) user.azienda = dto.azienda?.trim() || null;
 
     const nextRole = dto.ruolo ?? user.ruolo;
@@ -912,6 +1038,7 @@ export class CheckupAdminController {
       user.clientId = nextClientId;
       user.studioId = null;
       user.sublicenseId = clientSublicense.id;
+      user.anagraficaId = null;
       user.macroAreaOwner = nextMacroOwner;
       user.macroAreaAssignments = nextMacroAssignments;
       user.superOwner = nextSuperOwner;
@@ -932,9 +1059,27 @@ export class CheckupAdminController {
       if (activating || movingStudio || becomingStaff) {
         await this.ensureStudioCapacity(nextStudioId, user.id);
       }
+      if (dto.anagraficaId !== undefined) {
+        const resolvedAnagrafica = await this.resolveAnagraficaForStudio(nextStudioId, dto.anagraficaId);
+        user.anagraficaId = resolvedAnagrafica?.id ?? null;
+        if (resolvedAnagrafica) {
+          const anagraficaEmail = resolvedAnagrafica.email?.toLowerCase().trim();
+          if (anagraficaEmail && anagraficaEmail !== user.email) {
+            const existing = await this.userRepository.findOne({ where: { email: anagraficaEmail } });
+            if (existing && existing.id !== user.id) {
+              throw new ConflictException('Email anagrafica già in uso');
+            }
+            user.email = anagraficaEmail;
+          }
+          user.nome = resolvedAnagrafica.nome;
+          user.cognome = resolvedAnagrafica.cognome;
+          user.titolo = resolvedAnagrafica.titolo || null;
+        }
+      }
       user.studioId = nextStudioId;
       user.clientId = null;
       user.sublicenseId = null;
+      user.telefono = null;
       user.macroAreaOwner = null;
       user.macroAreaAssignments = null;
       user.superOwner = false;
@@ -1135,7 +1280,7 @@ export class CheckupAdminController {
   @Get('sublicenses')
   async listSublicenses(): Promise<CheckupSublicense[]> {
     return this.sublicenseRepository.find({
-      relations: ['license', 'license.studio', 'clienteStudio', 'client'],
+      relations: ['license', 'license.studio', 'clienteStudio', 'client', 'consultantAnagrafica', 'consultantAnagrafica.users'],
       order: { updatedAt: 'DESC' },
     });
   }
@@ -1251,6 +1396,26 @@ export class CheckupAdminController {
       allowDocuments: dto.allowDocuments ?? true,
       modelId: dto.modelId,
     };
+
+    if (dto.consultantAnagraficaId !== undefined) {
+      payload.consultantAnagraficaId = null;
+    }
+    if (dto.consultantAnagraficaId) {
+      if (!license.studioId) {
+        throw new ConflictException('Assegna prima la licenza a un licenziatario');
+      }
+      const consultant = await this.resolveAnagraficaForStudio(license.studioId, dto.consultantAnagraficaId);
+      const linkedUser = await this.userRepository.findOne({
+        where: [
+          { anagraficaId: consultant!.id, ruolo: 'admin_studio', attivo: true },
+          { anagraficaId: consultant!.id, ruolo: 'collaboratore', attivo: true },
+        ],
+      });
+      if (!linkedUser) {
+        throw new ConflictException('Il consulente deve essere associato ad un utente Admin studio o Collaboratore');
+      }
+      payload.consultantAnagraficaId = consultant!.id;
+    }
 
     if (dto.clientId !== undefined) {
       payload.clientId = dto.clientId || null;
