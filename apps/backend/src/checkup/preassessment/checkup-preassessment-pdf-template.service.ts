@@ -754,15 +754,20 @@ export class CheckupPreassessmentPdfTemplateService {
 
     const finalRange = doc.bufferedPageRange();
     const lastPageIndex = finalRange.start + finalRange.count - 1;
+    const numberingStartPageIndex = tocPageIndex + 1;
+    const numberedTotalPages = Math.max(0, finalRange.count - numberingStartPageIndex);
     for (let pageIndex = finalRange.start; pageIndex <= lastPageIndex; pageIndex += 1) {
-      if (pageIndex === lastPageIndex) continue;
+      if (pageIndex < numberingStartPageIndex || pageIndex === lastPageIndex) continue;
       doc.switchToPage(pageIndex);
-      this.drawPageNumber(doc, pageIndex + 1, finalRange.count);
+      this.drawPageNumber(doc, pageIndex - numberingStartPageIndex + 1, numberedTotalPages);
     }
     doc.switchToPage(lastPageIndex);
-    this.drawFooter(doc, payload, lastPageIndex + 1, finalRange.count);
+    this.drawFooter(doc, payload, lastPageIndex - numberingStartPageIndex + 1, numberedTotalPages);
     doc.switchToPage(tocPageIndex);
-    this.drawNativeToc(doc, payload, sectionsForIndex);
+    this.drawNativeToc(doc, payload, sectionsForIndex.map((section) => ({
+      ...section,
+      page: section.page - numberingStartPageIndex,
+    })));
     this.trimTrailingBlankPages(doc);
 
     doc.end();
