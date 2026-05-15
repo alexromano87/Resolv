@@ -182,6 +182,16 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   }, [location.pathname]);
 
   useEffect(() => {
+    if (!user) return;
+    const markOnline = () => {
+      preassessmentStaffChatApi.markOnline().catch(() => {});
+    };
+    markOnline();
+    const interval = window.setInterval(markOnline, 30_000);
+    return () => window.clearInterval(interval);
+  }, [user]);
+
+  useEffect(() => {
     if (!systemNotificationsOpen) return;
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;

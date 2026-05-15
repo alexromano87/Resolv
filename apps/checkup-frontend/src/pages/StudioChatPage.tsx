@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowDown, ArrowLeft, Building2, Check, CheckCheck, ChevronLeft, MessageCircle, Plus, Printer, Search, Send, UserRound, Users } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowDown, ArrowLeft, Building2, Check, CheckCheck, ChevronLeft, MessageCircle, Plus, Printer, Search, Send, Trash2, UserRound, Users } from 'lucide-react';
 import { preassessmentStaffChatApi, type StaffChatConversation } from '../api/preassessment';
 import { useAuth } from '../contexts/AuthContext';
 import { BodyPortal } from '../components/ui/BodyPortal';
@@ -23,6 +23,7 @@ export function StudioChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
   const [appliedSearch, setAppliedSearch] = useState(searchParams.get('search') ?? '');
+  const [showArchived, setShowArchived] = useState(searchParams.get('archived') === 'true');
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(searchParams.get('conversationId'));
   const [messages, setMessages] = useState<DirectChatMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -93,7 +94,7 @@ export function StudioChatPage() {
   const loadConversations = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      const data = await preassessmentStaffChatApi.listConversations(appliedSearch || undefined);
+      const data = await preassessmentStaffChatApi.listConversations(appliedSearch || undefined, showArchived);
       setConversations(data);
       setError(null);
       if (!selectedConversationId && data.length > 0) {
@@ -114,7 +115,7 @@ export function StudioChatPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [appliedSearch, searchParams, selectedConversationId]);
+  }, [appliedSearch, searchParams, selectedConversationId, showArchived]);
 
   const loadMessages = useCallback(async (markRead = false) => {
     if (!selectedConversationId) {
@@ -164,6 +165,8 @@ export function StudioChatPage() {
       next.delete('clientId');
       if (appliedSearch) next.set('search', appliedSearch);
       else next.delete('search');
+      if (showArchived) next.set('archived', 'true');
+      else next.delete('archived');
       return next;
     }, { replace: true });
     didAutoScrollRef.current = false;
@@ -173,7 +176,7 @@ export function StudioChatPage() {
       loadConversations(true);
     }, 5000);
     return () => clearInterval(interval);
-  }, [selectedConversationId, appliedSearch, loadMessages, loadConversations, setSearchParams]);
+  }, [selectedConversationId, appliedSearch, showArchived, loadMessages, loadConversations, setSearchParams]);
 
   useEffect(() => {
     const container = scrollRef.current;
@@ -233,6 +236,35 @@ export function StudioChatPage() {
     }
   };
 
+  const handleArchiveToggle = async () => {
+    if (!selectedConversation) return;
+    try {
+      if (showArchived) {
+        await preassessmentStaffChatApi.restoreConversation(selectedConversation.id);
+      } else {
+        await preassessmentStaffChatApi.archiveConversation(selectedConversation.id);
+      }
+      setSelectedConversationId(null);
+      await loadConversations(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante l’aggiornamento della chat');
+    }
+  };
+
+  const handleDeleteConversation = async () => {
+    if (!selectedConversation) return;
+    const participantLabel = `${selectedConversation.participant.nome} ${selectedConversation.participant.cognome}`.trim();
+    if (!window.confirm(`Eliminare la chat con ${participantLabel}? La chat non sarà più visibile nel tuo elenco.`)) return;
+    try {
+      await preassessmentStaffChatApi.deleteConversation(selectedConversation.id);
+      setSelectedConversationId(null);
+      setMessages([]);
+      await loadConversations(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante l’eliminazione della chat');
+    }
+  };
+
   const handleExport = () => {
     if (!selectedConversation) return;
     const participantLabel = `${selectedConversation.participant.nome} ${selectedConversation.participant.cognome}`.trim();
@@ -272,6 +304,10 @@ export function StudioChatPage() {
           <button onClick={handleExport} className="wow-button-ghost" disabled={!selectedConversation}>
             <Printer className="h-4 w-4" />
             Esporta
+          </button>
+          <button onClick={() => { setShowArchived((value) => !value); setSelectedConversationId(null); }} className="wow-button-ghost">
+            {showArchived ? <MessageCircle className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+            {showArchived ? 'Chat attive' : 'Archiviate'}
           </button>
           <button onClick={() => setShowRecipients(true)} className="wow-button">
             <Plus className="h-4 w-4" />
@@ -341,9 +377,19 @@ export function StudioChatPage() {
             <div className="flex flex-1 items-center justify-center text-sm text-slate-400">Seleziona una chat dalla lista.</div>
           ) : (
             <>
-              <div className="border-b border-slate-200 px-5 py-4">
-                <p className="text-sm font-semibold text-slate-900">{`${selectedConversation.participant.nome} ${selectedConversation.participant.cognome}`.trim()}</p>
-                <p className="text-xs text-slate-500">{selectedConversation.participant.azienda || selectedConversation.participant.email}</p>
+              <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{`${selectedConversation.participant.nome} ${selectedConversation.participant.cognome}`.trim()}</p>
+                  <p className="truncate text-xs text-slate-500">{selectedConversation.participant.azienda || selectedConversation.participant.email}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button type="button" onClick={handleArchiveToggle} className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:border-indigo-200 hover:text-indigo-600" title={showArchived ? 'Ripristina chat' : 'Archivia chat'}>
+                    {showArchived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                  </button>
+                  <button type="button" onClick={handleDeleteConversation} className="rounded-full border border-rose-100 p-2 text-rose-500 transition hover:border-rose-200 hover:bg-rose-50" title="Elimina chat">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               <div className="relative flex-1 min-h-0">
                 <div ref={scrollRef} className="h-full overflow-y-auto px-5 py-4 space-y-3">

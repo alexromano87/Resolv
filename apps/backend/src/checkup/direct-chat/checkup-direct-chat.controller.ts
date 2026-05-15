@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupDirectChatService } from './checkup-direct-chat.service';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
@@ -12,8 +12,12 @@ export class CheckupDirectChatController {
   constructor(private readonly directChatService: CheckupDirectChatService) {}
 
   @Get('conversations')
-  listConversations(@CheckupCurrentUser() user: CheckupCurrentUserData, @Query('search') search?: string) {
-    return this.directChatService.listConversations(user, search);
+  listConversations(
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+    @Query('search') search?: string,
+    @Query('archived') archived?: string,
+  ) {
+    return this.directChatService.listConversations(user, search, archived === 'true');
   }
 
   @Get('recipients')
@@ -41,8 +45,28 @@ export class CheckupDirectChatController {
     return this.directChatService.markAsRead(id, user);
   }
 
+  @Post('conversations/:id/archive')
+  archiveConversation(@Param('id') id: string, @CheckupCurrentUser() user: CheckupCurrentUserData) {
+    return this.directChatService.archiveConversation(id, user);
+  }
+
+  @Post('conversations/:id/restore')
+  restoreConversation(@Param('id') id: string, @CheckupCurrentUser() user: CheckupCurrentUserData) {
+    return this.directChatService.restoreConversation(id, user);
+  }
+
+  @Delete('conversations/:id')
+  deleteConversation(@Param('id') id: string, @CheckupCurrentUser() user: CheckupCurrentUserData) {
+    return this.directChatService.deleteConversation(id, user);
+  }
+
   @Get('unread-count')
   getUnreadCount(@CheckupCurrentUser() user: CheckupCurrentUserData) {
     return this.directChatService.getUnreadCount(user);
+  }
+
+  @Post('presence')
+  markOnline(@CheckupCurrentUser() user: CheckupCurrentUserData) {
+    return this.directChatService.markOnline(user);
   }
 }

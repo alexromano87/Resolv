@@ -180,6 +180,22 @@ export function PreassessmentAlertsPage() {
   const [editLoading, setEditLoading] = useState(false);
 
   const { confirm, ConfirmDialog } = useConfirmDialog();
+  const clientCompanyLabel =
+    user?.client?.ragioneSociale ||
+    user?.azienda ||
+    user?.clientNome ||
+    user?.client?.nome ||
+    'azienda sublicenziataria';
+  const licenziatarioLabel =
+    user?.licenziatarioNome ||
+    user?.studioNome ||
+    'licenziatario';
+  const clientRecipientLabel = isCliente
+    ? `Collega ${clientCompanyLabel}`
+    : 'Utente sublicenziatario';
+  const studioRecipientLabel = isCliente
+    ? `Consulente ${licenziatarioLabel}`
+    : 'Collega licenziatario';
 
   // ── Load preassessmentId ────────────────────────────────────────────────────
   useEffect(() => {
@@ -953,7 +969,7 @@ export function PreassessmentAlertsPage() {
                           : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                       }`}
                     >
-                      {isCliente ? 'Collega sublicenziatario' : 'Utente sublicenziatario'}
+                      {clientRecipientLabel}
                     </button>
                     {studioMembers.length > 0 && (
                       <button
@@ -965,7 +981,7 @@ export function PreassessmentAlertsPage() {
                             : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                         }`}
                       >
-                        {isCliente ? 'Consulente licenziatario' : 'Collega licenziatario'}
+                        {studioRecipientLabel}
                       </button>
                     )}
                     <button

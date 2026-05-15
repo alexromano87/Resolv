@@ -304,11 +304,15 @@ export interface StaffChatConversation {
     user: { id: string; nome: string; cognome: string; ruolo: string };
   } | null;
   unreadCount: number;
+  archived: boolean;
 }
 
 export const preassessmentStaffChatApi = {
-  listConversations: (search?: string) =>
-    api.get<StaffChatConversation[]>('/checkup/direct-chat/conversations', search ? { search } : undefined),
+  listConversations: (search?: string, archived = false) =>
+    api.get<StaffChatConversation[]>(
+      '/checkup/direct-chat/conversations',
+      { ...(search ? { search } : {}), ...(archived ? { archived: 'true' } : {}) },
+    ),
   listRecipients: (search?: string) =>
     api.get<{
       clients: Array<{
@@ -371,6 +375,13 @@ export const preassessmentStaffChatApi = {
     }>(`/checkup/direct-chat/conversations/${conversationId}/messages`, { messaggio }),
   markAsRead: (id: string) => api.post(`/checkup/direct-chat/messages/${id}/read`, {}),
   getUnreadCount: () => api.get<{ unread: number }>('/checkup/direct-chat/unread-count'),
+  archiveConversation: (conversationId: string) =>
+    api.post(`/checkup/direct-chat/conversations/${conversationId}/archive`, {}),
+  restoreConversation: (conversationId: string) =>
+    api.post(`/checkup/direct-chat/conversations/${conversationId}/restore`, {}),
+  deleteConversation: (conversationId: string) =>
+    api.delete(`/checkup/direct-chat/conversations/${conversationId}`),
+  markOnline: () => api.post('/checkup/direct-chat/presence', {}),
 };
 
 export interface CoParticipant {

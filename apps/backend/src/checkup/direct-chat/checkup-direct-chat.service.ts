@@ -9,6 +9,11 @@ import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CreateDirectChatConversationDto } from './dto-create-direct-conversation.dto';
 import { SendDirectChatMessageDto } from './dto-send-direct-message.dto';
+import { CacheService } from '../../common/cache.service';
+import { CheckupMailService } from '../mail/checkup-mail.service';
+
+const DIRECT_CHAT_ONLINE_PREFIX = 'checkup:direct-chat:online:';
+const DIRECT_CHAT_ONLINE_TTL_SECONDS = 90;
 
 @Injectable()
 export class CheckupDirectChatService {
@@ -23,6 +28,8 @@ export class CheckupDirectChatService {
     private readonly licenseRepository: Repository<CheckupLicense>,
     @InjectRepository(CheckupSublicense)
     private readonly sublicenseRepository: Repository<CheckupSublicense>,
+    private readonly cacheService: CacheService,
+    private readonly mailService: CheckupMailService,
   ) {}
 
   private normalizePair(userA: string, userB: string) {
@@ -153,6 +160,69 @@ export class CheckupDirectChatService {
     };
   }
 
+  private visibilityColumnsForUser(conversation: CheckupDirectChatConversation, userId: string) {
+    if (conversation.userOneId === userId) {
+      return {
+        archived: 'userOneArchivedAt' as const,
+        deleted: 'userOneDeletedAt' as const,
+      };
+    }
+    return {
+      archived: 'userTwoArchivedAt' as const,
+      deleted: 'userTwoDeletedAt' as const,
+    };
+  }
+
+  private clearVisibilityForUser(conversation: CheckupDirectChatConversation, userId: string) {
+    const columns = this.visibilityColumnsForUser(conversation, userId);
+    conversation[columns.archived] = null;
+    conversation[columns.deleted] = null;
+  }
+
+  private formatUserName(user: Pick<CheckupUser, 'nome' | 'cognome' | 'email'>) {
+    return `${user.nome || ''} ${user.cognome || ''}`.trim() || user.email;
+  }
+
+  private escapeHtml(value: string) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private async notifyRecipientIfOffline(
+    conversation: CheckupDirectChatConversation,
+    sender: CheckupCurrentUserData,
+    message: CheckupDirectChatMessage,
+  ) {
+    const recipient = conversation.userOneId === sender.id ? conversation.userTwo : conversation.userOne;
+    if (!recipient?.email) return;
+
+    const isOnline = await this.cacheService.get<boolean>(`${DIRECT_CHAT_ONLINE_PREFIX}${recipient.id}`);
+    if (isOnline) return;
+
+    const senderName = this.escapeHtml(`${sender.nome || ''} ${sender.cognome || ''}`.trim() || sender.email);
+    const preview = message.messaggio.length > 500 ? `${message.messaggio.slice(0, 500)}...` : message.messaggio;
+
+    this.mailService.sendMail({
+      to: recipient.email,
+      subject: 'Hai ricevuto un nuovo messaggio in chat',
+      html: `
+        <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.5;">
+          <h2 style="margin:0 0 12px;">Nuovo messaggio in chat</h2>
+          <p style="margin:0 0 12px;">Ciao ${this.escapeHtml(this.formatUserName(recipient))}, hai ricevuto un nuovo messaggio da <strong>${senderName}</strong>.</p>
+          <div style="margin:16px 0;padding:12px 14px;border-left:4px solid #4f46e5;background:#f8fafc;color:#334155;">
+            ${this.escapeHtml(preview).replace(/\n/g, '<br />')}
+          </div>
+          <p style="margin:0;">Accedi alla piattaforma per rispondere.</p>
+          ${this.mailService.signature()}
+        </div>
+      `,
+    });
+  }
+
   async createConversation(dto: CreateDirectChatConversationDto, user: CheckupCurrentUserData) {
     const participant = await this.userRepository.findOne({
       where: { id: dto.participantUserId },
@@ -182,6 +252,9 @@ export class CheckupDirectChatService {
         where: { id: conversation.id },
         relations: ['userOne', 'userOne.client', 'userOne.studio', 'userTwo', 'userTwo.client', 'userTwo.studio'],
       });
+    } else {
+      this.clearVisibilityForUser(conversation, user.id);
+      conversation = await this.conversationRepository.save(conversation);
     }
     return {
       id: conversation.id,
@@ -189,6 +262,7 @@ export class CheckupDirectChatService {
       clientId: conversation.clientId,
       studioId: conversation.studioId,
       lastMessageAt: conversation.lastMessageAt,
+      archived: false,
     };
   }
 
@@ -329,7 +403,7 @@ export class CheckupDirectChatService {
     };
   }
 
-  async listConversations(user: CheckupCurrentUserData, search?: string) {
+  async listConversations(user: CheckupCurrentUserData, search?: string, archived = false) {
     const qb = this.conversationRepository
       .createQueryBuilder('conversation')
       .leftJoinAndSelect('conversation.userOne', 'userOne')
@@ -342,11 +416,20 @@ export class CheckupDirectChatService {
         sub.where('conversation.userOneId = :userId', { userId: user.id })
           .orWhere('conversation.userTwoId = :userId', { userId: user.id });
       }))
+      .andWhere(new Brackets((sub) => {
+        sub.where('conversation.userOneId != :userId OR conversation.userOneDeletedAt IS NULL', { userId: user.id })
+          .andWhere('conversation.userTwoId != :userId OR conversation.userTwoDeletedAt IS NULL', { userId: user.id });
+      }))
       .orderBy('COALESCE(conversation.lastMessageAt, conversation.createdAt)', 'DESC');
 
     const conversations = await qb.getMany();
+    const visibleConversations = conversations.filter((conversation) => {
+      const { archived: archivedColumn } = this.visibilityColumnsForUser(conversation, user.id);
+      const isArchived = Boolean(conversation[archivedColumn]);
+      return archived ? isArchived : !isArchived;
+    });
     const normalizedSearch = search?.trim().toLowerCase();
-    const conversationIds = conversations.map((entry) => entry.id);
+    const conversationIds = visibleConversations.map((entry) => entry.id);
     const [latestMessages, unreadRows] = await Promise.all([
       conversationIds.length
         ? this.messageRepository
@@ -377,10 +460,11 @@ export class CheckupDirectChatService {
     });
     const unreadByConversation = new Map(unreadRows.map((row) => [row.conversationId, Number(row.count)]));
 
-    return conversations
+    return visibleConversations
       .map((conversation) => {
         const participant = this.buildParticipant(user.id, conversation);
         const companyLabel = participant.azienda || participant.email;
+        const { archived: archivedColumn } = this.visibilityColumnsForUser(conversation, user.id);
         const payload = {
           id: conversation.id,
           participant,
@@ -401,6 +485,7 @@ export class CheckupDirectChatService {
           })(),
           unreadCount: unreadByConversation.get(conversation.id) ?? 0,
           clientId: conversation.clientId,
+          archived: Boolean(conversation[archivedColumn]),
         };
         if (!normalizedSearch) return payload;
         const haystack = `${participant.nome} ${participant.cognome} ${participant.email} ${companyLabel}`.toLowerCase();
@@ -420,6 +505,8 @@ export class CheckupDirectChatService {
 
   async sendMessage(conversationId: string, dto: SendDirectChatMessageDto, user: CheckupCurrentUserData) {
     const conversation = await this.getConversationForUser(conversationId, user);
+    this.clearVisibilityForUser(conversation, conversation.userOneId);
+    this.clearVisibilityForUser(conversation, conversation.userTwoId);
     const message = this.messageRepository.create({
       conversationId,
       userId: user.id,
@@ -428,7 +515,33 @@ export class CheckupDirectChatService {
     const saved = await this.messageRepository.save(message);
     conversation.lastMessageAt = saved.createdAt;
     await this.conversationRepository.save(conversation);
-    return this.messageRepository.findOneOrFail({ where: { id: saved.id }, relations: ['user'] });
+    const savedWithUser = await this.messageRepository.findOneOrFail({ where: { id: saved.id }, relations: ['user'] });
+    await this.notifyRecipientIfOffline(conversation, user, savedWithUser);
+    return savedWithUser;
+  }
+
+  async archiveConversation(conversationId: string, user: CheckupCurrentUserData) {
+    const conversation = await this.getConversationForUser(conversationId, user);
+    const columns = this.visibilityColumnsForUser(conversation, user.id);
+    conversation[columns.archived] = new Date();
+    await this.conversationRepository.save(conversation);
+    return { ok: true };
+  }
+
+  async restoreConversation(conversationId: string, user: CheckupCurrentUserData) {
+    const conversation = await this.getConversationForUser(conversationId, user);
+    this.clearVisibilityForUser(conversation, user.id);
+    await this.conversationRepository.save(conversation);
+    return { ok: true };
+  }
+
+  async deleteConversation(conversationId: string, user: CheckupCurrentUserData) {
+    const conversation = await this.getConversationForUser(conversationId, user);
+    const columns = this.visibilityColumnsForUser(conversation, user.id);
+    conversation[columns.deleted] = new Date();
+    conversation[columns.archived] = null;
+    await this.conversationRepository.save(conversation);
+    return { ok: true };
   }
 
   async markAsRead(messageId: string, user: CheckupCurrentUserData) {
@@ -443,23 +556,32 @@ export class CheckupDirectChatService {
 
   async getUnreadCount(user: CheckupCurrentUserData) {
     const conversations = await this.conversationRepository.find({
-      select: ['id'],
+      select: ['id', 'userOneId', 'userTwoId', 'userOneArchivedAt', 'userTwoArchivedAt', 'userOneDeletedAt', 'userTwoDeletedAt'],
       where: [{ userOneId: user.id }, { userTwoId: user.id }],
     });
-    if (!conversations.length) return { unread: 0 };
+    const visibleConversations = conversations.filter((conversation) => {
+      const columns = this.visibilityColumnsForUser(conversation, user.id);
+      return !conversation[columns.deleted] && !conversation[columns.archived];
+    });
+    if (!visibleConversations.length) return { unread: 0 };
     const count = await this.messageRepository.count({
       where: {
-        conversationId: In(conversations.map((entry) => entry.id)),
+        conversationId: In(visibleConversations.map((entry) => entry.id)),
         letto: false,
       },
     });
     const ownMessages = await this.messageRepository.count({
       where: {
-        conversationId: In(conversations.map((entry) => entry.id)),
+        conversationId: In(visibleConversations.map((entry) => entry.id)),
         letto: false,
         userId: user.id,
       },
     });
     return { unread: Math.max(0, count - ownMessages) };
+  }
+
+  async markOnline(user: CheckupCurrentUserData) {
+    await this.cacheService.set(`${DIRECT_CHAT_ONLINE_PREFIX}${user.id}`, true, DIRECT_CHAT_ONLINE_TTL_SECONDS);
+    return { ok: true };
   }
 }

@@ -35,6 +35,18 @@ export class CheckupDirectChatConversation {
   @Column({ type: 'datetime', nullable: true })
   lastMessageAt: Date | null;
 
+  @Column({ type: 'datetime', nullable: true })
+  userOneArchivedAt: Date | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  userTwoArchivedAt: Date | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  userOneDeletedAt: Date | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  userTwoDeletedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
