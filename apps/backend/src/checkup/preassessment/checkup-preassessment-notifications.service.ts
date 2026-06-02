@@ -6,14 +6,11 @@ import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
 import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupClient } from '../clients/checkup-client.entity';
 import { CheckupUser } from '../users/checkup-user.entity';
-import { CheckupPreassessmentAlert } from './checkup-preassessment-alert.entity';
 import { CheckupPreassessment } from './checkup-preassessment.entity';
 
 @Injectable()
 export class CheckupPreassessmentNotificationsService {
   constructor(
-    @InjectRepository(CheckupPreassessmentAlert)
-    private readonly alertRepository: Repository<CheckupPreassessmentAlert>,
     @InjectRepository(CheckupUser)
     private readonly userRepository: Repository<CheckupUser>,
     private readonly emailService: EmailService,
@@ -80,14 +77,6 @@ export class CheckupPreassessmentNotificationsService {
         if (admin.email) {
           await this.emailService.sendEmail({ to: admin.email, subject, text, html });
         }
-        const alert = this.alertRepository.create({
-          preassessmentId: preassessment.id,
-          createdById: user.id,
-          targetUserId: admin.id,
-          priority: 'info',
-          messaggio: text,
-        });
-        await this.alertRepository.save(alert);
       }),
     );
   }
@@ -104,8 +93,7 @@ export class CheckupPreassessmentNotificationsService {
 
     const recipients = clienteUsers.filter((u) => {
       if (u.superOwner) return true;
-      if (!u.macroAreaAssignments || u.macroAreaAssignments.length === 0) return true;
-      return u.macroAreaAssignments.some((m) => affectedMacros.has(m));
+      return (u.macroAreaOwner || []).some((m) => affectedMacros.has(m));
     });
 
     if (recipients.length === 0) return;
@@ -137,14 +125,6 @@ export class CheckupPreassessmentNotificationsService {
         if (u.email) {
           await this.emailService.sendEmail({ to: u.email, subject, text: messaggio, html });
         }
-        const alert = this.alertRepository.create({
-          preassessmentId: preassessment.id,
-          createdById: consultant.id,
-          targetUserId: u.id,
-          priority: 'info',
-          messaggio,
-        });
-        await this.alertRepository.save(alert);
       }),
     );
   }
@@ -210,14 +190,6 @@ export class CheckupPreassessmentNotificationsService {
         if (admin.email) {
           await this.emailService.sendEmail({ to: admin.email, subject, text, html });
         }
-        const alert = this.alertRepository.create({
-          preassessmentId: preassessment.id,
-          createdById: user.id,
-          targetUserId: admin.id,
-          priority: 'info',
-          messaggio: text,
-        });
-        await this.alertRepository.save(alert);
       }),
     );
   }

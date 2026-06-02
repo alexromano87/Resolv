@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, LessThan, Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { CheckupAuditLog, type CheckupAuditAction, type CheckupAuditEntity } from './checkup-audit-log.entity';
@@ -24,6 +24,7 @@ export interface CreateCheckupAuditLogDto {
 
 export interface CheckupAuditLogFilters {
   userId?: string;
+  userQuery?: string;
   studioId?: string;
   entityType?: CheckupAuditEntity;
   action?: CheckupAuditAction;
@@ -68,21 +69,34 @@ export class CheckupAuditLogService {
     const limit = Math.min(filters.limit || 10, 100);
     const skip = (page - 1) * limit;
 
-    const where: any = {};
-    if (filters.userId) where.userId = filters.userId;
-    if (filters.studioId) where.studioId = filters.studioId;
-    if (filters.entityType) where.entityType = filters.entityType;
-    if (filters.action) where.action = filters.action;
-    if (filters.startDate && filters.endDate) {
-      where.createdAt = Between(new Date(filters.startDate), new Date(filters.endDate));
+    const qb = this.auditLogRepository.createQueryBuilder('log');
+    if (filters.userId) qb.andWhere('log.userId = :userId', { userId: filters.userId });
+    if (filters.userQuery) {
+      const query = filters.userQuery.trim().toLowerCase();
+      if (query) {
+        qb.andWhere(
+          `(LOWER(COALESCE(log.userEmail, '')) LIKE :userQuery OR LOWER(COALESCE(log.userId, '')) LIKE :userQuery)`,
+          { userQuery: `%${query}%` },
+        );
+      }
+    }
+    if (filters.studioId) qb.andWhere('log.studioId = :studioId', { studioId: filters.studioId });
+    if (filters.entityType) qb.andWhere('log.entityType = :entityType', { entityType: filters.entityType });
+    if (filters.action) qb.andWhere('log.action = :action', { action: filters.action });
+    if (filters.startDate) qb.andWhere('log.createdAt >= :startDate', { startDate: new Date(filters.startDate) });
+    if (filters.endDate) {
+      const endDate = new Date(filters.endDate);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(filters.endDate)) {
+        endDate.setHours(23, 59, 59, 999);
+      }
+      qb.andWhere('log.createdAt <= :endDate', { endDate });
     }
 
-    const [logs, total] = await this.auditLogRepository.findAndCount({
-      where,
-      order: { createdAt: 'DESC' },
-      skip,
-      take: limit,
-    });
+    const [logs, total] = await qb
+      .orderBy('log.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
 
     return {
       logs,
@@ -93,16 +107,18 @@ export class CheckupAuditLogService {
   }
 
   async getStats(filters: CheckupAuditLogFilters = {}) {
-    const where: any = {};
-    if (filters.userId) where.userId = filters.userId;
-    if (filters.studioId) where.studioId = filters.studioId;
-    if (filters.startDate && filters.endDate) {
-      where.createdAt = Between(new Date(filters.startDate), new Date(filters.endDate));
-    }
+    const buildQb = () => {
+      const qb = this.auditLogRepository.createQueryBuilder('log');
+      if (filters.userId) qb.andWhere('log.userId = :userId', { userId: filters.userId });
+      if (filters.studioId) qb.andWhere('log.studioId = :studioId', { studioId: filters.studioId });
+      if (filters.startDate) qb.andWhere('log.createdAt >= :startDate', { startDate: new Date(filters.startDate) });
+      if (filters.endDate) qb.andWhere('log.createdAt <= :endDate', { endDate: new Date(filters.endDate) });
+      return qb;
+    };
 
-    const total = await this.auditLogRepository.count({ where });
-    const success = await this.auditLogRepository.count({ where: { ...where, success: true } });
-    const failed = await this.auditLogRepository.count({ where: { ...where, success: false } });
+    const total = await buildQb().getCount();
+    const success = await buildQb().andWhere('log.success = :success', { success: true }).getCount();
+    const failed = await buildQb().andWhere('log.success = :success', { success: false }).getCount();
 
     return { total, success, failed };
   }

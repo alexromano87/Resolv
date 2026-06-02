@@ -14,6 +14,7 @@ import { CheckupStudio } from '../studios/checkup-studio.entity';
 import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
 import { CheckupPreassessmentNotificationsService } from './checkup-preassessment-notifications.service';
 import { CheckupPreassessmentRenderService } from './checkup-preassessment-render.service';
+import { CheckupNotificationsService } from '../notifications/checkup-notifications.service';
 
 function isOwnerEmailField(fieldId: string) {
   return OWNER_EMAIL_FIELDS.has(fieldId) || /(^|_)owner_[a-z]_email$/.test(fieldId);
@@ -39,6 +40,7 @@ export class CheckupPreassessmentService {
     private auditLogService: CheckupAuditLogService,
     private preassessmentNotificationsService: CheckupPreassessmentNotificationsService,
     private preassessmentRenderService: CheckupPreassessmentRenderService,
+    private notificationsService: CheckupNotificationsService,
     private readonly dataSource: DataSource,
     private readonly validationService: CheckupPreassessmentValidationService,
   ) {}
@@ -149,6 +151,13 @@ export class CheckupPreassessmentService {
         actorName: `${currentUser.nome} ${currentUser.cognome}`.trim() || currentUser.email,
       },
     }).catch(() => {});
+    this.notificationsService.notifyPreassessmentParticipants(saved.id, {
+      type: 'preassessment_new_version',
+      title: 'Nuova versione del checkup',
+      message: `${notificationContext.clientName}: e' stata creata una nuova versione del checkup.`,
+      actionUrl: notificationContext.actionUrl,
+      metadata: { version: saved.version },
+    }, currentUser).catch(() => {});
     return saved;
   }
 
@@ -215,6 +224,14 @@ export class CheckupPreassessmentService {
     const nextUserFieldNotes = user.ruolo === 'cliente' && fieldToMacro
       ? vs.mergeAllowedFieldValues(record.userFieldNotes || {}, dto.userFieldNotes, fieldToMacro, allowedClientMacros)
       : dto.userFieldNotes;
+
+    const clientNotesChanged =
+      user.ruolo === 'cliente'
+      && nextUserFieldNotes !== undefined
+      && Object.entries(nextUserFieldNotes).some(([fieldId, note]) => {
+        const normalized = (note || '').trim();
+        return normalized.length > 0 && normalized !== ((record.userFieldNotes || {})[fieldId] || '').trim();
+      });
 
     vs.applyFieldMeta(record, nextData, nextNaFields, user);
 
@@ -313,12 +330,43 @@ export class CheckupPreassessmentService {
             actorName: `${user.nome} ${user.cognome}`.trim() || user.email,
           },
         }).catch(() => {});
+        this.notificationsService.notifyPreassessmentParticipants(record.id, {
+          type: 'preassessment_section_validated',
+          title: newlyValidated.length > 1 ? 'Sezioni validate' : 'Sezione validata',
+          message: `${notificationContext.clientName}: ${newlyValidated.length > 1 ? 'sono state validate nuove sezioni' : "e' stata validata una sezione"}.`,
+          actionUrl: notificationContext.actionUrl,
+          metadata: { validatedSections: newlyValidated },
+        }, user).catch(() => {});
       }
     }
 
     if (dto.studioCanEdit !== undefined) record.studioCanEdit = dto.studioCanEdit;
 
     const saved = await this.preassessmentRepository.save(record);
+
+    if (clientNotesChanged) {
+      const notificationContext = await this.buildNotificationContext(saved.clientId, saved.id);
+      const actorName = `${user.nome} ${user.cognome}`.trim() || user.email;
+      this.auditLogService.log({
+        userId: user.id,
+        userEmail: user.email,
+        userRole: user.ruolo,
+        action: 'UPDATE',
+        entityType: 'PREASSESSMENT',
+        entityId: saved.id,
+        entityName: notificationContext.clientName,
+        description: 'Nota cliente aggiornata nel checkup',
+        studioId: notificationContext.studioId,
+        success: true,
+        metadata: {
+          clientId: notificationContext.clientId,
+          clientName: notificationContext.clientName,
+          preassessmentId: notificationContext.preassessmentId,
+          actionUrl: notificationContext.actionUrl,
+          actorName,
+        },
+      }).catch(() => {});
+    }
 
     return saved;
   }
@@ -425,6 +473,12 @@ export class CheckupPreassessmentService {
     const client = await this.clientRepository.findOne({ where: { id: user.clientId } });
     if (client) {
       await this.preassessmentNotificationsService.notifyFinalValidation(saved, client, user, studioId);
+      await this.notificationsService.notifyPreassessmentParticipants(saved.id, {
+        type: 'preassessment_final_validated',
+        title: 'Checkup validato',
+        message: `${client.ragioneSociale || client.nome || 'Cliente'}: il checkup e' stato validato definitivamente.`,
+        actionUrl: `/checkup/clienti/${client.id}`,
+      }, user);
     }
 
     return saved;
@@ -465,6 +519,16 @@ export class CheckupPreassessmentService {
       throw err;
     } finally {
       await queryRunner.release();
+    }
+
+    const client = user.clientId ? await this.clientRepository.findOne({ where: { id: user.clientId } }) : null;
+    if (client) {
+      this.notificationsService.notifyPreassessmentParticipants(saved.id, {
+        type: 'preassessment_reopened',
+        title: 'Checkup riaperto',
+        message: `${client.ragioneSociale || client.nome || 'Cliente'}: il checkup e' stato riaperto.`,
+        actionUrl: `/checkup/clienti/${client.id}`,
+      }, user).catch(() => {});
     }
 
     return saved;
@@ -607,16 +671,17 @@ export class CheckupPreassessmentService {
 
     // Detect changed consultant notes before applying changes
     let affectedMacros: Set<string> | null = null;
+    let changedConsultantNoteFieldIds: string[] = [];
     if (dto.fieldNotes !== undefined) {
       const oldNotes = record.fieldNotes || {};
-      const changedFields = Object.entries(dto.fieldNotes)
+      changedConsultantNoteFieldIds = Object.entries(dto.fieldNotes)
         .filter(([fieldId, note]) => note && (note as string).trim() && note !== (oldNotes[fieldId] || ''))
         .map(([fieldId]) => fieldId);
-      if (changedFields.length > 0) {
+      if (changedConsultantNoteFieldIds.length > 0) {
         const { modelId } = await this.resolveModelIdForClient(record.clientId);
         const { fieldToMacro } = await this.validationService.getStructureMetaByModel(modelId);
         affectedMacros = new Set(
-          changedFields.map((f) => fieldToMacro.get(f)).filter(Boolean) as string[],
+          changedConsultantNoteFieldIds.map((f) => fieldToMacro.get(f)).filter(Boolean) as string[],
         );
       }
     }
@@ -636,9 +701,24 @@ export class CheckupPreassessmentService {
     const saved = await this.preassessmentRepository.save(record);
 
     if (affectedMacros && affectedMacros.size > 0) {
+      const firstFieldId = changedConsultantNoteFieldIds[0];
+      const actionUrl = firstFieldId
+        ? `/checkup/clienti/${client.id}?fieldId=${encodeURIComponent(firstFieldId)}`
+        : `/checkup/clienti/${client.id}`;
       this.preassessmentNotificationsService
         .notifyConsultantNote(saved, client, currentUser, affectedMacros)
         .catch(() => {});
+      this.notificationsService.notifyPreassessmentOwnerMacros(saved.id, {
+        type: 'consultant_note',
+        title: 'Nota del consulente aggiornata',
+        message: `${client.ragioneSociale || client.nome || 'Cliente'}: il consulente ha aggiornato una nota nel checkup.`,
+        actionUrl,
+        metadata: {
+          affectedMacros: Array.from(affectedMacros),
+          fieldId: firstFieldId ?? null,
+          fieldIds: changedConsultantNoteFieldIds,
+        },
+      }, { macroIds: Array.from(affectedMacros) }, currentUser).catch(() => {});
     }
 
     return saved;

@@ -186,16 +186,20 @@ export function PreassessmentAlertsPage() {
     user?.clientNome ||
     user?.client?.nome ||
     'azienda sublicenziataria';
-  const licenziatarioLabel =
+  const consultantStudioLabel =
     user?.licenziatarioNome ||
     user?.studioNome ||
-    'licenziatario';
+    'studio';
+  const currentStudioLabel =
+    user?.studioNome ||
+    user?.licenziatarioNome ||
+    'studio';
   const clientRecipientLabel = isCliente
-    ? `Collega ${clientCompanyLabel}`
-    : 'Utente sublicenziatario';
+    ? `Verso collega ${clientCompanyLabel}`
+    : 'Verso cliente';
   const studioRecipientLabel = isCliente
-    ? `Consulente ${licenziatarioLabel}`
-    : 'Collega licenziatario';
+    ? `Verso consulente ${consultantStudioLabel}`
+    : `Verso collega ${currentStudioLabel}`;
 
   // ── Load preassessmentId ────────────────────────────────────────────────────
   useEffect(() => {
@@ -354,7 +358,7 @@ export function PreassessmentAlertsPage() {
       setSubmitAttempted(true);
       setError(
         createForm.destinatario === 'client_user'
-          ? 'Seleziona prima il sublicenziatario a cui associare l\'alert'
+          ? 'Seleziona prima il cliente a cui associare l\'alert'
           : 'Nessun checkup disponibile per associare l\'alert',
       );
       return;
@@ -1004,7 +1008,7 @@ export function PreassessmentAlertsPage() {
                         submitAttempted && !createForm.contextClientId ? 'border-rose-400' : 'border-slate-300'
                       }`}
                     >
-                      <option value="">— Seleziona sublicenziatario —</option>
+                      <option value="">— Seleziona cliente —</option>
                       {availableClients.map((entry) => (
                         <option key={entry.client.id} value={entry.client.id}>
                           {entry.client.ragioneSociale || entry.client.azienda || entry.client.nome}
@@ -1042,7 +1046,7 @@ export function PreassessmentAlertsPage() {
                   )}
                   <p className="mt-1 text-[11px] text-slate-400">
                     {createForm.destinatario === 'client_user'
-                      ? 'L\'alert sarà visibile solo all\'utente selezionato del sublicenziatario.'
+                      ? 'L\'alert sarà visibile solo all\'utente selezionato del cliente.'
                       : createForm.destinatario === 'studio_user'
                         ? 'L\'alert sarà visibile solo al consulente selezionato.'
                         : 'Promemoria privato visibile solo a te.'}

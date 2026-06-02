@@ -27,7 +27,7 @@ export class CheckupAuditController {
       studioId: user.studioId ?? undefined,
       page: page ? Number(page) : 1,
       limit: limit ? Math.min(Number(limit), 100) : 50,
-      userId: userId || undefined,
+      userQuery: userId || undefined,
       action: action as CheckupAuditAction | undefined,
       entityType: entityType as CheckupAuditEntity | undefined,
       startDate: from || undefined,
@@ -60,7 +60,7 @@ export class CheckupAuditController {
   ) {
     const csv = await this.auditService.exportToCSV({
       studioId: user.studioId ?? undefined,
-      userId: userId || undefined,
+      userQuery: userId || undefined,
       action: action as CheckupAuditAction | undefined,
       entityType: entityType as CheckupAuditEntity | undefined,
       startDate: from || undefined,

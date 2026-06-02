@@ -1,54 +1,84 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
 import {
   BellRing,
-  CheckCheck,
   CheckCircle2,
+  FileText,
   Filter,
   FolderKanban,
+  MessageCircle,
   RefreshCw,
   Search,
   ShieldAlert,
+  Ticket,
+  Trash2,
 } from 'lucide-react';
-import { meApi, type SystemNotificationItem } from '../api/me';
+import { meApi, type PersonalNotificationItem, type PersonalNotificationType } from '../api/me';
 import { Pagination } from '../components/Pagination';
+import { useAuth } from '../contexts/AuthContext';
 
-type NotificationFilter = 'tutte' | SystemNotificationItem['type'];
+type NotificationFilter = 'tutte' | PersonalNotificationType;
 
 const FILTERS: Array<{ value: NotificationFilter; label: string }> = [
   { value: 'tutte', label: 'Tutte' },
-  { value: 'sezione_validata', label: 'Sezioni validate' },
-  { value: 'checkup_completato', label: 'Checkup completati' },
-  { value: 'validazione_finale', label: 'Validazioni finali' },
-  { value: 'nuova_versione', label: 'Nuove versioni' },
-  { value: 'nota_cliente', label: 'Note cliente' },
+  { value: 'consultant_note', label: 'Note consulente' },
+  { value: 'ticket_created', label: 'Ticket creati' },
+  { value: 'ticket_updated', label: 'Ticket aggiornati' },
+  { value: 'chat_message', label: 'Chat checkup' },
+  { value: 'direct_chat_message', label: 'Chat diretta' },
+  { value: 'preassessment_new_version', label: 'Nuove versioni' },
 ];
 
-const TYPE_META: Record<SystemNotificationItem['type'], { icon: typeof CheckCircle2; chipClass: string; iconClass: string }> = {
-  sezione_validata: {
-    icon: CheckCheck,
-    chipClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
-    iconClass: 'text-emerald-600 dark:text-emerald-300',
+const TYPE_META: Record<PersonalNotificationType, { icon: typeof BellRing; chipClass: string; iconClass: string }> = {
+  consultant_note: {
+    icon: FileText,
+    chipClass: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+    iconClass: 'text-amber-600 dark:text-amber-300',
   },
-  checkup_completato: {
-    icon: CheckCircle2,
+  client_note: {
+    icon: FileText,
+    chipClass: 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
+    iconClass: 'text-sky-600 dark:text-sky-300',
+  },
+  ticket_created: {
+    icon: Ticket,
+    chipClass: 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
+    iconClass: 'text-rose-600 dark:text-rose-300',
+  },
+  ticket_updated: {
+    icon: Ticket,
+    chipClass: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-300',
+    iconClass: 'text-fuchsia-600 dark:text-fuchsia-300',
+  },
+  chat_message: {
+    icon: MessageCircle,
     chipClass: 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
     iconClass: 'text-blue-600 dark:text-blue-300',
   },
-  validazione_finale: {
-    icon: ShieldAlert,
+  direct_chat_message: {
+    icon: MessageCircle,
     chipClass: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300',
     iconClass: 'text-indigo-600 dark:text-indigo-300',
   },
-  nuova_versione: {
+  preassessment_section_validated: {
+    icon: CheckCircle2,
+    chipClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
+    iconClass: 'text-emerald-600 dark:text-emerald-300',
+  },
+  preassessment_final_validated: {
+    icon: ShieldAlert,
+    chipClass: 'bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300',
+    iconClass: 'text-teal-600 dark:text-teal-300',
+  },
+  preassessment_reopened: {
+    icon: RefreshCw,
+    chipClass: 'bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300',
+    iconClass: 'text-orange-600 dark:text-orange-300',
+  },
+  preassessment_new_version: {
     icon: FolderKanban,
     chipClass: 'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
     iconClass: 'text-violet-600 dark:text-violet-300',
-  },
-  nota_cliente: {
-    icon: BellRing,
-    chipClass: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
-    iconClass: 'text-amber-600 dark:text-amber-300',
   },
 };
 
@@ -62,28 +92,59 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function getTypeLabel(value: SystemNotificationItem['type']) {
+function getReadStorageKey(userId?: string) {
+  return userId ? `checkup_personal_notifications_read:${userId}` : '';
+}
+
+function readStoredIds(key: string) {
+  if (!key) return new Set<string>();
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function storeReadIds(key: string, ids: Set<string>) {
+  if (!key) return;
+  localStorage.setItem(key, JSON.stringify(Array.from(ids)));
+}
+
+function getTypeLabel(value: PersonalNotificationType) {
   switch (value) {
-    case 'sezione_validata':
-      return 'Sezione validata';
-    case 'checkup_completato':
-      return 'Checkup completato';
-    case 'validazione_finale':
-      return 'Validazione finale';
-    case 'nuova_versione':
-      return 'Nuova versione';
-    case 'nota_cliente':
+    case 'consultant_note':
+      return 'Nota consulente';
+    case 'client_note':
       return 'Nota cliente';
+    case 'ticket_created':
+      return 'Ticket creato';
+    case 'ticket_updated':
+      return 'Ticket aggiornato';
+    case 'chat_message':
+      return 'Chat checkup';
+    case 'direct_chat_message':
+      return 'Chat diretta';
+    case 'preassessment_section_validated':
+      return 'Sezione validata';
+    case 'preassessment_final_validated':
+      return 'Validazione finale';
+    case 'preassessment_reopened':
+      return 'Checkup riaperto';
+    case 'preassessment_new_version':
+      return 'Nuova versione';
     default:
       return value;
   }
 }
 
-export function SystemNotificationsPage() {
+export function PersonalNotificationsPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [items, setItems] = useState<SystemNotificationItem[]>([]);
+  const { user } = useAuth();
+  const [items, setItems] = useState<PersonalNotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<NotificationFilter>('tutte');
@@ -91,50 +152,73 @@ export function SystemNotificationsPage() {
   const [page, setPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [readIds, setReadIds] = useState<Set<string>>(() => readStoredIds(getReadStorageKey(user?.id)));
   const pageSize = 20;
-  const selectedNotificationId = searchParams.get('notificationId');
-  const presetQuery = searchParams.get('query') || '';
-  const presetType = (searchParams.get('type') || 'tutte') as NotificationFilter;
+  const readStorageKey = getReadStorageKey(user?.id);
 
-  const load = async (overrides?: { query?: string; filter?: NotificationFilter; notificationId?: string | null; page?: number }) => {
+  const load = useCallback(async (overrides?: { query?: string; filter?: NotificationFilter; page?: number }) => {
     const effectiveQuery = overrides?.query ?? query;
     const effectiveFilter = overrides?.filter ?? filter;
-    const effectiveNotificationId = overrides?.notificationId ?? selectedNotificationId;
     const effectivePage = overrides?.page ?? page;
     try {
       setLoading(true);
       setError('');
-      const response = await meApi.getSystemNotifications({
+      const response = await meApi.getNotifications({
+        page: effectivePage,
+        limit: pageSize,
         query: effectiveQuery.trim() || undefined,
         type: effectiveFilter !== 'tutte' ? effectiveFilter : undefined,
-        notificationId: effectiveNotificationId || undefined,
-        limit: effectiveNotificationId ? 50 : pageSize,
-        page: effectiveNotificationId ? 1 : effectivePage,
       });
       setItems(response.items);
+      setPage(response.page);
       setTotalItems(response.total);
       setTotalPages(response.totalPages);
-      setPage(response.page);
       setHasSearched(true);
+      setReadIds((prev) => {
+        const next = new Set(prev);
+        response.items.forEach((item) => next.add(item.id));
+        storeReadIds(readStorageKey, next);
+        return next;
+      });
     } catch (err) {
-        setError(err instanceof Error ? err.message : 'Errore nel caricamento delle notifiche');
+      setError(err instanceof Error ? err.message : 'Errore nel caricamento delle notifiche');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter, page, query, readStorageKey]);
 
   useEffect(() => {
-    setQuery(presetQuery);
-    setFilter(FILTERS.some((option) => option.value === presetType) ? presetType : 'tutte');
-    setPage(1);
-  }, [presetQuery, presetType]);
+    const stored = readStoredIds(readStorageKey);
+    setReadIds(stored);
+  }, [readStorageKey]);
+
+  const readItems = useMemo(() => items.filter((item) => readIds.has(item.id)), [items, readIds]);
 
   const stats = useMemo(() => ({
     total: totalItems,
-    completati: items.filter((item) => item.type === 'checkup_completato').length,
-    validazioni: items.filter((item) => item.type === 'sezione_validata' || item.type === 'validazione_finale').length,
-    urgenti: items.filter((item) => item.priority === 'urgent').length,
+    notes: items.filter((item) => item.type === 'consultant_note' || item.type === 'client_note').length,
+    tickets: items.filter((item) => item.type === 'ticket_created' || item.type === 'ticket_updated').length,
+    chat: items.filter((item) => item.type === 'chat_message' || item.type === 'direct_chat_message').length,
   }), [items, totalItems]);
+
+  const handleDeleteRead = async () => {
+    const ids = readItems.map((item) => item.id);
+    if (ids.length === 0) return;
+    try {
+      setDeleting(true);
+      setError('');
+      await meApi.deleteNotifications(ids);
+      await load({ page: 1 });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Errore durante l'eliminazione delle notifiche lette");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  if (user && !user.sublicense?.id) {
+    return <Navigate to="/checkup" replace />;
+  }
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6 wow-stagger">
@@ -150,20 +234,28 @@ export function SystemNotificationsPage() {
                 Notifiche
               </h1>
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                Eventi chiave del pre-assessment per tutti i clienti collegati allo studio:
-                sezioni validate, checkup completati, validazioni finali, nuove versioni e note aggiornate dai clienti.
+                Eventi del tuo pre-assessment: note del consulente, ticket, chat e aggiornamenti operativi collegati alla sublicenza.
               </p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={handleDeleteRead}
+            disabled={deleting || readItems.length === 0}
+            className="wow-button inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Trash2 className="h-4 w-4" />
+            Elimina lette
+          </button>
         </div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
           { label: 'Totale eventi', value: stats.total, detail: 'notifiche raccolte' },
-          { label: 'Checkup completati', value: stats.completati, detail: 'chiusure registrate' },
-          { label: 'Validazioni', value: stats.validazioni, detail: 'sezioni o checkup finali' },
-          { label: 'Alert urgenti', value: stats.urgenti, detail: 'eventi ad alta priorita' },
+          { label: 'Note', value: stats.notes, detail: 'note consulente o cliente' },
+          { label: 'Ticket', value: stats.tickets, detail: 'aperture e aggiornamenti' },
+          { label: 'Chat', value: stats.chat, detail: 'messaggi recenti' },
         ].map((item) => (
           <div key={item.label} className="wow-card p-5">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -187,7 +279,7 @@ export function SystemNotificationsPage() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Cerca cliente, messaggio o autore"
+              placeholder="Cerca messaggio, cliente o autore"
               className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-50"
             />
           </div>
@@ -243,7 +335,7 @@ export function SystemNotificationsPage() {
               return (
                 <article
                   key={item.id}
-                  className={`wow-card p-5 transition hover:bg-slate-50/70 dark:hover:bg-slate-900/70 ${selectedNotificationId === item.id ? 'ring-2 ring-indigo-500/60' : ''}`}
+                  className="wow-card p-5 transition hover:bg-slate-50/70 dark:hover:bg-slate-900/70"
                 >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="flex gap-4">
@@ -273,7 +365,9 @@ export function SystemNotificationsPage() {
                     {item.actionUrl ? (
                       <button
                         type="button"
-                        onClick={() => navigate(item.actionUrl!)}
+                        onClick={() => {
+                          if (item.actionUrl) navigate(item.actionUrl);
+                        }}
                         className="wow-button-ghost"
                       >
                         Apri
@@ -283,17 +377,15 @@ export function SystemNotificationsPage() {
                 </article>
               );
             })}
-            {!selectedNotificationId && (
-              <Pagination
-                currentPage={page}
-                totalPages={totalPages}
-                totalItems={totalItems}
-                itemsPerPage={pageSize}
-                onPageChange={(nextPage) => {
-                  load({ page: nextPage });
-                }}
-              />
-            )}
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              itemsPerPage={pageSize}
+              onPageChange={(nextPage) => {
+                load({ page: nextPage });
+              }}
+            />
           </div>
         )}
       </section>

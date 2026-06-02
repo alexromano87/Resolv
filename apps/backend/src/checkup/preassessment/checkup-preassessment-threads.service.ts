@@ -18,6 +18,7 @@ import { CreatePreassessmentAlertDto } from './dto/create-preassessment-alert.dt
 import { UpdatePreassessmentAlertDto } from './dto/update-preassessment-alert.dto';
 import { CheckupMailService } from '../mail/checkup-mail.service';
 import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
+import { CheckupNotificationsService } from '../notifications/checkup-notifications.service';
 
 const SEEN_TTL = 30 * 24 * 60 * 60; // 30 giorni in secondi
 
@@ -44,6 +45,7 @@ export class CheckupPreassessmentThreadsService {
     private sublicenseRepository: Repository<CheckupSublicense>,
     private readonly mailService: CheckupMailService,
     private readonly auditLogService: CheckupAuditLogService,
+    private readonly notificationsService: CheckupNotificationsService,
     @Inject('CHECKUP_REDIS') private readonly redis: Redis,
   ) {}
 
@@ -388,6 +390,13 @@ export class CheckupPreassessmentThreadsService {
       description: `Nuovo ticket aperto: ${dto.subject}`,
       actionUrl: `/checkup/clienti/${user.clientId}/tickets`,
     }).catch(() => {});
+    this.notificationsService.notifyPreassessmentParticipants(preassessmentId, {
+      type: 'ticket_created',
+      title: 'Nuovo ticket',
+      message: `Nuovo ticket aperto: ${dto.subject}`,
+      actionUrl: `/checkup/clienti/${user.clientId}/tickets`,
+      metadata: { ticketId: saved.id },
+    }, user).catch(() => {});
 
     return result;
   }
@@ -457,6 +466,7 @@ export class CheckupPreassessmentThreadsService {
       }).catch(() => {/* silenzioso */});
     }
 
+    const access = await this.ensureAccess(ticket.preassessmentId, user);
     this.logNotificationEvent({
       preassessmentId: ticket.preassessmentId,
       user,
@@ -465,7 +475,14 @@ export class CheckupPreassessmentThreadsService {
       entityId: ticket.id,
       entityName: ticket.subject,
       description: `Nuova risposta sul ticket: ${ticket.subject}`,
-      actionUrl: `/checkup/clienti/${(await this.ensureAccess(ticket.preassessmentId, user)).clientId}/tickets`,
+      actionUrl: `/checkup/clienti/${access.clientId}/tickets`,
+    }).catch(() => {});
+    this.notificationsService.notifyPreassessmentParticipants(ticket.preassessmentId, {
+      type: 'ticket_updated',
+      title: 'Risposta al ticket',
+      message: `Nuova risposta sul ticket: ${ticket.subject}`,
+      actionUrl: `/checkup/clienti/${access.clientId}/tickets`,
+      metadata: { ticketId: ticket.id, messageId: saved.id },
     }).catch(() => {});
 
     return result;
@@ -496,6 +513,7 @@ export class CheckupPreassessmentThreadsService {
       }
     }).catch(() => {/* silenzioso */});
 
+    const access = await this.ensureAccess(ticket.preassessmentId, user);
     this.logNotificationEvent({
       preassessmentId: ticket.preassessmentId,
       user,
@@ -504,7 +522,14 @@ export class CheckupPreassessmentThreadsService {
       entityId: ticket.id,
       entityName: ticket.subject,
       description: `Ticket preso in carico: ${ticket.subject}`,
-      actionUrl: `/checkup/clienti/${(await this.ensureAccess(ticket.preassessmentId, user)).clientId}/tickets`,
+      actionUrl: `/checkup/clienti/${access.clientId}/tickets`,
+    }).catch(() => {});
+    this.notificationsService.notifyPreassessmentParticipants(ticket.preassessmentId, {
+      type: 'ticket_updated',
+      title: 'Ticket preso in carico',
+      message: `Ticket preso in carico: ${ticket.subject}`,
+      actionUrl: `/checkup/clienti/${access.clientId}/tickets`,
+      metadata: { ticketId: ticket.id },
     }).catch(() => {});
 
     return saved;
@@ -537,6 +562,7 @@ export class CheckupPreassessmentThreadsService {
       }
     }).catch(() => {/* silenzioso */});
 
+    const access = await this.ensureAccess(ticket.preassessmentId, user);
     this.logNotificationEvent({
       preassessmentId: ticket.preassessmentId,
       user,
@@ -545,7 +571,14 @@ export class CheckupPreassessmentThreadsService {
       entityId: ticket.id,
       entityName: ticket.subject,
       description: `Richiesta chiusura ticket: ${ticket.subject}`,
-      actionUrl: `/checkup/clienti/${(await this.ensureAccess(ticket.preassessmentId, user)).clientId}/tickets`,
+      actionUrl: `/checkup/clienti/${access.clientId}/tickets`,
+    }).catch(() => {});
+    this.notificationsService.notifyPreassessmentParticipants(ticket.preassessmentId, {
+      type: 'ticket_updated',
+      title: 'Richiesta chiusura ticket',
+      message: `Richiesta chiusura ticket: ${ticket.subject}`,
+      actionUrl: `/checkup/clienti/${access.clientId}/tickets`,
+      metadata: { ticketId: ticket.id },
     }).catch(() => {});
 
     return saved;
@@ -605,6 +638,13 @@ export class CheckupPreassessmentThreadsService {
       description: `Ticket chiuso: ${ticket.subject}`,
       actionUrl: `/checkup/clienti/${user.clientId}/tickets`,
     }).catch(() => {});
+    this.notificationsService.notifyPreassessmentParticipants(ticket.preassessmentId, {
+      type: 'ticket_updated',
+      title: 'Ticket chiuso',
+      message: `Ticket chiuso: ${ticket.subject}`,
+      actionUrl: `/checkup/clienti/${user.clientId}/tickets`,
+      metadata: { ticketId: ticket.id },
+    }, user).catch(() => {});
 
     return saved;
   }
@@ -637,6 +677,7 @@ export class CheckupPreassessmentThreadsService {
       }
     }).catch(() => {/* silenzioso */});
 
+    const access = await this.ensureAccess(ticket.preassessmentId, user);
     this.logNotificationEvent({
       preassessmentId: ticket.preassessmentId,
       user,
@@ -645,7 +686,14 @@ export class CheckupPreassessmentThreadsService {
       entityId: ticket.id,
       entityName: ticket.subject,
       description: `Ticket riaperto: ${ticket.subject}`,
-      actionUrl: `/checkup/clienti/${(await this.ensureAccess(ticket.preassessmentId, user)).clientId}/tickets`,
+      actionUrl: `/checkup/clienti/${access.clientId}/tickets`,
+    }).catch(() => {});
+    this.notificationsService.notifyPreassessmentParticipants(ticket.preassessmentId, {
+      type: 'ticket_updated',
+      title: 'Ticket riaperto',
+      message: `Ticket riaperto: ${ticket.subject}`,
+      actionUrl: `/checkup/clienti/${access.clientId}/tickets`,
+      metadata: { ticketId: ticket.id },
     }).catch(() => {});
 
     return saved;

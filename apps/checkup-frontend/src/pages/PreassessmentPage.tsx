@@ -174,6 +174,10 @@ export default function PreassessmentPage() {
   const [reportNotice, setReportNotice] = useState<string | null>(null);
   const consultantNoteDirtyRef = useRef(false);
   const location = useLocation();
+  const targetFieldId = useMemo(() => {
+    const value = new URLSearchParams(location.search).get('fieldId')?.trim();
+    return value || null;
+  }, [location.search]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -191,7 +195,8 @@ export default function PreassessmentPage() {
   const [tickets, setTickets] = useState<PreassessmentTicket[]>([]);
   const [alerts, setAlerts] = useState<PreassessmentAlert[]>([]);
   const [activeEditors, setActiveEditors] = useState<Record<string, { userId: string; name: string }>>({});
-  const [dashFilter, setDashFilter] = useState<'all' | 'completed' | 'todo' | 'na'>('all');
+  const [dashFilter, setDashFilter] = useState<'all' | 'completed' | 'todo' | 'na' | 'consultant_notes' | 'client_notes'>('all');
+  const [consultantNoteSaveVersion, setConsultantNoteSaveVersion] = useState(0);
   const [documentsByField, setDocumentsByField] = useState<Record<string, PreassessmentDocument[]>>({});
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const documentsEnabled = useMemo(() => {
@@ -222,6 +227,7 @@ export default function PreassessmentPage() {
     const handler = () => {
       setView('dashboard');
       setPanel(null);
+      document.getElementById('checkup-main-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
     };
     window.addEventListener('checkup:go-dashboard', handler);
     return () => window.removeEventListener('checkup:go-dashboard', handler);
@@ -663,6 +669,7 @@ export default function PreassessmentPage() {
 
   useEffect(() => {
     if (!activeClientId) return;
+    if (targetFieldId) return;
     // Staff always starts at dashboard overview when entering a client's checkup
     if (isStaff) {
       setView('dashboard');
@@ -688,7 +695,28 @@ export default function PreassessmentPage() {
     }
     setView('dashboard');
     setPanel(null);
-  }, [activeClientId, isStaff]);
+  }, [activeClientId, isStaff, targetFieldId]);
+
+  useEffect(() => {
+    if (!targetFieldId || !showAssessment || loading || sections.length === 0) return;
+    const sectionIndex = sections.findIndex((section) =>
+      section.fields.some((field) => field.id === targetFieldId),
+    );
+    if (sectionIndex < 0) return;
+
+    setDashFilter('all');
+    setSearch('');
+    setView(sectionIndex);
+    setPanel(null);
+
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById(`preassessment-field-${targetFieldId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [loading, sections, setSearch, showAssessment, targetFieldId]);
 
   useEffect(() => {
     if (location.pathname.startsWith('/checkup/ricerca-clienti')) {
@@ -862,7 +890,7 @@ export default function PreassessmentPage() {
           setError(err instanceof Error ? err.message : 'Errore durante il salvataggio');
         });
     }, 700);
-  }, [data, notes, fieldNotes, userFieldNotes, naFields, macroValidations, sectionValidations, canEditAnswers, isClient, isStaff, activeClientId, preassessmentId]);
+  }, [data, notes, fieldNotes, userFieldNotes, naFields, macroValidations, sectionValidations, consultantNoteSaveVersion, canEditAnswers, isClient, isStaff, activeClientId, preassessmentId]);
 
   const emitFieldActive = useCallback((fieldId: string) => {
     if (!preassessmentId || !canEditAnswers) return;
@@ -889,8 +917,13 @@ export default function PreassessmentPage() {
 
   const handleFieldNote = useCallback((id: string, val: string) => {
     if (!isStaff) return;
-    consultantNoteDirtyRef.current = true;
     setFieldNotes((p) => ({ ...p, [id]: val }));
+  }, [isStaff]);
+
+  const handleFieldNoteBlur = useCallback(() => {
+    if (!isStaff) return;
+    consultantNoteDirtyRef.current = true;
+    setConsultantNoteSaveVersion((value) => value + 1);
   }, [isStaff]);
 
   const handleUserFieldNote = useCallback((id: string, val: string) => {
@@ -1046,6 +1079,8 @@ export default function PreassessmentPage() {
     if (dashFilter === 'completed') return isFieldResolved(f);
     if (dashFilter === 'todo') return !naFields[f.id] && !data[f.id]?.trim();
     if (dashFilter === 'na') return !!naFields[f.id];
+    if (dashFilter === 'consultant_notes') return !!fieldNotes[f.id]?.trim();
+    if (dashFilter === 'client_notes') return !!userFieldNotes[f.id]?.trim();
     return true;
   };
 
@@ -1058,8 +1093,10 @@ export default function PreassessmentPage() {
     if (dashFilter === 'completed') return total > 0 && done === total;
     if (dashFilter === 'todo') return total > 0 && done < total;
     if (dashFilter === 'na') return naCount > 0;
+    if (dashFilter === 'consultant_notes') return section.fields.some((field) => !!fieldNotes[field.id]?.trim());
+    if (dashFilter === 'client_notes') return section.fields.some((field) => !!userFieldNotes[field.id]?.trim());
     return true;
-  }, [dashFilter, isFieldResolved, data, naFields]);
+  }, [dashFilter, isFieldResolved, data, naFields, fieldNotes, userFieldNotes]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return sections;
@@ -1092,7 +1129,11 @@ export default function PreassessmentPage() {
       ? 'Da completare'
       : dashFilter === 'na'
         ? 'N/A'
-        : 'Tutti';
+        : dashFilter === 'consultant_notes'
+          ? `Note consulente ${clientInfo?.studioNome || user?.studioNome || user?.licenziatarioNome || 'licenziatario'}`
+          : dashFilter === 'client_notes'
+            ? `Note ${clientInfo?.ragioneSociale || clientInfo?.azienda || clientInfo?.nome || user?.client?.ragioneSociale || user?.azienda || user?.clientNome || user?.client?.nome || 'sublicenziatario'}`
+            : 'Tutti';
 
   const exportCSV = () => {
     const csv = buildPreassessmentCsv({
@@ -1632,10 +1673,12 @@ export default function PreassessmentPage() {
             { key: 'completed', label: 'Completati' },
             { key: 'todo', label: 'Da completare' },
             { key: 'na', label: 'N/A' },
+            { key: 'consultant_notes', label: `Note consulente ${clientInfo?.studioNome || user?.studioNome || user?.licenziatarioNome || 'licenziatario'}` },
+            { key: 'client_notes', label: `Note ${clientInfo?.ragioneSociale || clientInfo?.azienda || clientInfo?.nome || user?.client?.ragioneSociale || user?.azienda || user?.clientNome || user?.client?.nome || 'sublicenziatario'}` },
           ].map((item) => (
             <button
               key={item.key}
-              onClick={() => setDashFilter(item.key as 'all' | 'completed' | 'todo' | 'na')}
+              onClick={() => setDashFilter(item.key as typeof dashFilter)}
               className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
                 dashFilter === item.key
                   ? 'bg-blue-600 text-white'
@@ -2036,6 +2079,7 @@ export default function PreassessmentPage() {
                 consultantNote={fieldNotes[f.id]}
                 userNote={userFieldNotes[f.id]}
                 onConsultantNoteChange={handleFieldNote}
+                onConsultantNoteBlur={handleFieldNoteBlur}
                 onUserNoteChange={handleUserFieldNote}
                 readOnly={readOnly}
                 ownerProtected={isClient && isOwnerFieldId(f.id)}

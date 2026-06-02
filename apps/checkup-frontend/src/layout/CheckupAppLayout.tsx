@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { usePreassessmentNav } from '../contexts/PreassessmentNavContext';
 import { useStudio } from '../contexts/StudioContext';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
-import { meApi, type SystemNotificationItem } from '../api/me';
+import { meApi, type PersonalNotificationItem, type SystemNotificationItem } from '../api/me';
 import { preassessmentApi, threadsUnreadApi, preassessmentAlertApi, preassessmentStaffChatApi, type PreassessmentClientEntry } from '../api/preassessment';
 import { ToastNotification, type AlertToast } from '../components/ui/ToastNotification';
 import { ActivityToastNotification, type ActivityToast } from '../components/ui/ActivityToastNotification';
@@ -91,6 +91,20 @@ function formatNotificationDate(value: string) {
   }).format(new Date(value));
 }
 
+function markPersonalNotificationsRead(userId: string | undefined, items: PersonalNotificationItem[]) {
+  if (!userId || items.length === 0) return;
+  const key = `checkup_personal_notifications_read:${userId}`;
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    const next = new Set<string>(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []);
+    items.forEach((item) => next.add(item.id));
+    localStorage.setItem(key, JSON.stringify(Array.from(next)));
+  } catch {
+    localStorage.setItem(key, JSON.stringify(items.map((item) => item.id)));
+  }
+}
+
 export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   const { user, logout } = useAuth();
   const modelDisplayName = useMemo(() => getModelDisplayName(user), [user]);
@@ -125,6 +139,10 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   const [systemNotificationsError, setSystemNotificationsError] = useState('');
   const [systemNotificationsOpen, setSystemNotificationsOpen] = useState(false);
   const [systemNotificationsUnread, setSystemNotificationsUnread] = useState(0);
+  const [personalNotifications, setPersonalNotifications] = useState<PersonalNotificationItem[]>([]);
+  const [personalNotificationsLoading, setPersonalNotificationsLoading] = useState(false);
+  const [personalNotificationsError, setPersonalNotificationsError] = useState('');
+  const [personalNotificationsUnread, setPersonalNotificationsUnread] = useState(0);
   const [staffUnreadTotals, setStaffUnreadTotals] = useState<StaffUnreadTotals>({ tickets: 0, alerts: 0, chat: 0 });
 
   const initials = useMemo(() => {
@@ -158,7 +176,8 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     if (location.pathname.startsWith('/checkup/chat')) return 'Chat';
     if (location.pathname.startsWith('/checkup/tickets')) return 'Ticket';
     if (location.pathname.startsWith('/checkup/alerts')) return 'Alert';
-    if (location.pathname.startsWith('/checkup/notifiche-sistema')) return 'Notifiche di sistema';
+    if (location.pathname.startsWith('/checkup/notifiche-sistema')) return 'Notifiche';
+    if (location.pathname.startsWith('/checkup/notifiche')) return 'Notifiche';
     if (location.pathname.startsWith('/checkup/audit')) return 'Log attività';
     if (location.pathname.startsWith('/checkup/clienti')) {
       if (location.pathname.endsWith('/tickets')) return 'Ticket';
@@ -169,6 +188,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   }, [location.pathname, modelDisplayName, navState?.questionnaireLabel, user?.ruolo]);
   const { logoUrl: studioLogoUrl, nome: studioNome } = useStudio();
   const isStaff = user ? user.ruolo !== 'cliente' : false;
+  const hasPersonalNotificationsArea = !!user && user.ruolo === 'cliente' && !!user.sublicense?.id;
   const isClientChatRoute = !isStaff && location.pathname.startsWith('/checkup/chat');
   const dashboardPath = isStaff ? '/checkup/dashboard-studio' : '/checkup';
   const lastSeenNotificationsKey = useMemo(
@@ -176,6 +196,13 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     [user?.id],
   );
   const latestSystemNotifications = useMemo(() => systemNotifications.slice(0, 6), [systemNotifications]);
+  const latestPersonalNotifications = useMemo(() => personalNotifications.slice(0, 6), [personalNotifications]);
+  const visibleNotifications = isStaff ? latestSystemNotifications : latestPersonalNotifications;
+  const notificationsLoading = isStaff ? systemNotificationsLoading : personalNotificationsLoading;
+  const notificationsError = isStaff ? systemNotificationsError : personalNotificationsError;
+  const notificationsUnread = isStaff ? systemNotificationsUnread : personalNotificationsUnread;
+  const notificationTitle = 'Notifiche';
+  const showNotificationBell = isStaff || hasPersonalNotificationsArea;
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -231,6 +258,33 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     }
   }, [isStaff, lastSeenNotificationsKey]);
 
+  const loadPersonalNotifications = useCallback(async (silent = false): Promise<PersonalNotificationItem[]> => {
+    if (!hasPersonalNotificationsArea) return [];
+    if (!silent) {
+      setPersonalNotificationsLoading(true);
+      setPersonalNotificationsError('');
+    }
+    try {
+      const response = await meApi.getNotifications({ limit: 6, page: 1 });
+      setPersonalNotifications(response.items);
+      const lastSeen = lastSeenNotificationsKey ? sessionStorage.getItem(lastSeenNotificationsKey) : null;
+      const unread = lastSeen
+        ? response.items.filter((item) => new Date(item.createdAt).getTime() > new Date(lastSeen).getTime()).length
+        : Math.min(response.items.length, 6);
+      setPersonalNotificationsUnread(unread);
+      return response.items;
+    } catch (err) {
+      if (!silent) {
+        setPersonalNotificationsError(err instanceof Error ? err.message : 'Errore nel caricamento delle notifiche');
+      }
+      return [];
+    } finally {
+      if (!silent) {
+        setPersonalNotificationsLoading(false);
+      }
+    }
+  }, [hasPersonalNotificationsArea, lastSeenNotificationsKey]);
+
   const markSystemNotificationsSeen = useCallback((items: SystemNotificationItem[]) => {
     if (!lastSeenNotificationsKey || items.length === 0) return;
     sessionStorage.setItem(lastSeenNotificationsKey, items[0].createdAt);
@@ -252,6 +306,21 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
       if (systemNotificationIntervalRef.current) clearInterval(systemNotificationIntervalRef.current);
     };
   }, [isStaff, loadSystemNotifications]);
+
+  useEffect(() => {
+    if (!hasPersonalNotificationsArea) {
+      setPersonalNotifications([]);
+      setPersonalNotificationsUnread(0);
+      return;
+    }
+    loadPersonalNotifications();
+    systemNotificationIntervalRef.current = setInterval(() => {
+      loadPersonalNotifications(true);
+    }, 60_000);
+    return () => {
+      if (systemNotificationIntervalRef.current) clearInterval(systemNotificationIntervalRef.current);
+    };
+  }, [hasPersonalNotificationsArea, loadPersonalNotifications]);
 
   // ── Azzera navState quando l'utente torna alla dashboard (nessun cliente attivo) ──
   useEffect(() => {
@@ -415,17 +484,6 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
             });
           }
 
-          if (current.alerts > prev.alerts) {
-            const delta = current.alerts - prev.alerts;
-            enqueueActivityToast({
-              id: `alert:${current.preassessmentId}:${current.alerts}`,
-              kind: 'alert',
-              titolo: delta > 1 ? 'Nuovi alert' : 'Nuovo alert',
-              messaggio: `${current.clientLabel}: ${delta > 1 ? `ci sono ${delta} nuovi alert` : 'hai ricevuto un nuovo alert'}.`,
-              ctaLabel: 'Apri alert',
-            });
-          }
-
           if (prev.status !== 'concluso' && current.status === 'concluso') {
             enqueueActivityToast({
               id: `completed:${current.preassessmentId}:${current.status}`,
@@ -463,7 +521,6 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
           return prev && (
             current.chat > prev.chat
             || current.tickets > prev.tickets
-            || current.alerts > prev.alerts
             || (prev.status !== 'concluso' && current.status === 'concluso')
             || current.sectionValidationsCount > prev.sectionValidationsCount
             || (!prev.finalValidationAt && !!current.finalValidationAt)
@@ -796,7 +853,14 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                 <>
                   <button
                     type="button"
-                    onClick={() => navigate(`/checkup/clienti/${navState.clientId}`)}
+                    onClick={() => {
+                      if (location.pathname === `/checkup/clienti/${navState.clientId}`) {
+                        window.dispatchEvent(new CustomEvent('checkup:go-dashboard'));
+                        document.getElementById('checkup-main-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
+                      } else {
+                        navigate(`/checkup/clienti/${navState.clientId}`);
+                      }
+                    }}
                     className={[
                       'group flex w-full items-center rounded-2xl transition-colors',
                       sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
@@ -944,6 +1008,48 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                       </>
                     )}
                   </NavLink>
+                  {hasPersonalNotificationsArea && (
+                    <NavLink
+                      to="/checkup/notifiche"
+                      className={({ isActive }) =>
+                        [
+                          'group flex items-center rounded-2xl transition-colors',
+                          sidebarCollapsed ? 'justify-center px-3 py-3' : 'gap-3 px-3 py-2',
+                          'text-sm font-medium',
+                          isActive
+                            ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-800 text-white shadow-lg shadow-indigo-600/40'
+                            : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                        ].join(' ')
+                      }
+                    >
+                      {({ isActive }) => (
+                        <>
+                          {!sidebarCollapsed && (
+                            <span
+                              className={[
+                                'h-7 w-1 rounded-full bg-indigo-400 transition-all duration-300',
+                                isActive
+                                  ? 'opacity-100 translate-x-0'
+                                  : 'opacity-0 -translate-x-1 group-hover:opacity-80 group-hover:translate-x-0',
+                              ].join(' ')}
+                            />
+                          )}
+                          <BellRing
+                            size={18}
+                            className="text-slate-400 group-hover:text-white transition-all duration-200"
+                          />
+                          <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                            Notifiche
+                          </span>
+                          {!sidebarCollapsed && personalNotificationsUnread > 0 && (
+                            <span className="ml-auto rounded-full bg-indigo-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none min-w-[18px] text-center">
+                              {personalNotificationsUnread > 99 ? '99+' : personalNotificationsUnread}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </NavLink>
+                  )}
                 </>
               )}
               {/* Unico contenitore: target del portal quando PreassessmentPage è montata,
@@ -1229,7 +1335,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                         className="text-slate-400 group-hover:text-white transition-all duration-200"
                       />
                       <span className={`overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-                        Notifiche di sistema
+                        Notifiche
                       </span>
                     </>
                   )}
@@ -1463,7 +1569,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                   Torna al checkup
                 </button>
               )}
-              {isStaff && (
+              {showNotificationBell && (
                 <div ref={notificationPopoverRef} className="relative z-[120]">
                   <button
                     ref={notificationBellButtonRef}
@@ -1472,16 +1578,25 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                       const nextOpen = !systemNotificationsOpen;
                       setSystemNotificationsOpen(nextOpen);
                       if (nextOpen) {
-                        const latest = await loadSystemNotifications();
-                        markSystemNotificationsSeen(latest);
+                        if (isStaff) {
+                          const latest = await loadSystemNotifications();
+                          markSystemNotificationsSeen(latest);
+                        } else {
+                          const latest = await loadPersonalNotifications();
+                          markPersonalNotificationsRead(user?.id, latest);
+                          if (lastSeenNotificationsKey && latest.length > 0) {
+                            sessionStorage.setItem(lastSeenNotificationsKey, latest[0].createdAt);
+                          }
+                          setPersonalNotificationsUnread(0);
+                        }
                       }
                     }}
                     className="relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-indigo-200/60 bg-white/85 text-slate-700 shadow-[0_16px_46px_rgba(10,16,32,0.16)] transition hover:border-indigo-300 hover:text-indigo-700"
-                    aria-label="Notifiche di sistema"
-                    title="Notifiche di sistema"
+                    aria-label={notificationTitle}
+                    title={notificationTitle}
                   >
                     <BellRing size={18} />
-                    {systemNotificationsUnread > 0 && (
+                    {notificationsUnread > 0 && (
                       <span className="absolute right-2 top-2 inline-flex h-2.5 w-2.5 rounded-full bg-rose-500" />
                     )}
                   </button>
@@ -1496,41 +1611,49 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                     >
                       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700">
                         <div>
-                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">Notifiche di sistema</p>
+                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">{notificationTitle}</p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">Ultimi aggiornamenti del pre-assessment</p>
                         </div>
                         <button
                           type="button"
-                          onClick={() => navigate('/checkup/notifiche-sistema')}
+                          onClick={() => {
+                            setSystemNotificationsOpen(false);
+                            navigate(isStaff ? '/checkup/notifiche-sistema' : '/checkup/notifiche');
+                          }}
                           className="text-xs font-semibold text-indigo-600 hover:underline"
                         >
                           Vedi tutte
                         </button>
                       </div>
                       <div className="max-h-[420px] overflow-y-auto">
-                        {systemNotificationsLoading ? (
+                        {notificationsLoading ? (
                           <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
                             Caricamento notifiche...
                           </div>
-                        ) : systemNotificationsError ? (
+                        ) : notificationsError ? (
                           <div className="px-4 py-6 text-sm text-rose-700 dark:text-rose-300">
-                            {systemNotificationsError}
+                            {notificationsError}
                           </div>
-                        ) : latestSystemNotifications.length === 0 ? (
+                        ) : visibleNotifications.length === 0 ? (
                           <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
                             Nessuna notifica disponibile.
                           </div>
                         ) : (
-                          latestSystemNotifications.map((item) => (
+                          visibleNotifications.map((item) => (
                             <button
                               key={item.id}
                               type="button"
                               onClick={() => {
-                                const params = new URLSearchParams();
-                                params.set('notificationId', item.id);
-                                params.set('type', item.type);
-                                params.set('query', `${item.title} ${item.clientName || ''}`.trim());
-                                navigate(`/checkup/notifiche-sistema?${params.toString()}`);
+                                if (isStaff) {
+                                  const systemItem = item as SystemNotificationItem;
+                                  const params = new URLSearchParams();
+                                  params.set('notificationId', systemItem.id);
+                                  params.set('type', systemItem.type);
+                                  params.set('query', `${systemItem.title} ${systemItem.clientName || ''}`.trim());
+                                  navigate(`/checkup/notifiche-sistema?${params.toString()}`);
+                                } else if (item.actionUrl) {
+                                  navigate(item.actionUrl);
+                                }
                                 setSystemNotificationsOpen(false);
                               }}
                               className="flex w-full flex-col gap-1 border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"

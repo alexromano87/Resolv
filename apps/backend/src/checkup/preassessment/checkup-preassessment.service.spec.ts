@@ -12,6 +12,8 @@ import { CheckupClient } from '../clients/checkup-client.entity';
 import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
 import { CheckupPreassessmentNotificationsService } from './checkup-preassessment-notifications.service';
 import { CheckupPreassessmentRenderService } from './checkup-preassessment-render.service';
+import { CheckupStudio } from '../studios/checkup-studio.entity';
+import { CheckupNotificationsService } from '../notifications/checkup-notifications.service';
 
 const mockRepository = () => ({
   findOne: jest.fn(),
@@ -59,7 +61,12 @@ describe('CheckupPreassessmentService', () => {
   let licenseRepository: ReturnType<typeof mockRepository>;
   let sublicenseRepository: ReturnType<typeof mockRepository>;
   let clientRepository: ReturnType<typeof mockRepository>;
-  let notificationsService: { notifyCompletion: jest.Mock; notifyFinalValidation: jest.Mock };
+  let studioRepository: ReturnType<typeof mockRepository>;
+  let notificationsService: { notifyCompletion: jest.Mock; notifyFinalValidation: jest.Mock; notifyConsultantNote: jest.Mock };
+  let personalNotificationsService: {
+    notifyPreassessmentParticipants: jest.Mock;
+    notifyPreassessmentOwnerMacros: jest.Mock;
+  };
   let validationService: CheckupPreassessmentValidationService;
   let mockQueryRunner: {
     connect: jest.Mock;
@@ -118,9 +125,15 @@ describe('CheckupPreassessmentService', () => {
     licenseRepository = mockRepository();
     sublicenseRepository = mockRepository();
     clientRepository = mockRepository();
+    studioRepository = mockRepository();
     notificationsService = {
       notifyCompletion: jest.fn().mockResolvedValue(undefined),
       notifyFinalValidation: jest.fn().mockResolvedValue(undefined),
+      notifyConsultantNote: jest.fn().mockResolvedValue(undefined),
+    };
+    personalNotificationsService = {
+      notifyPreassessmentParticipants: jest.fn().mockResolvedValue(undefined),
+      notifyPreassessmentOwnerMacros: jest.fn().mockResolvedValue(undefined),
     };
     validationService = makeValidationServiceMock();
 
@@ -146,9 +159,11 @@ describe('CheckupPreassessmentService', () => {
         { provide: getRepositoryToken(CheckupLicense), useValue: licenseRepository },
         { provide: getRepositoryToken(CheckupSublicense), useValue: sublicenseRepository },
         { provide: getRepositoryToken(CheckupClient), useValue: clientRepository },
+        { provide: getRepositoryToken(CheckupStudio), useValue: studioRepository },
         { provide: CheckupAuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
         { provide: CheckupPreassessmentNotificationsService, useValue: notificationsService },
         { provide: CheckupPreassessmentRenderService, useValue: { renderHtmlToPdf: jest.fn() } },
+        { provide: CheckupNotificationsService, useValue: personalNotificationsService },
         { provide: DataSource, useValue: { createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner) } },
         { provide: CheckupPreassessmentValidationService, useValue: validationService },
       ],
@@ -158,7 +173,7 @@ describe('CheckupPreassessmentService', () => {
 
     clientRepository.findOne.mockResolvedValue({ id: 'client-1', attivo: true });
     preassessmentRepository.findOne.mockResolvedValue({ ...baseRecord });
-    sublicenseRepository.findOne.mockResolvedValue({ id: 'sub-1', licenseId: 'lic-1', clientId: 'client-1', attiva: true });
+    sublicenseRepository.findOne.mockResolvedValue({ id: 'sub-1', licenseId: 'lic-1', clientId: 'client-1', attiva: true, modelId: 'model-1' });
     licenseRepository.findOne.mockResolvedValue({ id: 'lic-1', modelId: 'model-1', studioId: 'studio-1' });
     userRepository.find.mockResolvedValue([]);
   });
@@ -273,6 +288,42 @@ describe('CheckupPreassessmentService', () => {
       superOwner: true,
       macroAreaAssignments: ['a', 'b'],
     } as any)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('links consultant note notifications to the changed questionnaire field', async () => {
+    const staffUser = {
+      id: 'staff-1',
+      ruolo: 'collaboratore',
+      studioId: 'studio-1',
+      email: 'staff@example.com',
+      nome: 'Anna',
+      cognome: 'Verdi',
+    } as any;
+
+    clientRepository.findOne.mockResolvedValue({ id: 'client-1', attivo: true, nome: 'Cliente Demo', ragioneSociale: 'Cliente Demo' });
+    preassessmentRepository.findOne.mockResolvedValue({
+      ...baseRecord,
+      studioCanEdit: true,
+      fieldNotes: { field_a: 'nota precedente' },
+    });
+
+    await service.updateClient('client-1', {
+      fieldNotes: { field_a: 'nota aggiornata' },
+    }, staffUser);
+
+    expect(personalNotificationsService.notifyPreassessmentOwnerMacros).toHaveBeenCalledWith(
+      'pre-1',
+      expect.objectContaining({
+        type: 'consultant_note',
+        actionUrl: '/checkup/clienti/client-1?fieldId=field_a',
+        metadata: expect.objectContaining({
+          fieldId: 'field_a',
+          fieldIds: ['field_a'],
+        }),
+      }),
+      { macroIds: ['a'] },
+      staffUser,
+    );
   });
 
   it('allows the super-owner to reopen a checkup already closed', async () => {

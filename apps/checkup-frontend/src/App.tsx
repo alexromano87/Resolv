@@ -15,6 +15,7 @@ import { PreassessmentTicketsPage } from './pages/PreassessmentTicketsPage';
 import { PreassessmentAlertsPage } from './pages/PreassessmentAlertsPage';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { SystemNotificationsPage } from './pages/SystemNotificationsPage';
+import { PersonalNotificationsPage } from './pages/PersonalNotificationsPage';
 import { StudioChatPage } from './pages/StudioChatPage';
 import { useAuth } from './contexts/AuthContext';
 import { CheckupAppLayout } from './layout/CheckupAppLayout';
@@ -243,6 +244,17 @@ export default function App() {
           <ProtectedRoute requiredRole={['admin_studio', 'segreteria', 'collaboratore']}>
             <CheckupAppLayout>
               <PreassessmentAlertsPage />
+            </CheckupAppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/checkup/notifiche"
+        element={
+          <ProtectedRoute requiredRole="cliente">
+            <CheckupAppLayout>
+              <PersonalNotificationsPage />
             </CheckupAppLayout>
           </ProtectedRoute>
         }

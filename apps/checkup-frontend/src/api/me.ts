@@ -2,7 +2,7 @@ import { api, apiBase, getAccessToken } from './config';
 
 export interface SystemNotificationItem {
   id: string;
-  type: 'sezione_validata' | 'checkup_completato' | 'validazione_finale' | 'nuova_versione';
+  type: 'sezione_validata' | 'checkup_completato' | 'validazione_finale' | 'nuova_versione' | 'nota_cliente';
   title: string;
   message: string;
   createdAt: string;
@@ -24,6 +24,39 @@ export interface GetSystemNotificationsParams {
 
 export interface SystemNotificationListResponse {
   items: SystemNotificationItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export type PersonalNotificationType =
+  | 'consultant_note'
+  | 'client_note'
+  | 'ticket_created'
+  | 'ticket_updated'
+  | 'chat_message'
+  | 'direct_chat_message'
+  | 'preassessment_section_validated'
+  | 'preassessment_final_validated'
+  | 'preassessment_reopened'
+  | 'preassessment_new_version';
+
+export interface PersonalNotificationItem {
+  id: string;
+  type: PersonalNotificationType;
+  title: string;
+  message: string;
+  actionUrl: string | null;
+  preassessmentId: string | null;
+  clientId: string | null;
+  clientName: string | null;
+  actorName: string | null;
+  createdAt: string;
+}
+
+export interface PersonalNotificationListResponse {
+  items: PersonalNotificationItem[];
   total: number;
   page: number;
   limit: number;
@@ -63,4 +96,21 @@ export const meApi = {
       ...(params?.limit ? { limit: String(params.limit) } : {}),
       ...(params?.page ? { page: String(params.page) } : {}),
     }),
+
+  getNotifications: (params?: { limit?: number; page?: number; query?: string; type?: PersonalNotificationType }) =>
+    api.get<PersonalNotificationListResponse>('/checkup/me/notifications', {
+      ...(params?.query ? { query: params.query } : {}),
+      ...(params?.type ? { type: params.type } : {}),
+      ...(params?.limit ? { limit: String(params.limit) } : {}),
+      ...(params?.page ? { page: String(params.page) } : {}),
+    }),
+
+  getNotificationsCount: () =>
+    api.get<{ count: number }>('/checkup/me/notifications/count'),
+
+  deleteNotification: (id: string) =>
+    api.delete<{ success: boolean; deletedCount: number }>(`/checkup/me/notifications/${id}`),
+
+  deleteNotifications: (ids: string[]) =>
+    api.post<{ success: boolean; deletedCount: number }>('/checkup/me/notifications/delete', { ids }),
 };

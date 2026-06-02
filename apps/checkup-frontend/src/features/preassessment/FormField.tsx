@@ -38,6 +38,7 @@ type FormFieldProps = {
   consultantNote?: string;
   userNote?: string;
   onConsultantNoteChange: (id: string, val: string) => void;
+  onConsultantNoteBlur?: (id: string) => void;
   onUserNoteChange: (id: string, val: string) => void;
   readOnly?: boolean;
   ownerProtected?: boolean;
@@ -68,6 +69,7 @@ export const FormField = memo(function FormField({
   consultantNote,
   userNote,
   onConsultantNoteChange,
+  onConsultantNoteBlur,
   onUserNoteChange,
   readOnly = false,
   fieldMeta,
@@ -172,7 +174,11 @@ export const FormField = memo(function FormField({
   };
 
   return (
-    <div className={`space-y-2 rounded-xl ${isEditingOther ? 'ring-2 ring-blue-200/70 bg-blue-50/40 p-3' : ''}`}>
+    <div
+      id={`preassessment-field-${field.id}`}
+      data-field-id={field.id}
+      className={`space-y-2 rounded-xl scroll-mt-24 ${isEditingOther ? 'ring-2 ring-blue-200/70 bg-blue-50/40 p-3' : ''}`}
+    >
       <div className="space-y-1">
         <div className="flex items-start justify-between gap-3">
           <label className={`text-sm font-medium ${naChecked ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
@@ -482,6 +488,7 @@ export const FormField = memo(function FormField({
                 type="button"
                 onClick={() => {
                   onConsultantNoteChange(field.id, '');
+                  onConsultantNoteBlur?.(field.id);
                   setShowConsultantNote(false);
                 }}
                 className="inline-flex items-center gap-1 text-[10px] text-rose-400 transition-colors hover:text-rose-600"
@@ -496,7 +503,10 @@ export const FormField = memo(function FormField({
             value={consultantNote || ''}
             onChange={(e) => onConsultantNoteChange(field.id, e.target.value)}
             onFocus={() => onFieldFocus?.(field.id)}
-            onBlur={() => onFieldBlur?.(field.id)}
+            onBlur={() => {
+              onConsultantNoteBlur?.(field.id);
+              onFieldBlur?.(field.id);
+            }}
             rows={2}
             placeholder="Nota consulente..."
             disabled={consultantNoteDisabled}

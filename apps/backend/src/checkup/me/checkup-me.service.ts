@@ -8,10 +8,11 @@ import { CheckupPreassessmentTicket } from '../preassessment/checkup-preassessme
 import { CheckupPreassessmentAlert } from '../preassessment/checkup-preassessment-alert.entity';
 import { CheckupMailService } from '../mail/checkup-mail.service';
 import { CheckupAuditLog } from '../audit/checkup-audit-log.entity';
+import { CheckupNotificationsService } from '../notifications/checkup-notifications.service';
 
 export interface CheckupSystemNotificationItem {
   id: string;
-  type: 'sezione_validata' | 'checkup_completato' | 'validazione_finale' | 'nuova_versione';
+  type: 'sezione_validata' | 'checkup_completato' | 'validazione_finale' | 'nuova_versione' | 'nota_cliente';
   title: string;
   message: string;
   createdAt: string;
@@ -57,6 +58,7 @@ export class CheckupMeService {
     @InjectRepository(CheckupAuditLog)
     private readonly auditLogRepository: Repository<CheckupAuditLog>,
     private readonly mailService: CheckupMailService,
+    private readonly notificationsService: CheckupNotificationsService,
   ) {}
 
   async exportMyData(userId: string): Promise<Record<string, unknown>> {
@@ -215,6 +217,32 @@ export class CheckupMeService {
     };
   }
 
+  getNotifications(
+    userId: string,
+    params: {
+      page?: number;
+      limit?: number;
+      query?: string;
+      type?: 'consultant_note' | 'client_note' | 'ticket_created' | 'ticket_updated' | 'chat_message' | 'direct_chat_message' | 'preassessment_section_validated' | 'preassessment_final_validated' | 'preassessment_reopened' | 'preassessment_new_version';
+    },
+  ) {
+    return this.notificationsService.listForUser(userId, params);
+  }
+
+  getNotificationsCount(userId: string) {
+    return this.notificationsService.countForUser(userId);
+  }
+
+  async deleteNotification(userId: string, notificationId: string) {
+    await this.notificationsService.deleteForUser(userId, notificationId);
+    return { ok: true };
+  }
+
+  async deleteNotifications(userId: string, ids: string[]) {
+    await this.notificationsService.deleteManyForUser(userId, ids);
+    return { ok: true };
+  }
+
   private applyTypeFilter(
     qb: SelectQueryBuilder<CheckupAuditLog>,
     type: CheckupSystemNotificationItem['type'],
@@ -235,6 +263,10 @@ export class CheckupMeService {
       case 'nuova_versione':
         qb.andWhere('log.entityType = :preEntity', { preEntity: 'PREASSESSMENT' })
           .andWhere("log.description LIKE 'Nuova versione del checkup%'");
+        return;
+      case 'nota_cliente':
+        qb.andWhere('log.entityType = :preEntity', { preEntity: 'PREASSESSMENT' })
+          .andWhere("log.description LIKE 'Nota cliente aggiornata%'");
         return;
     }
   }
@@ -314,6 +346,22 @@ export class CheckupMeService {
           actionUrl,
           actorName,
           priority: 'warning',
+        };
+      }
+
+      if (description.startsWith('Nota cliente aggiornata')) {
+        return {
+          id: log.id,
+          type: 'nota_cliente',
+          title: 'Nota del cliente aggiornata',
+          message: this.composeMessage(clientName, description),
+          createdAt: log.createdAt.toISOString(),
+          clientId,
+          clientName,
+          preassessmentId,
+          actionUrl,
+          actorName,
+          priority: 'info',
         };
       }
 

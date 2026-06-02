@@ -107,6 +107,8 @@ import { CheckupPdfConfigController } from './pdf-config/checkup-pdf-config.cont
 import { CheckupAuditLogService } from './audit/checkup-audit-log.service';
 import { CheckupAuditController } from './audit/checkup-audit.controller';
 import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
+import { CheckupNotification } from './notifications/checkup-notification.entity';
+import { CheckupNotificationsService } from './notifications/checkup-notifications.service';
 
 @Module({
   imports: [
@@ -139,6 +141,7 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
       QuestionField,
       QuestionModel,
       CheckupAuditLog,
+      CheckupNotification,
       CheckupPdfConfig,
     ]),
     PassportModule.register({ defaultStrategy: 'checkup-jwt' }),
@@ -223,6 +226,7 @@ import { CheckupAuditLog } from './audit/checkup-audit-log.entity';
     CheckupMailService,
     CheckupMeService,
     CheckupAuditLogService,
+    CheckupNotificationsService,
     CheckupPdfConfigService,
   ],
 })

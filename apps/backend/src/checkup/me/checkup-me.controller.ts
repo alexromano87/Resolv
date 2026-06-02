@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
@@ -43,7 +43,7 @@ export class CheckupMeController {
   async getSystemNotifications(
     @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
     @Query('query') query?: string,
-    @Query('type') type?: 'sezione_validata' | 'checkup_completato' | 'validazione_finale' | 'nuova_versione',
+    @Query('type') type?: 'sezione_validata' | 'checkup_completato' | 'validazione_finale' | 'nuova_versione' | 'nota_cliente',
     @Query('notificationId') notificationId?: string,
     @Query('limit') limit?: string,
     @Query('page') page?: string,
@@ -57,5 +57,42 @@ export class CheckupMeController {
       limit: limit ? Number(limit) : undefined,
       page: page ? Number(page) : undefined,
     });
+  }
+
+  @Get('notifications')
+  getNotifications(
+    @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
+    @Query('query') query?: string,
+    @Query('type') type?: 'consultant_note' | 'client_note' | 'ticket_created' | 'ticket_updated' | 'chat_message' | 'direct_chat_message' | 'preassessment_section_validated' | 'preassessment_final_validated' | 'preassessment_reopened' | 'preassessment_new_version',
+    @Query('limit') limit?: string,
+    @Query('page') page?: string,
+  ) {
+    return this.meService.getNotifications(currentUser.id, {
+      query,
+      type,
+      limit: limit ? Number(limit) : undefined,
+      page: page ? Number(page) : undefined,
+    });
+  }
+
+  @Get('notifications/count')
+  getNotificationsCount(@CheckupCurrentUser() currentUser: CheckupCurrentUserData) {
+    return this.meService.getNotificationsCount(currentUser.id);
+  }
+
+  @Delete('notifications/:id')
+  deleteNotification(
+    @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
+    @Param('id') id: string,
+  ) {
+    return this.meService.deleteNotification(currentUser.id, id);
+  }
+
+  @Post('notifications/delete')
+  deleteNotifications(
+    @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
+    @Body('ids') ids: string[],
+  ) {
+    return this.meService.deleteNotifications(currentUser.id, Array.isArray(ids) ? ids : []);
   }
 }
