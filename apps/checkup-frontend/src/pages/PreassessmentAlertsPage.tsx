@@ -78,6 +78,10 @@ const STATO_LABELS: Record<'aperto' | 'chiuso' | 'scaduto', string> = {
 
 const ITEMS_PER_PAGE = 10;
 
+function getErrorMessage(err: any, fallback: string): string {
+  return err?.response?.data?.message || err?.message || fallback;
+}
+
 interface StudioMember {
   id: string;
   nome: string;
@@ -218,7 +222,7 @@ export function PreassessmentAlertsPage() {
           setLoading(false);
         }
       } catch (err: any) {
-        setError(err?.response?.data?.message || 'Errore nel caricamento del pre-assessment');
+        setError(getErrorMessage(err, 'Errore nel caricamento del pre-assessment'));
         setLoading(false);
       }
     };
@@ -298,7 +302,7 @@ export function PreassessmentAlertsPage() {
           : [];
       setAlerts(data);
     } catch (err: any) {
-      setError(err?.response?.data?.message || err?.message || 'Errore nel caricamento degli alert');
+      setError(getErrorMessage(err, 'Errore nel caricamento degli alert'));
     } finally {
       setLoading(false);
     }
@@ -403,7 +407,7 @@ export function PreassessmentAlertsPage() {
       showSuccess('Alert creato con successo');
       loadAlerts();
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Errore durante la creazione dell\'alert');
+      setError(getErrorMessage(err, 'Errore durante la creazione dell\'alert'));
     } finally {
       setCreateLoading(false);
     }
@@ -445,7 +449,7 @@ export function PreassessmentAlertsPage() {
       showSuccess('Alert modificato con successo');
       loadAlerts();
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Errore durante la modifica dell\'alert');
+      setError(getErrorMessage(err, 'Errore durante la modifica dell\'alert'));
     } finally {
       setEditLoading(false);
     }
@@ -465,7 +469,7 @@ export function PreassessmentAlertsPage() {
       showSuccess('Alert chiuso');
       loadAlerts();
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Errore durante la chiusura dell\'alert');
+      setError(getErrorMessage(err, 'Errore durante la chiusura dell\'alert'));
     }
   };
 
@@ -483,7 +487,7 @@ export function PreassessmentAlertsPage() {
       showSuccess('Alert eliminato');
       loadAlerts();
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Errore durante l\'eliminazione dell\'alert');
+      setError(getErrorMessage(err, 'Errore durante l\'eliminazione dell\'alert'));
     }
   };
 
@@ -494,7 +498,7 @@ export function PreassessmentAlertsPage() {
       showSuccess('Alert tacitato — non riceverai preavvisi via email');
       loadAlerts();
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Errore durante la tacitazione dell\'alert');
+      setError(getErrorMessage(err, 'Errore durante la tacitazione dell\'alert'));
     }
   };
 
@@ -504,7 +508,7 @@ export function PreassessmentAlertsPage() {
       showSuccess('Alert ripristinato — riceverai di nuovo i preavvisi via email');
       loadAlerts();
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Errore durante il ripristino dell\'alert');
+      setError(getErrorMessage(err, 'Errore durante il ripristino dell\'alert'));
     }
   };
 
@@ -521,7 +525,7 @@ export function PreassessmentAlertsPage() {
       showSuccess('Alert archiviato');
       loadAlerts();
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Errore durante l\'archiviazione dell\'alert');
+      setError(getErrorMessage(err, 'Errore durante l\'archiviazione dell\'alert'));
     }
   };
 
