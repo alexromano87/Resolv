@@ -1043,7 +1043,7 @@ export function PreassessmentAlertsPage() {
                       <option value="">— Seleziona consulente —</option>
                       {studioMembers.map((entry) => (
                         <option key={entry.id} value={entry.id}>
-                          {entry.nome} {entry.cognome} ({entry.ruolo})
+                          {entry.nome} {entry.cognome}
                         </option>
                       ))}
                     </select>

@@ -40,6 +40,11 @@ export function StudioChatPage() {
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const didAutoScrollRef = useRef(false);
+  const currentStudioLabel =
+    user?.studioNome ||
+    user?.licenziatarioNome ||
+    user?.studio?.nome ||
+    'studio';
 
   const selectedConversation = useMemo(
     () => conversations.find((entry) => entry.id === selectedConversationId) ?? null,
@@ -297,7 +302,7 @@ export function StudioChatPage() {
           <p className="max-w-2xl text-sm text-slate-500">
             {isClient
               ? 'Consulta e gestisci le conversazioni con il tuo studio.'
-              : 'Consulta e gestisci le conversazioni con utenti studio e sublicenziatari.'}
+              : 'Consulta e gestisci le conversazioni con colleghi e clienti.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -459,11 +464,11 @@ export function StudioChatPage() {
                   <>
                     <button onClick={() => { setRecipientTab('sublicenziatari'); setSelectedRecipientClientId(null); }} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${recipientTab === 'sublicenziatari' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
                       <Building2 className="mr-1 inline h-3.5 w-3.5" />
-                      Sublicenziatari
+                      Clienti
                     </button>
                     <button onClick={() => { setRecipientTab('utenti'); setSelectedRecipientClientId(null); }} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${recipientTab === 'utenti' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
                       <Users className="mr-1 inline h-3.5 w-3.5" />
-                      Utenti studio
+                      Colleghi {currentStudioLabel}
                     </button>
                   </>
                 )}
@@ -527,7 +532,7 @@ export function StudioChatPage() {
                   <>
                     <button onClick={() => setSelectedRecipientClientId(null)} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50">
                       <ChevronLeft className="h-4 w-4" />
-                      Torna ai sublicenziatari
+                      Torna ai clienti
                     </button>
                     {visibleClientUsers.length === 0 ? (
                       <div className="py-8 text-center text-sm text-slate-400">Nessun utente disponibile</div>
