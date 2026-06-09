@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupDirectChatService } from './checkup-direct-chat.service';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
@@ -43,6 +43,20 @@ export class CheckupDirectChatController {
   @Post('messages/:id/read')
   markAsRead(@Param('id') id: string, @CheckupCurrentUser() user: CheckupCurrentUserData) {
     return this.directChatService.markAsRead(id, user);
+  }
+
+  @Patch('messages/:id')
+  updateMessage(
+    @Param('id') id: string,
+    @Body('messaggio') messaggio: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.directChatService.updateMessage(id, messaggio, user);
+  }
+
+  @Delete('messages/:id')
+  deleteMessage(@Param('id') id: string, @CheckupCurrentUser() user: CheckupCurrentUserData) {
+    return this.directChatService.deleteMessage(id, user);
   }
 
   @Post('conversations/:id/archive')

@@ -153,6 +153,8 @@ export interface PreassessmentChatMessage {
   messaggio: string;
   letto: boolean;
   createdAt: string;
+  updatedAt?: string;
+  editedAt?: string | null;
   user: { id: string; nome: string; cognome: string; ruolo: string };
 }
 
@@ -162,6 +164,10 @@ export const preassessmentChatApi = {
   sendMessage: (preassessmentId: string, sectionId: string, messaggio: string) =>
     api.post<PreassessmentChatMessage>(`/checkup/preassessment/${preassessmentId}/sections/${sectionId}/chat`, { messaggio }),
   markAsRead: (id: string) => api.patch(`/checkup/preassessment/chat/${id}/read`),
+  updateMessage: (id: string, messaggio: string) =>
+    api.patch<PreassessmentChatMessage>(`/checkup/preassessment/chat/${id}`, { messaggio }),
+  deleteMessage: (id: string) =>
+    api.delete<{ ok: boolean }>(`/checkup/preassessment/chat/${id}`),
 };
 
 export interface PreassessmentTicketMessage {
@@ -361,6 +367,8 @@ export const preassessmentStaffChatApi = {
       messaggio: string;
       letto: boolean;
       createdAt: string;
+      updatedAt?: string;
+      editedAt?: string | null;
       user: { id: string; nome: string; cognome: string; ruolo: string };
     }>>(`/checkup/direct-chat/conversations/${conversationId}/messages`),
   sendMessage: (conversationId: string, messaggio: string) =>
@@ -371,9 +379,15 @@ export const preassessmentStaffChatApi = {
       messaggio: string;
       letto: boolean;
       createdAt: string;
+      updatedAt?: string;
+      editedAt?: string | null;
       user: { id: string; nome: string; cognome: string; ruolo: string };
     }>(`/checkup/direct-chat/conversations/${conversationId}/messages`, { messaggio }),
   markAsRead: (id: string) => api.post(`/checkup/direct-chat/messages/${id}/read`, {}),
+  updateMessage: (id: string, messaggio: string) =>
+    api.patch(`/checkup/direct-chat/messages/${id}`, { messaggio }),
+  deleteMessage: (id: string) =>
+    api.delete<{ ok: boolean }>(`/checkup/direct-chat/messages/${id}`),
   getUnreadCount: () => api.get<{ unread: number }>('/checkup/direct-chat/unread-count'),
   archiveConversation: (conversationId: string) =>
     api.post(`/checkup/direct-chat/conversations/${conversationId}/archive`, {}),

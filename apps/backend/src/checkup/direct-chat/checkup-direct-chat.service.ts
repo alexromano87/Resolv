@@ -14,6 +14,7 @@ import { CheckupMailService } from '../mail/checkup-mail.service';
 
 const DIRECT_CHAT_ONLINE_PREFIX = 'checkup:direct-chat:online:';
 const DIRECT_CHAT_ONLINE_TTL_SECONDS = 90;
+const MESSAGE_EDIT_DELETE_WINDOW_MS = 15 * 60 * 1000;
 
 @Injectable()
 export class CheckupDirectChatService {
@@ -177,6 +178,15 @@ export class CheckupDirectChatService {
     const columns = this.visibilityColumnsForUser(conversation, userId);
     conversation[columns.archived] = null;
     conversation[columns.deleted] = null;
+  }
+
+  private isWithinMessageWindow(message: { createdAt: Date }) {
+    return Date.now() - new Date(message.createdAt).getTime() <= MESSAGE_EDIT_DELETE_WINDOW_MS;
+  }
+
+  private isMessageVisibleToUser(message: CheckupDirectChatMessage, userId: string) {
+    if (message.deletedForEveryoneAt) return false;
+    return !(message.deletedForUserIds || []).includes(userId);
   }
 
   private formatUserName(user: Pick<CheckupUser, 'nome' | 'cognome' | 'email'>) {
@@ -436,6 +446,7 @@ export class CheckupDirectChatService {
             .createQueryBuilder('message')
             .leftJoinAndSelect('message.user', 'user')
             .where('message.conversationId IN (:...conversationIds)', { conversationIds })
+            .andWhere('message.deletedForEveryoneAt IS NULL')
             .orderBy('message.createdAt', 'DESC')
             .getMany()
         : Promise.resolve([]),
@@ -447,13 +458,15 @@ export class CheckupDirectChatService {
             .where('message.conversationId IN (:...conversationIds)', { conversationIds })
             .andWhere('message.userId != :userId', { userId: user.id })
             .andWhere('message.letto = false')
+            .andWhere('message.deletedForEveryoneAt IS NULL')
+            .andWhere('NOT JSON_CONTAINS(COALESCE(message.deletedForUserIds, JSON_ARRAY()), JSON_QUOTE(:userId))', { userId: user.id })
             .groupBy('message.conversationId')
             .getRawMany<{ conversationId: string; count: string }>()
         : Promise.resolve([]),
     ]);
 
     const latestMessageByConversation = new Map<string, CheckupDirectChatMessage>();
-    latestMessages.forEach((message) => {
+    latestMessages.filter((message) => this.isMessageVisibleToUser(message, user.id)).forEach((message) => {
       if (!latestMessageByConversation.has(message.conversationId)) {
         latestMessageByConversation.set(message.conversationId, message);
       }
@@ -496,11 +509,12 @@ export class CheckupDirectChatService {
 
   async getMessages(conversationId: string, user: CheckupCurrentUserData) {
     await this.getConversationForUser(conversationId, user);
-    return this.messageRepository.find({
+    const messages = await this.messageRepository.find({
       where: { conversationId },
       relations: ['user'],
       order: { createdAt: 'ASC' },
     });
+    return messages.filter((message) => this.isMessageVisibleToUser(message, user.id));
   }
 
   async sendMessage(conversationId: string, dto: SendDirectChatMessageDto, user: CheckupCurrentUserData) {
@@ -536,11 +550,37 @@ export class CheckupDirectChatService {
   }
 
   async deleteConversation(conversationId: string, user: CheckupCurrentUserData) {
-    const conversation = await this.getConversationForUser(conversationId, user);
-    const columns = this.visibilityColumnsForUser(conversation, user.id);
-    conversation[columns.deleted] = new Date();
-    conversation[columns.archived] = null;
-    await this.conversationRepository.save(conversation);
+    return this.archiveConversation(conversationId, user);
+  }
+
+  async updateMessage(messageId: string, messaggio: string, user: CheckupCurrentUserData) {
+    const message = await this.messageRepository.findOne({ where: { id: messageId }, relations: ['user'] });
+    if (!message) throw new NotFoundException('Messaggio non trovato');
+    await this.getConversationForUser(message.conversationId, user);
+    if (message.userId !== user.id) throw new ForbiddenException('Puoi modificare solo i tuoi messaggi');
+    if (!this.isWithinMessageWindow(message)) {
+      throw new ForbiddenException('Il tempo per modificare questo messaggio e\' scaduto');
+    }
+    if (message.deletedForEveryoneAt) throw new ForbiddenException('Messaggio eliminato');
+    const next = messaggio.trim();
+    if (!next) throw new BadRequestException('Messaggio obbligatorio');
+    message.messaggio = next;
+    message.editedAt = new Date();
+    return this.messageRepository.save(message);
+  }
+
+  async deleteMessage(messageId: string, user: CheckupCurrentUserData) {
+    const message = await this.messageRepository.findOne({ where: { id: messageId } });
+    if (!message) throw new NotFoundException('Messaggio non trovato');
+    await this.getConversationForUser(message.conversationId, user);
+
+    if (message.userId === user.id && this.isWithinMessageWindow(message)) {
+      message.deletedForEveryoneAt = new Date();
+      message.messaggio = '';
+    } else {
+      message.deletedForUserIds = Array.from(new Set([...(message.deletedForUserIds || []), user.id]));
+    }
+    await this.messageRepository.save(message);
     return { ok: true };
   }
 
@@ -564,20 +604,17 @@ export class CheckupDirectChatService {
       return !conversation[columns.deleted] && !conversation[columns.archived];
     });
     if (!visibleConversations.length) return { unread: 0 };
-    const count = await this.messageRepository.count({
-      where: {
-        conversationId: In(visibleConversations.map((entry) => entry.id)),
-        letto: false,
-      },
-    });
-    const ownMessages = await this.messageRepository.count({
-      where: {
-        conversationId: In(visibleConversations.map((entry) => entry.id)),
-        letto: false,
-        userId: user.id,
-      },
-    });
-    return { unread: Math.max(0, count - ownMessages) };
+    const unread = await this.messageRepository
+      .createQueryBuilder('message')
+      .where('message.conversationId IN (:...conversationIds)', {
+        conversationIds: visibleConversations.map((entry) => entry.id),
+      })
+      .andWhere('message.letto = false')
+      .andWhere('message.userId != :userId', { userId: user.id })
+      .andWhere('message.deletedForEveryoneAt IS NULL')
+      .andWhere('NOT JSON_CONTAINS(COALESCE(message.deletedForUserIds, JSON_ARRAY()), JSON_QUOTE(:userId))', { userId: user.id })
+      .getCount();
+    return { unread };
   }
 
   async markOnline(user: CheckupCurrentUserData) {

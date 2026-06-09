@@ -58,4 +58,25 @@ describe('SystemNotificationsPage', () => {
       page: 1,
     });
   });
+
+  it('carica automaticamente la notifica quando e presente notificationId', async () => {
+    render(
+      <MemoryRouter initialEntries={['/checkup/notifiche-sistema?notificationId=notif-1&type=nota_cliente&query=testo']}>
+        <Routes>
+          <Route path="/checkup/notifiche-sistema" element={<SystemNotificationsPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(getSystemNotifications).toHaveBeenCalledTimes(1);
+    });
+    expect(getSystemNotifications).toHaveBeenCalledWith({
+      query: undefined,
+      type: 'nota_cliente',
+      notificationId: 'notif-1',
+      limit: 50,
+      page: 1,
+    });
+  });
 });

@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
   ManyToOne,
   JoinColumn,
   Index,
@@ -29,8 +30,20 @@ export class CheckupDirectChatMessage {
   @Column({ default: false })
   letto: boolean;
 
+  @Column({ type: 'datetime', nullable: true })
+  editedAt: Date | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  deletedForEveryoneAt: Date | null;
+
+  @Column({ type: 'json', nullable: true })
+  deletedForUserIds: string[] | null;
+
   @CreateDateColumn()
   createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 
   @ManyToOne(() => CheckupDirectChatConversation, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'conversationId' })

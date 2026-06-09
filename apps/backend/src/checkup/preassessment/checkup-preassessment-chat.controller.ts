@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Post, Patch, Param, Body, UseGuards } from '@nestjs/common';
 import { CheckupJwtAuthGuard } from '../auth/checkup-jwt-auth.guard';
 import { CheckupCurrentUser } from '../auth/checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
@@ -54,5 +54,22 @@ export class CheckupPreassessmentChatController {
     @CheckupCurrentUser() user: CheckupCurrentUserData,
   ) {
     return this.chatService.markAsRead(id, user);
+  }
+
+  @Patch('chat/:id')
+  updateMessage(
+    @Param('id') id: string,
+    @Body('messaggio') messaggio: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.chatService.updateMessage(id, messaggio, user);
+  }
+
+  @Delete('chat/:id')
+  deleteMessage(
+    @Param('id') id: string,
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+  ) {
+    return this.chatService.deleteMessage(id, user);
   }
 }

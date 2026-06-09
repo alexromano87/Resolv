@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CheckupPreassessment } from './checkup-preassessment.entity';
@@ -7,6 +7,8 @@ import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { SendPreassessmentMessageDto } from './dto/send-preassessment-message.dto';
+
+const MESSAGE_EDIT_DELETE_WINDOW_MS = 15 * 60 * 1000;
 
 @Injectable()
 export class CheckupPreassessmentChatService {
@@ -72,14 +74,24 @@ export class CheckupPreassessmentChatService {
     }
   }
 
+  private isWithinMessageWindow(message: { createdAt: Date }) {
+    return Date.now() - new Date(message.createdAt).getTime() <= MESSAGE_EDIT_DELETE_WINDOW_MS;
+  }
+
+  private isMessageVisibleToUser(message: CheckupPreassessmentMessage, userId: string) {
+    if (message.deletedForEveryoneAt) return false;
+    return !(message.deletedForUserIds || []).includes(userId);
+  }
+
   async getMessages(preassessmentId: string, sectionId: string, user: CheckupCurrentUserData) {
     await this.verifyAccess(preassessmentId, user);
 
-    return this.messageRepository.find({
+    const messages = await this.messageRepository.find({
       where: { preassessmentId, sectionId },
       relations: ['user'],
       order: { createdAt: 'ASC' },
     });
+    return messages.filter((message) => this.isMessageVisibleToUser(message, user.id));
   }
 
   async sendMessage(
@@ -157,5 +169,35 @@ export class CheckupPreassessmentChatService {
       msg.letto = true;
       await this.messageRepository.save(msg);
     }
+  }
+
+  async updateMessage(id: string, messaggio: string, user: CheckupCurrentUserData) {
+    const msg = await this.messageRepository.findOne({ where: { id }, relations: ['user'] });
+    if (!msg) throw new NotFoundException('Messaggio non trovato');
+    await this.verifyAccess(msg.preassessmentId, user);
+    if (msg.userId !== user.id) throw new ForbiddenException('Puoi modificare solo i tuoi messaggi');
+    if (!this.isWithinMessageWindow(msg)) {
+      throw new ForbiddenException('Il tempo per modificare questo messaggio e\' scaduto');
+    }
+    if (msg.deletedForEveryoneAt) throw new ForbiddenException('Messaggio eliminato');
+    const next = messaggio.trim();
+    if (!next) throw new BadRequestException('Messaggio obbligatorio');
+    msg.messaggio = next;
+    msg.editedAt = new Date();
+    return this.messageRepository.save(msg);
+  }
+
+  async deleteMessage(id: string, user: CheckupCurrentUserData) {
+    const msg = await this.messageRepository.findOne({ where: { id } });
+    if (!msg) throw new NotFoundException('Messaggio non trovato');
+    await this.verifyAccess(msg.preassessmentId, user);
+    if (msg.userId === user.id && this.isWithinMessageWindow(msg)) {
+      msg.deletedForEveryoneAt = new Date();
+      msg.messaggio = '';
+    } else {
+      msg.deletedForUserIds = Array.from(new Set([...(msg.deletedForUserIds || []), user.id]));
+    }
+    await this.messageRepository.save(msg);
+    return { ok: true };
   }
 }

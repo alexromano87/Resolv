@@ -225,13 +225,15 @@ export class CheckupPreassessmentService {
       ? vs.mergeAllowedFieldValues(record.userFieldNotes || {}, dto.userFieldNotes, fieldToMacro, allowedClientMacros)
       : dto.userFieldNotes;
 
-    const clientNotesChanged =
-      user.ruolo === 'cliente'
-      && nextUserFieldNotes !== undefined
-      && Object.entries(nextUserFieldNotes).some(([fieldId, note]) => {
-        const normalized = (note || '').trim();
-        return normalized.length > 0 && normalized !== ((record.userFieldNotes || {})[fieldId] || '').trim();
-      });
+    const changedClientNoteFieldIds = user.ruolo === 'cliente' && nextUserFieldNotes !== undefined
+      ? Object.entries(nextUserFieldNotes)
+        .filter(([fieldId, note]) => {
+          const normalized = (note || '').trim();
+          return normalized.length > 0 && normalized !== ((record.userFieldNotes || {})[fieldId] || '').trim();
+        })
+        .map(([fieldId]) => fieldId)
+      : [];
+    const clientNotesChanged = changedClientNoteFieldIds.length > 0;
 
     vs.applyFieldMeta(record, nextData, nextNaFields, user);
 
@@ -347,6 +349,10 @@ export class CheckupPreassessmentService {
     if (clientNotesChanged) {
       const notificationContext = await this.buildNotificationContext(saved.clientId, saved.id);
       const actorName = `${user.nome} ${user.cognome}`.trim() || user.email;
+      const firstFieldId = changedClientNoteFieldIds[0] ?? null;
+      const actionUrl = firstFieldId
+        ? `/checkup/clienti/${notificationContext.clientId}?fieldId=${encodeURIComponent(firstFieldId)}`
+        : notificationContext.actionUrl;
       this.auditLogService.log({
         userId: user.id,
         userEmail: user.email,
@@ -362,10 +368,26 @@ export class CheckupPreassessmentService {
           clientId: notificationContext.clientId,
           clientName: notificationContext.clientName,
           preassessmentId: notificationContext.preassessmentId,
-          actionUrl: notificationContext.actionUrl,
+          actionUrl,
           actorName,
+          fieldId: firstFieldId,
+          fieldIds: changedClientNoteFieldIds,
         },
       }).catch(() => {});
+      if (notificationContext.clientId) {
+        this.clientRepository.findOne({ where: { id: notificationContext.clientId } })
+          .then((client) => {
+            if (!client) return;
+            return this.preassessmentNotificationsService.notifyClientNote(
+              client,
+              user,
+              notificationContext.studioId,
+              changedClientNoteFieldIds,
+              actionUrl,
+            );
+          })
+          .catch(() => {});
+      }
     }
 
     return saved;

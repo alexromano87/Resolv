@@ -124,10 +124,20 @@ export function SystemNotificationsPage() {
   };
 
   useEffect(() => {
-    setQuery(presetQuery);
-    setFilter(FILTERS.some((option) => option.value === presetType) ? presetType : 'tutte');
+    const nextQuery = selectedNotificationId ? '' : presetQuery;
+    const nextFilter = FILTERS.some((option) => option.value === presetType) ? presetType : 'tutte';
+    setQuery(nextQuery);
+    setFilter(nextFilter);
     setPage(1);
-  }, [presetQuery, presetType]);
+    if (selectedNotificationId) {
+      load({
+        query: '',
+        filter: nextFilter,
+        notificationId: selectedNotificationId,
+        page: 1,
+      });
+    }
+  }, [presetQuery, presetType, selectedNotificationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stats = useMemo(() => ({
     total: totalItems,

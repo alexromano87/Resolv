@@ -1649,7 +1649,6 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                                   const params = new URLSearchParams();
                                   params.set('notificationId', systemItem.id);
                                   params.set('type', systemItem.type);
-                                  params.set('query', `${systemItem.title} ${systemItem.clientName || ''}`.trim());
                                   navigate(`/checkup/notifiche-sistema?${params.toString()}`);
                                 } else if (item.actionUrl) {
                                   navigate(item.actionUrl);

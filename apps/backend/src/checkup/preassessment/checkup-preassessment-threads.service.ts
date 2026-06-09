@@ -230,6 +230,8 @@ export class CheckupPreassessmentThreadsService {
           .andWhere('m.sectionId = :sid', { sid: 'general' })
           .andWhere('m.letto = false')
           .andWhere('m.userId != :uid', { uid: userId })
+          .andWhere('m.deletedForEveryoneAt IS NULL')
+          .andWhere('NOT JSON_CONTAINS(COALESCE(m.deletedForUserIds, JSON_ARRAY()), JSON_QUOTE(:uid))', { uid: userId })
           .getCount();
       }),
     ]);

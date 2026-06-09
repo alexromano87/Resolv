@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -29,8 +30,20 @@ export class CheckupPreassessmentMessage {
   @Column({ default: false })
   letto: boolean;
 
+  @Column({ type: 'datetime', nullable: true })
+  editedAt: Date | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  deletedForEveryoneAt: Date | null;
+
+  @Column({ type: 'json', nullable: true })
+  deletedForUserIds: string[] | null;
+
   @CreateDateColumn()
   createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 
   @ManyToOne(() => CheckupPreassessment, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'preassessmentId' })

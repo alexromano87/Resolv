@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { EmailService } from '../../notifications/email.service';
 import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
 import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
@@ -124,6 +124,56 @@ export class CheckupPreassessmentNotificationsService {
       recipients.map(async (u) => {
         if (u.email) {
           await this.emailService.sendEmail({ to: u.email, subject, text: messaggio, html });
+        }
+      }),
+    );
+  }
+
+  async notifyClientNote(
+    client: CheckupClient,
+    user: CheckupCurrentUserData,
+    studioId: string | null,
+    fieldIds: string[],
+    actionUrl: string,
+  ) {
+    if (!studioId) return;
+    const staffUsers = await this.userRepository.find({
+      where: {
+        studioId,
+        ruolo: In(['admin_studio', 'segreteria', 'collaboratore']),
+        attivo: true,
+      },
+    });
+    if (!staffUsers.length) return;
+
+    const actorName = `${user.nome} ${user.cognome}`.trim() || user.email;
+    const company = client.ragioneSociale || client.nome || 'Cliente';
+    const subject = `Nuova nota cliente - ${company}`;
+    const text = `${actorName} ha inserito o aggiornato una nota nel questionario di ${company}.`;
+    const noteCount = fieldIds.length;
+    const html = `
+      <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#f8fafc;padding:32px;border-radius:12px">
+        <div style="background:#92400e;border-radius:8px;padding:20px 24px;margin-bottom:24px">
+          <h2 style="color:#fff;margin:0;font-size:18px">Checkup Governance · Pre-Assessment</h2>
+        </div>
+        <h3 style="color:#0f172a;margin:0 0 8px">Nuova nota cliente</h3>
+        <p style="color:#334155;margin:0 0 16px;font-size:15px">
+          <strong>${actorName}</strong> ha inserito o aggiornato ${noteCount > 1 ? `${noteCount} note` : 'una nota'} nel questionario di <strong>${company}</strong>.
+        </p>
+        <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0">
+          <tr><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px">Cliente</td><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#0f172a;font-size:13px">${company}</td></tr>
+          <tr><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px">Autore</td><td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#0f172a;font-size:13px">${actorName}</td></tr>
+          <tr><td style="padding:10px 16px;color:#64748b;font-size:13px">Collegamento</td><td style="padding:10px 16px;font-size:13px">${actionUrl}</td></tr>
+        </table>
+        <p style="color:#64748b;font-size:12px;margin-top:24px;text-align:center">
+          Accedi alla piattaforma Checkup per consultare la nota nel punto esatto del questionario.
+        </p>
+      </div>`;
+
+    await Promise.all(
+      staffUsers.map(async (staffUser) => {
+        if (staffUser.email) {
+          await this.emailService.sendEmail({ to: staffUser.email, subject, text, html });
         }
       }),
     );

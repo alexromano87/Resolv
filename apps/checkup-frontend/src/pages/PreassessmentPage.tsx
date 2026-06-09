@@ -19,6 +19,8 @@ import {
   Ban,
   RefreshCw,
   ShieldCheck,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import {
   MACRO_AREAS as DEFAULT_MACRO_AREAS,
@@ -2354,6 +2356,14 @@ export default function PreassessmentPage() {
                 await preassessmentChatApi.sendMessage(preassessmentId, CHAT_SECTION_ID, msg);
                 await loadChat();
               }}
+              onUpdateMessage={async (messageId, msg) => {
+                await preassessmentChatApi.updateMessage(messageId, msg);
+                await loadChat();
+              }}
+              onDeleteMessage={async (messageId) => {
+                await preassessmentChatApi.deleteMessage(messageId);
+                await loadChat();
+              }}
               onTyping={(active) => {
                 if (!preassessmentId) return;
                 preassessmentApi.setTyping(preassessmentId, CHAT_SECTION_ID, active).catch(() => {});
@@ -2523,6 +2533,8 @@ function PreassessmentSidebar({
 function ChatPanel({
   messages,
   onSend,
+  onUpdateMessage,
+  onDeleteMessage,
   onTyping,
   canSend,
   currentUserId,
@@ -2532,6 +2544,8 @@ function ChatPanel({
 }: {
   messages: PreassessmentChatMessage[];
   onSend: (msg: string) => Promise<void> | void;
+  onUpdateMessage: (messageId: string, msg: string) => Promise<void> | void;
+  onDeleteMessage: (messageId: string) => Promise<void> | void;
   onTyping: (active: boolean) => void;
   canSend: boolean;
   currentUserId?: string;
@@ -2541,6 +2555,8 @@ function ChatPanel({
 }) {
   const [msg, setMsg] = useState('');
   const [sending, setSending] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingMessageText, setEditingMessageText] = useState('');
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -2605,6 +2621,25 @@ function ChatPanel({
     } finally {
       setSending(false);
     }
+  };
+
+  const canEditMessage = (message: PreassessmentChatMessage) =>
+    message.userId === currentUserId && Date.now() - new Date(message.createdAt).getTime() <= 15 * 60 * 1000;
+
+  const handleSaveMessageEdit = async () => {
+    if (!editingMessageId || !editingMessageText.trim()) return;
+    await onUpdateMessage(editingMessageId, editingMessageText.trim());
+    setEditingMessageId(null);
+    setEditingMessageText('');
+  };
+
+  const handleDeleteMessage = async (message: PreassessmentChatMessage) => {
+    const forEveryone = message.userId === currentUserId && Date.now() - new Date(message.createdAt).getTime() <= 15 * 60 * 1000;
+    const text = forEveryone
+      ? 'Eliminare questo messaggio per tutti?'
+      : 'Eliminare questo messaggio solo per te?';
+    if (!window.confirm(text)) return;
+    await onDeleteMessage(message.id);
   };
 
   useEffect(() => {
@@ -2681,9 +2716,28 @@ function ChatPanel({
                     {m.user.nome} {m.user.cognome}
                   </div>
                 )}
-                <div className="whitespace-pre-wrap">{m.messaggio}</div>
+                {editingMessageId === m.id ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={editingMessageText}
+                      onChange={(e) => setEditingMessageText(e.target.value)}
+                      className="min-h-20 w-full rounded-xl border border-blue-200 px-3 py-2 text-xs text-slate-900 outline-none focus:ring-2 focus:ring-blue-400"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={() => { setEditingMessageId(null); setEditingMessageText(''); }} className="rounded-full bg-white/15 px-3 py-1 text-[10px] font-semibold">
+                        Annulla
+                      </button>
+                      <button type="button" onClick={handleSaveMessageEdit} className="rounded-full bg-white px-3 py-1 text-[10px] font-semibold text-blue-700">
+                        Salva
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap">{m.messaggio}</div>
+                )}
                 <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${isOwn ? 'text-blue-200' : 'text-slate-400'}`}>
                   <span>{new Date(m.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
+                  {m.editedAt ? <span>modificato</span> : null}
                   {isOwn && (
                     <span className={`inline-flex items-center ${m.letto ? 'text-emerald-200' : 'text-blue-200'}`}>
                       <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2696,6 +2750,18 @@ function ChatPanel({
                       )}
                     </span>
                   )}
+                </div>
+                <div className={`mt-1 flex justify-end gap-2 text-[10px] ${isOwn ? 'text-blue-200' : 'text-slate-500'}`}>
+                  {canEditMessage(m) && editingMessageId !== m.id ? (
+                    <button type="button" onClick={() => { setEditingMessageId(m.id); setEditingMessageText(m.messaggio); }} className="inline-flex items-center gap-1 font-semibold hover:underline">
+                      <Pencil className="h-3 w-3" />
+                      Modifica
+                    </button>
+                  ) : null}
+                  <button type="button" onClick={() => handleDeleteMessage(m)} className="inline-flex items-center gap-1 font-semibold hover:underline">
+                    <Trash2 className="h-3 w-3" />
+                    Elimina
+                  </button>
                 </div>
               </div>
             </div>

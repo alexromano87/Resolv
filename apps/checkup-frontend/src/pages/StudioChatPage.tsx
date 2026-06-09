@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Archive, ArchiveRestore, ArrowDown, ArrowLeft, Building2, Check, CheckCheck, ChevronLeft, MessageCircle, Plus, Printer, Search, Send, Trash2, UserRound, Users } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowDown, ArrowLeft, Building2, Check, CheckCheck, ChevronLeft, MessageCircle, Pencil, Plus, Printer, Search, Send, Trash2, UserRound, Users } from 'lucide-react';
 import { preassessmentStaffChatApi, type StaffChatConversation } from '../api/preassessment';
 import { useAuth } from '../contexts/AuthContext';
 import { BodyPortal } from '../components/ui/BodyPortal';
@@ -29,6 +29,8 @@ export function StudioChatPage() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [sending, setSending] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingMessageText, setEditingMessageText] = useState('');
 
   const [showRecipients, setShowRecipients] = useState(false);
   const [recipientTab, setRecipientTab] = useState<RecipientTab>('sublicenziatari');
@@ -256,17 +258,39 @@ export function StudioChatPage() {
     }
   };
 
-  const handleDeleteConversation = async () => {
-    if (!selectedConversation) return;
-    const participantLabel = `${selectedConversation.participant.nome} ${selectedConversation.participant.cognome}`.trim();
-    if (!window.confirm(`Eliminare la chat con ${participantLabel}? La chat non sarà più visibile nel tuo elenco.`)) return;
+  const canEditMessage = (message: DirectChatMessage) =>
+    message.userId === user?.id && Date.now() - new Date(message.createdAt).getTime() <= 15 * 60 * 1000;
+
+  const handleStartEditMessage = (message: DirectChatMessage) => {
+    setEditingMessageId(message.id);
+    setEditingMessageText(message.messaggio);
+  };
+
+  const handleSaveMessageEdit = async () => {
+    if (!editingMessageId || !editingMessageText.trim()) return;
     try {
-      await preassessmentStaffChatApi.deleteConversation(selectedConversation.id);
-      setSelectedConversationId(null);
-      setMessages([]);
+      await preassessmentStaffChatApi.updateMessage(editingMessageId, editingMessageText.trim());
+      setEditingMessageId(null);
+      setEditingMessageText('');
+      await loadMessages(false);
       await loadConversations(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore durante l’eliminazione della chat');
+      setError(err instanceof Error ? err.message : 'Errore durante la modifica del messaggio');
+    }
+  };
+
+  const handleDeleteMessage = async (message: DirectChatMessage) => {
+    const forEveryone = message.userId === user?.id && Date.now() - new Date(message.createdAt).getTime() <= 15 * 60 * 1000;
+    const text = forEveryone
+      ? 'Eliminare questo messaggio per tutti?'
+      : 'Eliminare questo messaggio solo per te?';
+    if (!window.confirm(text)) return;
+    try {
+      await preassessmentStaffChatApi.deleteMessage(message.id);
+      await loadMessages(false);
+      await loadConversations(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante l’eliminazione del messaggio');
     }
   };
 
@@ -391,9 +415,6 @@ export function StudioChatPage() {
                   <button type="button" onClick={handleArchiveToggle} className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:border-indigo-200 hover:text-indigo-600" title={showArchived ? 'Ripristina chat' : 'Archivia chat'}>
                     {showArchived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
                   </button>
-                  <button type="button" onClick={handleDeleteConversation} className="rounded-full border border-rose-100 p-2 text-rose-500 transition hover:border-rose-200 hover:bg-rose-50" title="Elimina chat">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
                 </div>
               </div>
               <div className="relative flex-1 min-h-0">
@@ -409,12 +430,43 @@ export function StudioChatPage() {
                         <div key={message.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                           <div className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm ${isOwn ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-900'}`}>
                             {!isOwn && <div className="mb-1 text-[11px] font-semibold text-blue-600">{message.user.nome} {message.user.cognome}</div>}
-                            <div className="whitespace-pre-wrap">{message.messaggio}</div>
+                            {editingMessageId === message.id ? (
+                              <div className="space-y-2">
+                                <textarea
+                                  value={editingMessageText}
+                                  onChange={(event) => setEditingMessageText(event.target.value)}
+                                  className="min-h-20 w-full rounded-xl border border-blue-200 px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-blue-400"
+                                />
+                                <div className="flex justify-end gap-2">
+                                  <button type="button" onClick={() => { setEditingMessageId(null); setEditingMessageText(''); }} className="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">
+                                    Annulla
+                                  </button>
+                                  <button type="button" onClick={handleSaveMessageEdit} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700">
+                                    Salva
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="whitespace-pre-wrap">{message.messaggio}</div>
+                            )}
                             <div className={`mt-1 flex items-center justify-end gap-1 text-right text-[10px] ${isOwn ? 'text-blue-100' : 'text-slate-400'}`}>
                               <span>{new Date(message.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
+                              {message.editedAt ? <span>modificato</span> : null}
                               {isOwn ? (
                                 message.letto ? <CheckCheck className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />
                               ) : null}
+                            </div>
+                            <div className={`mt-1 flex justify-end gap-2 text-[10px] ${isOwn ? 'text-blue-100' : 'text-slate-500'}`}>
+                              {canEditMessage(message) && editingMessageId !== message.id ? (
+                                <button type="button" onClick={() => handleStartEditMessage(message)} className="inline-flex items-center gap-1 font-semibold hover:underline">
+                                  <Pencil className="h-3 w-3" />
+                                  Modifica
+                                </button>
+                              ) : null}
+                              <button type="button" onClick={() => handleDeleteMessage(message)} className="inline-flex items-center gap-1 font-semibold hover:underline">
+                                <Trash2 className="h-3 w-3" />
+                                Elimina
+                              </button>
                             </div>
                           </div>
                         </div>
