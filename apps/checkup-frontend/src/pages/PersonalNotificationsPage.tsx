@@ -4,7 +4,6 @@ import {
   BellRing,
   CheckCircle2,
   FileText,
-  Filter,
   FolderKanban,
   MessageCircle,
   RefreshCw,
@@ -17,16 +16,12 @@ import { meApi, type PersonalNotificationItem, type PersonalNotificationType } f
 import { Pagination } from '../components/Pagination';
 import { useAuth } from '../contexts/AuthContext';
 
-type NotificationFilter = 'tutte' | PersonalNotificationType;
+type ReadFilter = 'unread' | 'read' | 'all';
 
-const FILTERS: Array<{ value: NotificationFilter; label: string }> = [
-  { value: 'tutte', label: 'Tutte' },
-  { value: 'consultant_note', label: 'Note consulente' },
-  { value: 'ticket_created', label: 'Ticket creati' },
-  { value: 'ticket_updated', label: 'Ticket aggiornati' },
-  { value: 'chat_message', label: 'Chat checkup' },
-  { value: 'direct_chat_message', label: 'Chat diretta' },
-  { value: 'preassessment_new_version', label: 'Nuove versioni' },
+const READ_FILTERS: Array<{ value: ReadFilter; label: string }> = [
+  { value: 'unread', label: 'Da leggere' },
+  { value: 'read', label: 'Lette' },
+  { value: 'all', label: 'Tutte' },
 ];
 
 const TYPE_META: Record<PersonalNotificationType, { icon: typeof BellRing; chipClass: string; iconClass: string }> = {
@@ -92,26 +87,6 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function getReadStorageKey(userId?: string) {
-  return userId ? `checkup_personal_notifications_read:${userId}` : '';
-}
-
-function readStoredIds(key: string) {
-  if (!key) return new Set<string>();
-  try {
-    const raw = localStorage.getItem(key);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []);
-  } catch {
-    return new Set<string>();
-  }
-}
-
-function storeReadIds(key: string, ids: Set<string>) {
-  if (!key) return;
-  localStorage.setItem(key, JSON.stringify(Array.from(ids)));
-}
-
 function getTypeLabel(value: PersonalNotificationType) {
   switch (value) {
     case 'consultant_note':
@@ -147,18 +122,16 @@ export function PersonalNotificationsPage() {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<NotificationFilter>('tutte');
+  const [readFilter, setReadFilter] = useState<ReadFilter>('unread');
   const [hasSearched, setHasSearched] = useState(false);
   const [page, setPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  const [readIds, setReadIds] = useState<Set<string>>(() => readStoredIds(getReadStorageKey(user?.id)));
   const pageSize = 20;
-  const readStorageKey = getReadStorageKey(user?.id);
 
-  const load = useCallback(async (overrides?: { query?: string; filter?: NotificationFilter; page?: number }) => {
+  const load = useCallback(async (overrides?: { query?: string; readFilter?: ReadFilter; page?: number }) => {
     const effectiveQuery = overrides?.query ?? query;
-    const effectiveFilter = overrides?.filter ?? filter;
+    const effectiveReadFilter = overrides?.readFilter ?? readFilter;
     const effectivePage = overrides?.page ?? page;
     try {
       setLoading(true);
@@ -167,50 +140,77 @@ export function PersonalNotificationsPage() {
         page: effectivePage,
         limit: pageSize,
         query: effectiveQuery.trim() || undefined,
-        type: effectiveFilter !== 'tutte' ? effectiveFilter : undefined,
+        read: effectiveReadFilter !== 'all' ? effectiveReadFilter : undefined,
       });
       setItems(response.items);
       setPage(response.page);
       setTotalItems(response.total);
       setTotalPages(response.totalPages);
       setHasSearched(true);
-      setReadIds((prev) => {
-        const next = new Set(prev);
-        response.items.forEach((item) => next.add(item.id));
-        storeReadIds(readStorageKey, next);
-        return next;
-      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore nel caricamento delle notifiche');
     } finally {
       setLoading(false);
     }
-  }, [filter, page, query, readStorageKey]);
+  }, [page, query, readFilter]);
 
   useEffect(() => {
-    const stored = readStoredIds(readStorageKey);
-    setReadIds(stored);
-  }, [readStorageKey]);
+    const timeout = window.setTimeout(() => {
+      load({ query, readFilter, page: 1 });
+    }, 350);
 
-  const readItems = useMemo(() => items.filter((item) => readIds.has(item.id)), [items, readIds]);
+    return () => window.clearTimeout(timeout);
+  }, [query, readFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stats = useMemo(() => ({
     total: totalItems,
+    unread: items.filter((item) => !item.readAt).length,
     notes: items.filter((item) => item.type === 'consultant_note' || item.type === 'client_note').length,
     tickets: items.filter((item) => item.type === 'ticket_created' || item.type === 'ticket_updated').length,
     chat: items.filter((item) => item.type === 'chat_message' || item.type === 'direct_chat_message').length,
   }), [items, totalItems]);
 
-  const handleDeleteRead = async () => {
-    const ids = readItems.map((item) => item.id);
-    if (ids.length === 0) return;
+  const refreshHeaderNotifications = () => {
+    window.dispatchEvent(new Event('checkup-notifications-updated'));
+  };
+
+  const handleMarkAllRead = async () => {
     try {
       setDeleting(true);
       setError('');
-      await meApi.deleteNotifications(ids);
-      await load({ page: 1 });
+      await meApi.markAllNotificationsRead();
+      await load({ page });
+      refreshHeaderNotifications();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore durante l'eliminazione delle notifiche lette");
+      setError(err instanceof Error ? err.message : 'Errore durante la marcatura delle notifiche');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      setDeleting(true);
+      setError('');
+      await meApi.deleteNotification(id);
+      await load({ page });
+      refreshHeaderNotifications();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Errore durante l'eliminazione della notifica");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleMarkRead = async (id: string) => {
+    try {
+      setDeleting(true);
+      setError('');
+      await meApi.markNotificationRead(id);
+      await load({ page });
+      refreshHeaderNotifications();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante la marcatura della notifica');
     } finally {
       setDeleting(false);
     }
@@ -240,12 +240,12 @@ export function PersonalNotificationsPage() {
           </div>
           <button
             type="button"
-            onClick={handleDeleteRead}
-            disabled={deleting || readItems.length === 0}
+            onClick={handleMarkAllRead}
+            disabled={deleting || stats.unread === 0}
             className="wow-button inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Trash2 className="h-4 w-4" />
-            Elimina lette
+            <CheckCircle2 className="h-4 w-4" />
+            Segna tutte come lette
           </button>
         </div>
       </section>
@@ -253,9 +253,9 @@ export function PersonalNotificationsPage() {
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
           { label: 'Totale eventi', value: stats.total, detail: 'notifiche raccolte' },
+          { label: 'Da leggere', value: stats.unread, detail: "visibili nell'header" },
           { label: 'Note', value: stats.notes, detail: 'note consulente o cliente' },
           { label: 'Ticket', value: stats.tickets, detail: 'aperture e aggiornamenti' },
-          { label: 'Chat', value: stats.chat, detail: 'messaggi recenti' },
         ].map((item) => (
           <div key={item.label} className="wow-card p-5">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -286,27 +286,26 @@ export function PersonalNotificationsPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              <Filter className="h-4 w-4" />
-              Filtri
+              Stato
             </span>
-            {FILTERS.map((option) => (
+            {READ_FILTERS.map((option) => (
               <button
                 key={option.value}
                 type="button"
-                onClick={() => setFilter(option.value)}
-                className={filter === option.value ? 'wow-button' : 'wow-button-ghost'}
+                onClick={() => setReadFilter(option.value)}
+                className={readFilter === option.value ? 'wow-button' : 'wow-button-ghost'}
               >
                 {option.label}
               </button>
             ))}
             <button
               type="button"
-              onClick={() => load({ page: 1 })}
+              onClick={() => load({ query, readFilter, page: 1 })}
               className="wow-button inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={loading}
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              Cerca
+              Aggiorna
             </button>
           </div>
         </div>
@@ -324,8 +323,8 @@ export function PersonalNotificationsPage() {
         ) : items.length === 0 ? (
           <div className="wow-panel p-8 text-center text-sm text-slate-500 dark:text-slate-400">
             {hasSearched
-              ? 'Nessuna notifica disponibile con i filtri selezionati.'
-              : 'Imposta i filtri desiderati e premi Cerca per caricare le notifiche.'}
+              ? 'Nessuna notifica disponibile per lo stato selezionato.'
+              : 'Caricamento notifiche in corso...'}
           </div>
         ) : (
           <div className="space-y-4">
@@ -335,11 +334,19 @@ export function PersonalNotificationsPage() {
               return (
                 <article
                   key={item.id}
-                  className="wow-card p-5 transition hover:bg-slate-50/70 dark:hover:bg-slate-900/70"
+                  className={`wow-card p-5 transition ${
+                    item.readAt
+                      ? 'bg-white/80 opacity-80 hover:bg-slate-50/70 dark:bg-slate-950/70 dark:hover:bg-slate-900/70'
+                      : 'border-rose-200 bg-rose-50/60 shadow-sm hover:bg-rose-50 dark:border-rose-900/60 dark:bg-rose-950/20 dark:hover:bg-rose-950/30'
+                  }`}
                 >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="flex gap-4">
-                      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950">
+                      <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border ${
+                        item.readAt
+                          ? 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950'
+                          : 'border-rose-200 bg-white dark:border-rose-900/70 dark:bg-slate-950'
+                      }`}>
                         <Icon className={`h-5 w-5 ${meta.iconClass}`} />
                       </div>
                       <div className="space-y-2">
@@ -349,6 +356,12 @@ export function PersonalNotificationsPage() {
                           </h2>
                           <span className={`wow-chip ${meta.chipClass}`}>
                             {getTypeLabel(item.type)}
+                          </span>
+                          <span className={item.readAt
+                            ? 'rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                            : 'rounded-full bg-rose-100 px-2 py-1 text-[11px] font-bold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300'}
+                          >
+                            {item.readAt ? 'Letta' : 'Da leggere'}
                           </span>
                         </div>
                         <p className="text-sm text-slate-700 dark:text-slate-300">
@@ -362,17 +375,38 @@ export function PersonalNotificationsPage() {
                       </div>
                     </div>
 
-                    {item.actionUrl ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {!item.readAt && (
+                        <button
+                          type="button"
+                          onClick={() => handleMarkRead(item.id)}
+                          disabled={deleting}
+                          className="wow-button-ghost disabled:opacity-50"
+                        >
+                          Segna letta
+                        </button>
+                      )}
+                      {item.actionUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (item.actionUrl) navigate(item.actionUrl);
+                          }}
+                          className="wow-button-ghost"
+                        >
+                          Apri
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        onClick={() => {
-                          if (item.actionUrl) navigate(item.actionUrl);
-                        }}
-                        className="wow-button-ghost"
+                        onClick={() => handleDelete(item.id)}
+                        disabled={deleting}
+                        className="wow-button-ghost inline-flex items-center gap-2 text-rose-600 hover:text-rose-700 disabled:opacity-50"
                       >
-                        Apri
+                        <Trash2 className="h-4 w-4" />
+                        Elimina
                       </button>
-                    ) : null}
+                    </div>
                   </div>
                 </article>
               );

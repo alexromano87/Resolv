@@ -233,7 +233,8 @@ export class CheckupPreassessmentService {
         })
         .map(([fieldId]) => fieldId)
       : [];
-    const clientNotesChanged = changedClientNoteFieldIds.length > 0;
+    const shouldNotifyClientNotes = dto.notifyUserFieldNotes === true;
+    const clientNotesChanged = shouldNotifyClientNotes && changedClientNoteFieldIds.length > 0;
 
     vs.applyFieldMeta(record, nextData, nextNaFields, user);
 
@@ -353,6 +354,20 @@ export class CheckupPreassessmentService {
       const actionUrl = firstFieldId
         ? `/checkup/clienti/${notificationContext.clientId}?fieldId=${encodeURIComponent(firstFieldId)}`
         : notificationContext.actionUrl;
+      const recentDuplicate = firstFieldId
+        ? await this.auditLogService.findRecentDuplicate({
+            userId: user.id,
+            entityType: 'PREASSESSMENT',
+            entityId: saved.id,
+            description: 'Nota cliente aggiornata nel checkup',
+            metadataKey: 'fieldId',
+            metadataValue: firstFieldId,
+            withinMs: 30_000,
+          })
+        : null;
+      if (recentDuplicate) {
+        return saved;
+      }
       this.auditLogService.log({
         userId: user.id,
         userEmail: user.email,
@@ -694,10 +709,14 @@ export class CheckupPreassessmentService {
     // Detect changed consultant notes before applying changes
     let affectedMacros: Set<string> | null = null;
     let changedConsultantNoteFieldIds: string[] = [];
-    if (dto.fieldNotes !== undefined) {
+    const shouldNotifyFieldNotes = dto.notifyFieldNotes === true;
+    if (shouldNotifyFieldNotes && dto.fieldNotes !== undefined) {
       const oldNotes = record.fieldNotes || {};
       changedConsultantNoteFieldIds = Object.entries(dto.fieldNotes)
-        .filter(([fieldId, note]) => note && (note as string).trim() && note !== (oldNotes[fieldId] || ''))
+        .filter(([fieldId, note]) => {
+          const normalized = (note || '').trim();
+          return normalized.length > 0 && normalized !== (oldNotes[fieldId] || '').trim();
+        })
         .map(([fieldId]) => fieldId);
       if (changedConsultantNoteFieldIds.length > 0) {
         const { modelId } = await this.resolveModelIdForClient(record.clientId);
@@ -727,6 +746,41 @@ export class CheckupPreassessmentService {
       const actionUrl = firstFieldId
         ? `/checkup/clienti/${client.id}?fieldId=${encodeURIComponent(firstFieldId)}`
         : `/checkup/clienti/${client.id}`;
+      const recentDuplicate = firstFieldId
+        ? await this.auditLogService.findRecentDuplicate({
+            userId: currentUser.id,
+            entityType: 'PREASSESSMENT',
+            entityId: saved.id,
+            description: 'Nota consulente aggiornata nel checkup',
+            metadataKey: 'fieldId',
+            metadataValue: firstFieldId,
+            withinMs: 30_000,
+          })
+        : null;
+      if (recentDuplicate) {
+        return saved;
+      }
+      this.auditLogService.log({
+        userId: currentUser.id,
+        userEmail: currentUser.email,
+        userRole: currentUser.ruolo,
+        action: 'UPDATE',
+        entityType: 'PREASSESSMENT',
+        entityId: saved.id,
+        entityName: client.ragioneSociale || client.nome || client.email,
+        description: 'Nota consulente aggiornata nel checkup',
+        studioId: currentUser.studioId ?? undefined,
+        success: true,
+        metadata: {
+          clientId: client.id,
+          clientName: client.ragioneSociale || client.nome || client.email,
+          preassessmentId: saved.id,
+          actionUrl,
+          actorName: `${currentUser.nome} ${currentUser.cognome}`.trim() || currentUser.email,
+          fieldId: firstFieldId ?? null,
+          fieldIds: changedConsultantNoteFieldIds,
+        },
+      }).catch(() => {});
       this.preassessmentNotificationsService
         .notifyConsultantNote(saved, client, currentUser, affectedMacros)
         .catch(() => {});

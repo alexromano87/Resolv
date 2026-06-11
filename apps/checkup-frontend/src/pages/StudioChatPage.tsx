@@ -4,6 +4,7 @@ import { Archive, ArchiveRestore, ArrowDown, ArrowLeft, Building2, Check, CheckC
 import { preassessmentStaffChatApi, type StaffChatConversation } from '../api/preassessment';
 import { useAuth } from '../contexts/AuthContext';
 import { BodyPortal } from '../components/ui/BodyPortal';
+import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { downloadTextFile, formatDateTime, sanitizeFilename } from '../utils/textExport';
 
 type RecipientTab = 'sublicenziatari' | 'utenti' | 'colleghi';
@@ -15,6 +16,7 @@ type DirectChatMessage = Awaited<ReturnType<typeof preassessmentStaffChatApi.get
 export function StudioChatPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { confirm, ConfirmDialog } = useConfirmDialog();
   const [searchParams, setSearchParams] = useSearchParams();
   const isClient = user?.ruolo === 'cliente';
 
@@ -281,10 +283,16 @@ export function StudioChatPage() {
 
   const handleDeleteMessage = async (message: DirectChatMessage) => {
     const forEveryone = message.userId === user?.id && Date.now() - new Date(message.createdAt).getTime() <= 15 * 60 * 1000;
-    const text = forEveryone
-      ? 'Eliminare questo messaggio per tutti?'
-      : 'Eliminare questo messaggio solo per te?';
-    if (!window.confirm(text)) return;
+    const ok = await confirm({
+      title: 'Elimina messaggio',
+      message: forEveryone
+        ? 'Vuoi eliminare questo messaggio per tutti i partecipanti alla chat?'
+        : 'Il limite di tempo per eliminarlo per tutti e scaduto. Vuoi eliminare questo messaggio solo dalla tua chat?',
+      confirmText: 'Elimina',
+      cancelText: 'Annulla',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await preassessmentStaffChatApi.deleteMessage(message.id);
       await loadMessages(false);
@@ -627,6 +635,7 @@ export function StudioChatPage() {
           </div>
         </BodyPortal>
       )}
+      <ConfirmDialog />
     </div>
   );
 }

@@ -32,4 +32,12 @@ export class UpdatePreassessmentDto {
   @IsOptional()
   @IsBoolean()
   studioCanEdit?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  notifyUserFieldNotes?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  notifyFieldNotes?: boolean;
 }

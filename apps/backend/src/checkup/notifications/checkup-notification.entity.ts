@@ -67,6 +67,9 @@ export class CheckupNotification {
   @Column({ type: 'json', nullable: true })
   metadata: Record<string, any> | null;
 
+  @Column({ type: 'datetime', nullable: true })
+  readAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

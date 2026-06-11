@@ -44,15 +44,18 @@ export class CheckupMeController {
     @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
     @Query('query') query?: string,
     @Query('type') type?: 'sezione_validata' | 'checkup_completato' | 'validazione_finale' | 'nuova_versione' | 'nota_cliente',
+    @Query('read') read?: 'read' | 'unread',
     @Query('notificationId') notificationId?: string,
     @Query('limit') limit?: string,
     @Query('page') page?: string,
   ) {
     return this.meService.getSystemNotifications({
       studioId: currentUser.studioId ?? null,
+      userId: currentUser.id,
       ruolo: currentUser.ruolo,
       query,
       type,
+      read,
       notificationId,
       limit: limit ? Number(limit) : undefined,
       page: page ? Number(page) : undefined,
@@ -64,12 +67,14 @@ export class CheckupMeController {
     @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
     @Query('query') query?: string,
     @Query('type') type?: 'consultant_note' | 'client_note' | 'ticket_created' | 'ticket_updated' | 'chat_message' | 'direct_chat_message' | 'preassessment_section_validated' | 'preassessment_final_validated' | 'preassessment_reopened' | 'preassessment_new_version',
+    @Query('read') read?: 'read' | 'unread',
     @Query('limit') limit?: string,
     @Query('page') page?: string,
   ) {
     return this.meService.getNotifications(currentUser.id, {
       query,
       type,
+      read,
       limit: limit ? Number(limit) : undefined,
       page: page ? Number(page) : undefined,
     });
@@ -78,6 +83,58 @@ export class CheckupMeController {
   @Get('notifications/count')
   getNotificationsCount(@CheckupCurrentUser() currentUser: CheckupCurrentUserData) {
     return this.meService.getNotificationsCount(currentUser.id);
+  }
+
+  @Post('system-notifications/:id/read')
+  markSystemNotificationRead(
+    @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
+    @Param('id') id: string,
+  ) {
+    return this.meService.markSystemNotificationRead(currentUser, id);
+  }
+
+  @Post('system-notifications/read')
+  markSystemNotificationsRead(
+    @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
+    @Body('ids') ids?: string[],
+    @Body('all') all?: boolean,
+  ) {
+    if (all) return this.meService.markAllSystemNotificationsRead(currentUser);
+    return this.meService.markSystemNotificationsRead(currentUser, Array.isArray(ids) ? ids : []);
+  }
+
+  @Delete('system-notifications/:id')
+  deleteSystemNotification(
+    @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
+    @Param('id') id: string,
+  ) {
+    return this.meService.deleteSystemNotification(currentUser, id);
+  }
+
+  @Post('system-notifications/delete')
+  deleteSystemNotifications(
+    @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
+    @Body('ids') ids: string[],
+  ) {
+    return this.meService.deleteSystemNotifications(currentUser, Array.isArray(ids) ? ids : []);
+  }
+
+  @Post('notifications/:id/read')
+  markNotificationRead(
+    @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
+    @Param('id') id: string,
+  ) {
+    return this.meService.markNotificationRead(currentUser.id, id);
+  }
+
+  @Post('notifications/read')
+  markNotificationsRead(
+    @CheckupCurrentUser() currentUser: CheckupCurrentUserData,
+    @Body('ids') ids?: string[],
+    @Body('all') all?: boolean,
+  ) {
+    if (all) return this.meService.markAllNotificationsRead(currentUser.id);
+    return this.meService.markNotificationsRead(currentUser.id, Array.isArray(ids) ? ids : []);
   }
 
   @Delete('notifications/:id')

@@ -34,6 +34,16 @@ export interface CheckupAuditLogFilters {
   limit?: number;
 }
 
+export interface CheckupAuditDuplicateLookup {
+  userId?: string | null;
+  entityType: CheckupAuditEntity;
+  entityId?: string | null;
+  description?: string | null;
+  metadataKey?: string;
+  metadataValue?: string | number | boolean | null;
+  withinMs: number;
+}
+
 @Injectable()
 export class CheckupAuditLogService {
   private readonly logger = new Logger(CheckupAuditLogService.name);
@@ -62,6 +72,27 @@ export class CheckupAuditLogService {
       errorMessage: data.errorMessage ?? null,
     });
     return this.auditLogRepository.save(entry);
+  }
+
+  async findRecentDuplicate(params: CheckupAuditDuplicateLookup): Promise<CheckupAuditLog | null> {
+    const since = new Date(Date.now() - params.withinMs);
+    const qb = this.auditLogRepository
+      .createQueryBuilder('log')
+      .where('log.createdAt >= :since', { since })
+      .andWhere('log.entityType = :entityType', { entityType: params.entityType })
+      .andWhere('log.success = true');
+
+    if (params.userId !== undefined) qb.andWhere('log.userId <=> :userId', { userId: params.userId });
+    if (params.entityId !== undefined) qb.andWhere('log.entityId <=> :entityId', { entityId: params.entityId });
+    if (params.description !== undefined) qb.andWhere('log.description <=> :description', { description: params.description });
+    if (params.metadataKey && params.metadataValue !== undefined) {
+      if (!/^[A-Za-z0-9_]+$/.test(params.metadataKey)) return null;
+      qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(log.metadata, '$.${params.metadataKey}')) = :metadataValue`, {
+        metadataValue: String(params.metadataValue),
+      });
+    }
+
+    return qb.orderBy('log.createdAt', 'DESC').getOne();
   }
 
   async getLogs(filters: CheckupAuditLogFilters = {}) {

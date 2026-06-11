@@ -138,7 +138,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   if (
     response.status === 204 ||
     response.status === 205 ||
-    response.headers.get('Content-Length') === '0'
+    response.headers?.get?.('Content-Length') === '0'
   ) {
     return undefined as T;
   }

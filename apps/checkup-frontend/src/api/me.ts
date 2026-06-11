@@ -12,11 +12,13 @@ export interface SystemNotificationItem {
   actionUrl: string | null;
   actorName: string | null;
   priority: 'info' | 'warning' | 'urgent';
+  readAt: string | null;
 }
 
 export interface GetSystemNotificationsParams {
   query?: string;
   type?: SystemNotificationItem['type'];
+  read?: 'read' | 'unread';
   notificationId?: string;
   limit?: number;
   page?: number;
@@ -28,6 +30,7 @@ export interface SystemNotificationListResponse {
   page: number;
   limit: number;
   totalPages: number;
+  unreadCount: number;
 }
 
 export type PersonalNotificationType =
@@ -53,6 +56,7 @@ export interface PersonalNotificationItem {
   clientName: string | null;
   actorName: string | null;
   createdAt: string;
+  readAt: string | null;
 }
 
 export interface PersonalNotificationListResponse {
@@ -92,21 +96,47 @@ export const meApi = {
     api.get<SystemNotificationListResponse>('/checkup/me/system-notifications', {
       ...(params?.query ? { query: params.query } : {}),
       ...(params?.type ? { type: params.type } : {}),
+      ...(params?.read ? { read: params.read } : {}),
       ...(params?.notificationId ? { notificationId: params.notificationId } : {}),
       ...(params?.limit ? { limit: String(params.limit) } : {}),
       ...(params?.page ? { page: String(params.page) } : {}),
     }),
 
-  getNotifications: (params?: { limit?: number; page?: number; query?: string; type?: PersonalNotificationType }) =>
+  markSystemNotificationRead: (id: string) =>
+    api.post<{ success: boolean; updatedCount: number }>(`/checkup/me/system-notifications/${id}/read`),
+
+  markSystemNotificationsRead: (ids: string[]) =>
+    api.post<{ success: boolean; updatedCount: number }>('/checkup/me/system-notifications/read', { ids }),
+
+  markAllSystemNotificationsRead: () =>
+    api.post<{ success: boolean; updatedCount: number }>('/checkup/me/system-notifications/read', { all: true }),
+
+  deleteSystemNotification: (id: string) =>
+    api.delete<{ success: boolean; deletedCount: number }>(`/checkup/me/system-notifications/${id}`),
+
+  deleteSystemNotifications: (ids: string[]) =>
+    api.post<{ success: boolean; deletedCount: number }>('/checkup/me/system-notifications/delete', { ids }),
+
+  getNotifications: (params?: { limit?: number; page?: number; query?: string; type?: PersonalNotificationType; read?: 'read' | 'unread' }) =>
     api.get<PersonalNotificationListResponse>('/checkup/me/notifications', {
       ...(params?.query ? { query: params.query } : {}),
       ...(params?.type ? { type: params.type } : {}),
+      ...(params?.read ? { read: params.read } : {}),
       ...(params?.limit ? { limit: String(params.limit) } : {}),
       ...(params?.page ? { page: String(params.page) } : {}),
     }),
 
   getNotificationsCount: () =>
     api.get<{ count: number }>('/checkup/me/notifications/count'),
+
+  markNotificationRead: (id: string) =>
+    api.post<{ success: boolean; updatedCount: number }>(`/checkup/me/notifications/${id}/read`),
+
+  markNotificationsRead: (ids: string[]) =>
+    api.post<{ success: boolean; updatedCount: number }>('/checkup/me/notifications/read', { ids }),
+
+  markAllNotificationsRead: () =>
+    api.post<{ success: boolean; updatedCount: number }>('/checkup/me/notifications/read', { all: true }),
 
   deleteNotification: (id: string) =>
     api.delete<{ success: boolean; deletedCount: number }>(`/checkup/me/notifications/${id}`),

@@ -157,7 +157,7 @@ export class CheckupNotificationsService {
 
   async listForUser(
     userId: string,
-    params: { page?: number; limit?: number; query?: string; type?: CheckupNotificationType } = {},
+    params: { page?: number; limit?: number; query?: string; type?: CheckupNotificationType; read?: 'read' | 'unread' } = {},
   ) {
     const page = Math.max(params.page ?? 1, 1);
     const limit = Math.min(Math.max(params.limit ?? 20, 1), 100);
@@ -181,6 +181,12 @@ export class CheckupNotificationsService {
       qb.andWhere('notification.type = :type', { type: params.type });
     }
 
+    if (params.read === 'read') {
+      qb.andWhere('notification.readAt IS NOT NULL');
+    } else if (params.read === 'unread') {
+      qb.andWhere('notification.readAt IS NULL');
+    }
+
     qb.orderBy('notification.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
@@ -197,9 +203,35 @@ export class CheckupNotificationsService {
 
   async countForUser(userId: string) {
     const count = await this.notificationRepository.count({
-      where: { userId, deletedAt: IsNull() },
+      where: { userId, readAt: IsNull(), deletedAt: IsNull() },
     });
     return { count };
+  }
+
+  async markReadForUser(userId: string, notificationId: string) {
+    const result = await this.notificationRepository.update(
+      { id: notificationId, userId, deletedAt: IsNull() },
+      { readAt: new Date() },
+    );
+    return { success: true, updatedCount: result.affected ?? 0 };
+  }
+
+  async markManyReadForUser(userId: string, ids: string[]) {
+    const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+    if (!uniqueIds.length) return { success: true, updatedCount: 0 };
+    const result = await this.notificationRepository.update(
+      { id: In(uniqueIds), userId, deletedAt: IsNull() },
+      { readAt: new Date() },
+    );
+    return { success: true, updatedCount: result.affected ?? 0 };
+  }
+
+  async markAllReadForUser(userId: string) {
+    const result = await this.notificationRepository.update(
+      { userId, readAt: IsNull(), deletedAt: IsNull() },
+      { readAt: new Date() },
+    );
+    return { success: true, updatedCount: result.affected ?? 0 };
   }
 
   async deleteForUser(userId: string, notificationId: string) {

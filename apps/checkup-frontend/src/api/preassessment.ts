@@ -9,6 +9,8 @@ export interface PreassessmentPayload {
   macroValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>;
   sectionValidations?: Record<string, { by: { id: string; name: string; ruolo: string }; at: string }>;
   studioCanEdit?: boolean;
+  notifyUserFieldNotes?: boolean;
+  notifyFieldNotes?: boolean;
 }
 
 export interface PreassessmentRecord {

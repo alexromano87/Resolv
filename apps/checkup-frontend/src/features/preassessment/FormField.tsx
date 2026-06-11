@@ -38,8 +38,9 @@ type FormFieldProps = {
   consultantNote?: string;
   userNote?: string;
   onConsultantNoteChange: (id: string, val: string) => void;
-  onConsultantNoteBlur?: (id: string) => void;
+  onConsultantNoteBlur?: (id: string, val: string) => void;
   onUserNoteChange: (id: string, val: string) => void;
+  onUserNoteBlur?: (id: string, val: string) => void;
   readOnly?: boolean;
   ownerProtected?: boolean;
   fieldMeta?: FieldMeta;
@@ -71,6 +72,7 @@ export const FormField = memo(function FormField({
   onConsultantNoteChange,
   onConsultantNoteBlur,
   onUserNoteChange,
+  onUserNoteBlur,
   readOnly = false,
   fieldMeta,
   activeEditor,
@@ -448,8 +450,10 @@ export const FormField = memo(function FormField({
             {userNote && (
               <button
                 type="button"
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => {
                   onUserNoteChange(field.id, '');
+                  onUserNoteBlur?.(field.id, '');
                   setShowUserNote(false);
                 }}
                 className="inline-flex items-center gap-1 text-[10px] text-rose-400 transition-colors hover:text-rose-600"
@@ -464,7 +468,10 @@ export const FormField = memo(function FormField({
             value={userNote || ''}
             onChange={(e) => onUserNoteChange(field.id, e.target.value)}
             onFocus={() => onFieldFocus?.(field.id)}
-            onBlur={() => onFieldBlur?.(field.id)}
+            onBlur={(e) => {
+              onUserNoteBlur?.(field.id, e.target.value);
+              onFieldBlur?.(field.id);
+            }}
             rows={2}
             placeholder="Nota utente..."
             disabled={disabled}
@@ -486,9 +493,10 @@ export const FormField = memo(function FormField({
             {consultantNote && (
               <button
                 type="button"
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => {
                   onConsultantNoteChange(field.id, '');
-                  onConsultantNoteBlur?.(field.id);
+                  onConsultantNoteBlur?.(field.id, '');
                   setShowConsultantNote(false);
                 }}
                 className="inline-flex items-center gap-1 text-[10px] text-rose-400 transition-colors hover:text-rose-600"
@@ -503,8 +511,8 @@ export const FormField = memo(function FormField({
             value={consultantNote || ''}
             onChange={(e) => onConsultantNoteChange(field.id, e.target.value)}
             onFocus={() => onFieldFocus?.(field.id)}
-            onBlur={() => {
-              onConsultantNoteBlur?.(field.id);
+            onBlur={(e) => {
+              onConsultantNoteBlur?.(field.id, e.target.value);
               onFieldBlur?.(field.id);
             }}
             rows={2}

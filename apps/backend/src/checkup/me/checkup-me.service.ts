@@ -8,7 +8,9 @@ import { CheckupPreassessmentTicket } from '../preassessment/checkup-preassessme
 import { CheckupPreassessmentAlert } from '../preassessment/checkup-preassessment-alert.entity';
 import { CheckupMailService } from '../mail/checkup-mail.service';
 import { CheckupAuditLog } from '../audit/checkup-audit-log.entity';
+import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupNotificationsService } from '../notifications/checkup-notifications.service';
+import { CheckupSystemNotificationState } from '../notifications/checkup-system-notification-state.entity';
 
 export interface CheckupSystemNotificationItem {
   id: string;
@@ -22,6 +24,7 @@ export interface CheckupSystemNotificationItem {
   actionUrl: string | null;
   actorName: string | null;
   priority: 'info' | 'warning' | 'urgent';
+  readAt: string | null;
 }
 
 export interface CheckupSystemNotificationListResponse {
@@ -30,13 +33,16 @@ export interface CheckupSystemNotificationListResponse {
   page: number;
   limit: number;
   totalPages: number;
+  unreadCount: number;
 }
 
 export interface GetSystemNotificationsParams {
   studioId: string | null;
+  userId: string;
   ruolo: CheckupUser['ruolo'];
   query?: string;
   type?: CheckupSystemNotificationItem['type'];
+  read?: 'read' | 'unread';
   notificationId?: string;
   limit?: number;
   page?: number;
@@ -57,6 +63,8 @@ export class CheckupMeService {
     private readonly alertRepository: Repository<CheckupPreassessmentAlert>,
     @InjectRepository(CheckupAuditLog)
     private readonly auditLogRepository: Repository<CheckupAuditLog>,
+    @InjectRepository(CheckupSystemNotificationState)
+    private readonly systemNotificationStateRepository: Repository<CheckupSystemNotificationState>,
     private readonly mailService: CheckupMailService,
     private readonly notificationsService: CheckupNotificationsService,
   ) {}
@@ -175,9 +183,16 @@ export class CheckupMeService {
 
     const qb = this.auditLogRepository
       .createQueryBuilder('log')
+      .leftJoin(
+        'checkup_system_notification_states',
+        'state',
+        'state.auditLogId = log.id AND state.userId = :userId',
+        { userId: params.userId },
+      )
       .where('log.studioId = :studioId', { studioId: params.studioId })
       .andWhere('log.success = true')
-      .andWhere('log.entityType IN (:...entityTypes)', { entityTypes: ['PREASSESSMENT'] as const });
+      .andWhere('log.entityType IN (:...entityTypes)', { entityTypes: ['PREASSESSMENT'] as const })
+      .andWhere('state.deletedAt IS NULL');
 
     if (params.notificationId) {
       qb.andWhere('log.id = :notificationId', { notificationId: params.notificationId });
@@ -185,6 +200,12 @@ export class CheckupMeService {
 
     if (params.type) {
       this.applyTypeFilter(qb, params.type);
+    }
+
+    if (params.read === 'read') {
+      qb.andWhere('state.readAt IS NOT NULL');
+    } else if (params.read === 'unread') {
+      qb.andWhere('state.readAt IS NULL');
     }
 
     if (query) {
@@ -199,13 +220,31 @@ export class CheckupMeService {
       );
     }
 
+    const unreadCount = await qb.clone()
+      .andWhere('state.readAt IS NULL')
+      .getCount();
+
     qb.orderBy('log.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 
     const [logs, total] = await qb.getManyAndCount();
+    const states = logs.length
+      ? await this.systemNotificationStateRepository
+          .createQueryBuilder('state')
+          .withDeleted()
+          .addSelect('state.deletedAt')
+          .where('state.userId = :userId', { userId: params.userId })
+          .andWhere('state.auditLogId IN (:...auditLogIds)', { auditLogIds: logs.map((log) => log.id) })
+          .getMany()
+      : [];
+    const readAtByLogId = new Map(
+      states
+        .filter((state) => !state.deletedAt)
+        .map((state) => [state.auditLogId, state.readAt ? state.readAt.toISOString() : null]),
+    );
     const items = logs
-      .map((log) => this.mapSystemNotification(log))
+      .map((log) => this.mapSystemNotification(log, readAtByLogId.get(log.id) ?? null))
       .filter((item): item is CheckupSystemNotificationItem => item !== null);
 
     return {
@@ -214,6 +253,7 @@ export class CheckupMeService {
       page,
       limit,
       totalPages: Math.max(1, Math.ceil(total / limit)),
+      unreadCount,
     };
   }
 
@@ -224,6 +264,7 @@ export class CheckupMeService {
       limit?: number;
       query?: string;
       type?: 'consultant_note' | 'client_note' | 'ticket_created' | 'ticket_updated' | 'chat_message' | 'direct_chat_message' | 'preassessment_section_validated' | 'preassessment_final_validated' | 'preassessment_reopened' | 'preassessment_new_version';
+      read?: 'read' | 'unread';
     },
   ) {
     return this.notificationsService.listForUser(userId, params);
@@ -231,6 +272,78 @@ export class CheckupMeService {
 
   getNotificationsCount(userId: string) {
     return this.notificationsService.countForUser(userId);
+  }
+
+  markNotificationRead(userId: string, notificationId: string) {
+    return this.notificationsService.markReadForUser(userId, notificationId);
+  }
+
+  markNotificationsRead(userId: string, ids: string[]) {
+    return this.notificationsService.markManyReadForUser(userId, ids);
+  }
+
+  markAllNotificationsRead(userId: string) {
+    return this.notificationsService.markAllReadForUser(userId);
+  }
+
+  async markSystemNotificationRead(currentUser: CheckupCurrentUserData, notificationId: string) {
+    await this.ensureSystemNotificationAccess(currentUser, [notificationId]);
+    await this.systemNotificationStateRepository.upsert({
+      userId: currentUser.id,
+      auditLogId: notificationId,
+      readAt: new Date(),
+      deletedAt: null,
+    }, ['userId', 'auditLogId']);
+    return { success: true, updatedCount: 1 };
+  }
+
+  async markSystemNotificationsRead(currentUser: CheckupCurrentUserData, ids: string[]) {
+    const uniqueIds = await this.ensureSystemNotificationAccess(currentUser, ids);
+    if (!uniqueIds.length) return { success: true, updatedCount: 0 };
+    const now = new Date();
+    await this.systemNotificationStateRepository.upsert(
+      uniqueIds.map((id) => ({
+        userId: currentUser.id,
+        auditLogId: id,
+        readAt: now,
+        deletedAt: null,
+      })),
+      ['userId', 'auditLogId'],
+    );
+    return { success: true, updatedCount: uniqueIds.length };
+  }
+
+  async markAllSystemNotificationsRead(currentUser: CheckupCurrentUserData) {
+    const ids = await this.getAccessibleSystemNotificationIds(currentUser);
+    return this.markSystemNotificationsRead(currentUser, ids);
+  }
+
+  async deleteSystemNotification(currentUser: CheckupCurrentUserData, notificationId: string) {
+    const [id] = await this.ensureSystemNotificationAccess(currentUser, [notificationId]);
+    if (!id) return { success: true, deletedCount: 0 };
+    await this.systemNotificationStateRepository.upsert({
+      userId: currentUser.id,
+      auditLogId: id,
+      readAt: new Date(),
+      deletedAt: new Date(),
+    }, ['userId', 'auditLogId']);
+    return { success: true, deletedCount: 1 };
+  }
+
+  async deleteSystemNotifications(currentUser: CheckupCurrentUserData, ids: string[]) {
+    const uniqueIds = await this.ensureSystemNotificationAccess(currentUser, ids);
+    if (!uniqueIds.length) return { success: true, deletedCount: 0 };
+    const now = new Date();
+    await this.systemNotificationStateRepository.upsert(
+      uniqueIds.map((id) => ({
+        userId: currentUser.id,
+        auditLogId: id,
+        readAt: now,
+        deletedAt: now,
+      })),
+      ['userId', 'auditLogId'],
+    );
+    return { success: true, deletedCount: uniqueIds.length };
   }
 
   async deleteNotification(userId: string, notificationId: string) {
@@ -271,7 +384,45 @@ export class CheckupMeService {
     }
   }
 
-  private mapSystemNotification(log: CheckupAuditLog): CheckupSystemNotificationItem | null {
+  private async getAccessibleSystemNotificationIds(currentUser: CheckupCurrentUserData) {
+    if (currentUser.ruolo === 'cliente' || !currentUser.studioId) {
+      throw new ForbiddenException('Accesso riservato allo staff del licenziatario');
+    }
+    const logs = await this.auditLogRepository
+      .createQueryBuilder('log')
+      .leftJoin(
+        'checkup_system_notification_states',
+        'state',
+        'state.auditLogId = log.id AND state.userId = :userId',
+        { userId: currentUser.id },
+      )
+      .where('log.studioId = :studioId', { studioId: currentUser.studioId })
+      .andWhere('log.success = true')
+      .andWhere('log.entityType = :entityType', { entityType: 'PREASSESSMENT' })
+      .andWhere('state.deletedAt IS NULL')
+      .select('log.id', 'id')
+      .getRawMany<{ id: string }>();
+    return logs.map((row) => row.id);
+  }
+
+  private async ensureSystemNotificationAccess(currentUser: CheckupCurrentUserData, ids: string[]) {
+    if (currentUser.ruolo === 'cliente' || !currentUser.studioId) {
+      throw new ForbiddenException('Accesso riservato allo staff del licenziatario');
+    }
+    const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+    if (!uniqueIds.length) return [];
+    const logs = await this.auditLogRepository
+      .createQueryBuilder('log')
+      .where('log.id IN (:...ids)', { ids: uniqueIds })
+      .andWhere('log.studioId = :studioId', { studioId: currentUser.studioId })
+      .andWhere('log.success = true')
+      .andWhere('log.entityType = :entityType', { entityType: 'PREASSESSMENT' })
+      .select('log.id', 'id')
+      .getRawMany<{ id: string }>();
+    return logs.map((row) => row.id);
+  }
+
+  private mapSystemNotification(log: CheckupAuditLog, readAt: string | null): CheckupSystemNotificationItem | null {
     const metadata = (log.metadata || {}) as Record<string, any>;
     const description = log.description || '';
     const clientId = typeof metadata.clientId === 'string' ? metadata.clientId : null;
@@ -298,6 +449,7 @@ export class CheckupMeService {
           actionUrl,
           actorName,
           priority: 'info',
+          readAt,
         };
       }
 
@@ -314,6 +466,7 @@ export class CheckupMeService {
           actionUrl,
           actorName,
           priority: 'info',
+          readAt,
         };
       }
 
@@ -330,6 +483,7 @@ export class CheckupMeService {
           actionUrl,
           actorName,
           priority: 'info',
+          readAt,
         };
       }
 
@@ -346,6 +500,7 @@ export class CheckupMeService {
           actionUrl,
           actorName,
           priority: 'warning',
+          readAt,
         };
       }
 
@@ -362,6 +517,7 @@ export class CheckupMeService {
           actionUrl,
           actorName,
           priority: 'info',
+          readAt,
         };
       }
 

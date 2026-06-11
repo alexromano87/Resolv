@@ -91,20 +91,6 @@ function formatNotificationDate(value: string) {
   }).format(new Date(value));
 }
 
-function markPersonalNotificationsRead(userId: string | undefined, items: PersonalNotificationItem[]) {
-  if (!userId || items.length === 0) return;
-  const key = `checkup_personal_notifications_read:${userId}`;
-  try {
-    const raw = localStorage.getItem(key);
-    const parsed = raw ? JSON.parse(raw) : [];
-    const next = new Set<string>(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []);
-    items.forEach((item) => next.add(item.id));
-    localStorage.setItem(key, JSON.stringify(Array.from(next)));
-  } catch {
-    localStorage.setItem(key, JSON.stringify(items.map((item) => item.id)));
-  }
-}
-
 export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   const { user, logout } = useAuth();
   const modelDisplayName = useMemo(() => getModelDisplayName(user), [user]);
@@ -191,16 +177,13 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   const hasPersonalNotificationsArea = !!user && user.ruolo === 'cliente' && !!user.sublicense?.id;
   const isClientChatRoute = !isStaff && location.pathname.startsWith('/checkup/chat');
   const dashboardPath = isStaff ? '/checkup/dashboard-studio' : '/checkup';
-  const lastSeenNotificationsKey = useMemo(
-    () => (user?.id ? `checkup_system_notifications_seen:${user.id}` : ''),
-    [user?.id],
-  );
   const latestSystemNotifications = useMemo(() => systemNotifications.slice(0, 6), [systemNotifications]);
   const latestPersonalNotifications = useMemo(() => personalNotifications.slice(0, 6), [personalNotifications]);
   const visibleNotifications = isStaff ? latestSystemNotifications : latestPersonalNotifications;
   const notificationsLoading = isStaff ? systemNotificationsLoading : personalNotificationsLoading;
   const notificationsError = isStaff ? systemNotificationsError : personalNotificationsError;
   const notificationsUnread = isStaff ? systemNotificationsUnread : personalNotificationsUnread;
+  const notificationsUnreadLabel = notificationsUnread > 99 ? '99+' : String(notificationsUnread);
   const notificationTitle = 'Notifiche';
   const showNotificationBell = isStaff || hasPersonalNotificationsArea;
 
@@ -240,11 +223,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
       const response = await meApi.getSystemNotifications({ limit: 6, page: 1 });
       const data = response.items;
       setSystemNotifications(data);
-      const lastSeen = lastSeenNotificationsKey ? sessionStorage.getItem(lastSeenNotificationsKey) : null;
-      const unread = lastSeen
-        ? data.filter((item) => new Date(item.createdAt).getTime() > new Date(lastSeen).getTime()).length
-        : Math.min(data.length, 6);
-      setSystemNotificationsUnread(unread);
+      setSystemNotificationsUnread(response.unreadCount);
       return data;
     } catch (err) {
       if (!silent) {
@@ -256,7 +235,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
         setSystemNotificationsLoading(false);
       }
     }
-  }, [isStaff, lastSeenNotificationsKey]);
+  }, [isStaff]);
 
   const loadPersonalNotifications = useCallback(async (silent = false): Promise<PersonalNotificationItem[]> => {
     if (!hasPersonalNotificationsArea) return [];
@@ -267,11 +246,8 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
     try {
       const response = await meApi.getNotifications({ limit: 6, page: 1 });
       setPersonalNotifications(response.items);
-      const lastSeen = lastSeenNotificationsKey ? sessionStorage.getItem(lastSeenNotificationsKey) : null;
-      const unread = lastSeen
-        ? response.items.filter((item) => new Date(item.createdAt).getTime() > new Date(lastSeen).getTime()).length
-        : Math.min(response.items.length, 6);
-      setPersonalNotificationsUnread(unread);
+      const count = await meApi.getNotificationsCount().catch(() => ({ count: response.items.filter((item) => !item.readAt).length }));
+      setPersonalNotificationsUnread(count.count);
       return response.items;
     } catch (err) {
       if (!silent) {
@@ -283,13 +259,20 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
         setPersonalNotificationsLoading(false);
       }
     }
-  }, [hasPersonalNotificationsArea, lastSeenNotificationsKey]);
+  }, [hasPersonalNotificationsArea]);
 
-  const markSystemNotificationsSeen = useCallback((items: SystemNotificationItem[]) => {
-    if (!lastSeenNotificationsKey || items.length === 0) return;
-    sessionStorage.setItem(lastSeenNotificationsKey, items[0].createdAt);
-    setSystemNotificationsUnread(0);
-  }, [lastSeenNotificationsKey]);
+  const markVisibleNotificationsRead = useCallback(async () => {
+    const ids = visibleNotifications.filter((item) => !item.readAt).map((item) => item.id);
+    if (ids.length === 0) return;
+    if (isStaff) {
+      await meApi.markSystemNotificationsRead(ids);
+      await loadSystemNotifications(true);
+    } else {
+      await meApi.markNotificationsRead(ids);
+      await loadPersonalNotifications(true);
+    }
+    window.dispatchEvent(new Event('checkup-notifications-updated'));
+  }, [isStaff, loadPersonalNotifications, loadSystemNotifications, visibleNotifications]);
 
   useEffect(() => {
     if (!isStaff) {
@@ -306,6 +289,18 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
       if (systemNotificationIntervalRef.current) clearInterval(systemNotificationIntervalRef.current);
     };
   }, [isStaff, loadSystemNotifications]);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (isStaff) {
+        loadSystemNotifications(true);
+      } else if (hasPersonalNotificationsArea) {
+        loadPersonalNotifications(true);
+      }
+    };
+    window.addEventListener('checkup-notifications-updated', refresh);
+    return () => window.removeEventListener('checkup-notifications-updated', refresh);
+  }, [hasPersonalNotificationsArea, isStaff, loadPersonalNotifications, loadSystemNotifications]);
 
   useEffect(() => {
     if (!hasPersonalNotificationsArea) {
@@ -1577,27 +1572,27 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                     onClick={async () => {
                       const nextOpen = !systemNotificationsOpen;
                       setSystemNotificationsOpen(nextOpen);
-                      if (nextOpen) {
-                        if (isStaff) {
-                          const latest = await loadSystemNotifications();
-                          markSystemNotificationsSeen(latest);
-                        } else {
-                          const latest = await loadPersonalNotifications();
-                          markPersonalNotificationsRead(user?.id, latest);
-                          if (lastSeenNotificationsKey && latest.length > 0) {
-                            sessionStorage.setItem(lastSeenNotificationsKey, latest[0].createdAt);
-                          }
-                          setPersonalNotificationsUnread(0);
-                        }
-                      }
+	                      if (nextOpen) {
+	                        if (isStaff) {
+	                          await loadSystemNotifications();
+	                        } else {
+	                          await loadPersonalNotifications();
+	                        }
+	                      }
                     }}
-                    className="relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-indigo-200/60 bg-white/85 text-slate-700 shadow-[0_16px_46px_rgba(10,16,32,0.16)] transition hover:border-indigo-300 hover:text-indigo-700"
+                    className={`relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border bg-white/85 shadow-[0_16px_46px_rgba(10,16,32,0.16)] transition ${
+                      notificationsUnread > 0
+                        ? 'border-rose-200 text-rose-600 ring-2 ring-rose-100 hover:border-rose-300 hover:text-rose-700'
+                        : 'border-indigo-200/60 text-slate-700 hover:border-indigo-300 hover:text-indigo-700'
+                    }`}
                     aria-label={notificationTitle}
                     title={notificationTitle}
                   >
                     <BellRing size={18} />
                     {notificationsUnread > 0 && (
-                      <span className="absolute right-2 top-2 inline-flex h-2.5 w-2.5 rounded-full bg-rose-500" />
+                      <span className="absolute -right-1.5 -top-1.5 inline-flex min-h-[20px] min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-rose-600 px-1 text-[10px] font-extrabold leading-none text-white shadow-[0_6px_14px_rgba(225,29,72,0.38)]">
+                        {notificationsUnreadLabel}
+                      </span>
                     )}
                   </button>
                   {systemNotificationsOpen && typeof document !== 'undefined' && createPortal(
@@ -1609,21 +1604,34 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                         right: Math.max(window.innerWidth - (notificationBellButtonRef.current?.getBoundingClientRect().right ?? window.innerWidth - 24), 24),
                       }}
                     >
-                      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">{notificationTitle}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">Ultimi aggiornamenti del pre-assessment</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSystemNotificationsOpen(false);
-                            navigate(isStaff ? '/checkup/notifiche-sistema' : '/checkup/notifiche');
-                          }}
-                          className="text-xs font-semibold text-indigo-600 hover:underline"
-                        >
-                          Vedi tutte
-                        </button>
+	                      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+	                        <div>
+	                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">{notificationTitle}</p>
+	                          <p className="text-xs text-slate-500 dark:text-slate-400">Ultimi aggiornamenti del pre-assessment</p>
+	                        </div>
+	                        <div className="flex shrink-0 items-center gap-3">
+	                          {notificationsUnread > 0 && (
+	                            <button
+	                              type="button"
+	                              onClick={() => {
+	                                markVisibleNotificationsRead().catch(() => {});
+	                              }}
+	                              className="text-xs font-semibold text-rose-600 hover:underline"
+	                            >
+	                              Segna lette
+	                            </button>
+	                          )}
+	                          <button
+	                            type="button"
+	                            onClick={() => {
+	                              setSystemNotificationsOpen(false);
+	                              navigate(isStaff ? '/checkup/notifiche-sistema' : '/checkup/notifiche');
+	                            }}
+	                            className="text-xs font-semibold text-indigo-600 hover:underline"
+	                          >
+	                            Vedi tutte
+	                          </button>
+	                        </div>
                       </div>
                       <div className="max-h-[420px] overflow-y-auto">
                         {notificationsLoading ? (

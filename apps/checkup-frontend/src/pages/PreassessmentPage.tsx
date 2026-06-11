@@ -174,7 +174,22 @@ export default function PreassessmentPage() {
   const [zipLoading, setZipLoading] = useState(false);
   const [savingReport, setSavingReport] = useState(false);
   const [reportNotice, setReportNotice] = useState<string | null>(null);
-  const consultantNoteDirtyRef = useRef(false);
+  const dirtyFieldNoteFieldsRef = useRef<Set<string>>(new Set());
+  const mergeRemoteFieldNotes = useCallback((remoteNotes: Record<string, string> | null | undefined) => {
+    setFieldNotes((prev) => {
+      if (dirtyFieldNoteFieldsRef.current.size === 0) return remoteNotes || {};
+      const dirtyEntries = Array.from(dirtyFieldNoteFieldsRef.current).map((fieldId) => [fieldId, prev[fieldId] || '']);
+      return { ...(remoteNotes || {}), ...Object.fromEntries(dirtyEntries) };
+    });
+  }, []);
+  const dirtyUserNoteFieldsRef = useRef<Set<string>>(new Set());
+  const mergeRemoteUserFieldNotes = useCallback((remoteNotes: Record<string, string> | null | undefined) => {
+    setUserFieldNotes((prev) => {
+      if (dirtyUserNoteFieldsRef.current.size === 0) return remoteNotes || {};
+      const dirtyEntries = Array.from(dirtyUserNoteFieldsRef.current).map((fieldId) => [fieldId, prev[fieldId] || '']);
+      return { ...(remoteNotes || {}), ...Object.fromEntries(dirtyEntries) };
+    });
+  }, []);
   const location = useLocation();
   const targetFieldId = useMemo(() => {
     const value = new URLSearchParams(location.search).get('fieldId')?.trim();
@@ -198,7 +213,6 @@ export default function PreassessmentPage() {
   const [alerts, setAlerts] = useState<PreassessmentAlert[]>([]);
   const [activeEditors, setActiveEditors] = useState<Record<string, { userId: string; name: string }>>({});
   const [dashFilter, setDashFilter] = useState<'all' | 'completed' | 'todo' | 'na' | 'consultant_notes' | 'client_notes'>('all');
-  const [consultantNoteSaveVersion, setConsultantNoteSaveVersion] = useState(0);
   const [documentsByField, setDocumentsByField] = useState<Record<string, PreassessmentDocument[]>>({});
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const documentsEnabled = useMemo(() => {
@@ -624,8 +638,8 @@ export default function PreassessmentPage() {
           setAssessmentStatus(res.preassessment.status || 'in_progress');
           setData({ ...base, ...(res.preassessment.data || {}) });
           setNotes(res.preassessment.notes || {});
-          setFieldNotes(res.preassessment.fieldNotes || {});
-          setUserFieldNotes(res.preassessment.userFieldNotes || {});
+          mergeRemoteFieldNotes(res.preassessment.fieldNotes || {});
+          mergeRemoteUserFieldNotes(res.preassessment.userFieldNotes || {});
           setFieldMeta(res.preassessment.fieldMeta || {});
           setNaFields(res.preassessment.naFields || getInitialNaFields(sections));
           setMacroValidations(res.preassessment.macroValidations || {});
@@ -645,8 +659,8 @@ export default function PreassessmentPage() {
         setAssessmentStatus(res.status || 'in_progress');
         setData({ ...base, ...(res.data || {}) });
         setNotes(res.notes || {});
-        setFieldNotes(res.fieldNotes || {});
-        setUserFieldNotes(res.userFieldNotes || {});
+        mergeRemoteFieldNotes(res.fieldNotes || {});
+        mergeRemoteUserFieldNotes(res.userFieldNotes || {});
         setFieldMeta(res.fieldMeta || {});
         setNaFields(res.naFields || getInitialNaFields(sections));
         setMacroValidations(res.macroValidations || {});
@@ -798,8 +812,8 @@ export default function PreassessmentPage() {
           setAssessmentStatus(res.preassessment.status || 'in_progress');
           setData({ ...base, ...(res.preassessment.data || {}) });
           setNotes(res.preassessment.notes || {});
-          setFieldNotes(res.preassessment.fieldNotes || {});
-          setUserFieldNotes(res.preassessment.userFieldNotes || {});
+          mergeRemoteFieldNotes(res.preassessment.fieldNotes || {});
+          mergeRemoteUserFieldNotes(res.preassessment.userFieldNotes || {});
           setFieldMeta(res.preassessment.fieldMeta || {});
           setNaFields(res.preassessment.naFields || getInitialNaFields(sections));
           setMacroValidations(res.preassessment.macroValidations || {});
@@ -823,8 +837,8 @@ export default function PreassessmentPage() {
         setAssessmentStatus(res.status || 'in_progress');
         setData({ ...base, ...(res.data || {}) });
         setNotes(res.notes || {});
-        setFieldNotes(res.fieldNotes || {});
-        setUserFieldNotes(res.userFieldNotes || {});
+        mergeRemoteFieldNotes(res.fieldNotes || {});
+        mergeRemoteUserFieldNotes(res.userFieldNotes || {});
         setFieldMeta(res.fieldMeta || {});
         setNaFields(res.naFields || getInitialNaFields(sections));
         setMacroValidations(res.macroValidations || {});
@@ -850,20 +864,18 @@ export default function PreassessmentPage() {
   useEffect(() => {
     if (!didInitRef.current) return;
     if (!preassessmentId) return;
-    if (!canEditAnswers && !(isStaff && consultantNoteDirtyRef.current)) return;
+    if (!canEditAnswers) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      const payload = isStaff && !canEditAnswers
-        ? { fieldNotes }
-        : {
-            data,
-            notes,
-            fieldNotes,
-            userFieldNotes: isClient ? userFieldNotes : undefined,
-            naFields,
-            macroValidations,
-            sectionValidations: isClient ? sectionValidations : undefined,
-          };
+      const payload = {
+        data,
+        notes,
+        fieldNotes: undefined,
+        userFieldNotes: undefined,
+        naFields,
+        macroValidations,
+        sectionValidations: isClient ? sectionValidations : undefined,
+      };
       const promise = isStaff && activeClientId
         ? preassessmentApi.updateClient(activeClientId, payload)
         : preassessmentApi.update(payload);
@@ -886,13 +898,12 @@ export default function PreassessmentPage() {
           // sono già corrette nello stato locale e aggiornarle triggera un re-salvataggio
           // infinito (entrambe sono nelle dipendenze di questo useEffect).
           // Il polling ogni 4s sincronizza eventuali differenze server-side.
-          consultantNoteDirtyRef.current = false;
         })
         .catch((err) => {
           setError(err instanceof Error ? err.message : 'Errore durante il salvataggio');
         });
     }, 700);
-  }, [data, notes, fieldNotes, userFieldNotes, naFields, macroValidations, sectionValidations, consultantNoteSaveVersion, canEditAnswers, isClient, isStaff, activeClientId, preassessmentId]);
+  }, [data, notes, naFields, macroValidations, sectionValidations, canEditAnswers, isStaff, activeClientId, preassessmentId]);
 
   const emitFieldActive = useCallback((fieldId: string) => {
     if (!preassessmentId || !canEditAnswers) return;
@@ -919,19 +930,51 @@ export default function PreassessmentPage() {
 
   const handleFieldNote = useCallback((id: string, val: string) => {
     if (!isStaff) return;
+    dirtyFieldNoteFieldsRef.current.add(id);
     setFieldNotes((p) => ({ ...p, [id]: val }));
   }, [isStaff]);
 
-  const handleFieldNoteBlur = useCallback(() => {
-    if (!isStaff) return;
-    consultantNoteDirtyRef.current = true;
-    setConsultantNoteSaveVersion((value) => value + 1);
-  }, [isStaff]);
+  const handleFieldNoteBlur = useCallback(async (id: string, val: string) => {
+    if (!isStaff || !activeClientId) return;
+    if (!dirtyFieldNoteFieldsRef.current.has(id)) return;
+    const nextNotes = { ...fieldNotes, [id]: val };
+    try {
+      const res = await preassessmentApi.updateClient(activeClientId, {
+        fieldNotes: nextNotes,
+        notifyFieldNotes: true,
+      });
+      dirtyFieldNoteFieldsRef.current.delete(id);
+      setFieldNotes(res.fieldNotes || nextNotes);
+      setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
+      lastRemoteUpdatedAtRef.current = res.updatedAt;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante il salvataggio della nota');
+    }
+  }, [activeClientId, fieldNotes, isStaff]);
 
   const handleUserFieldNote = useCallback((id: string, val: string) => {
     if (!canEditAnswers || !isClient) return;
+    dirtyUserNoteFieldsRef.current.add(id);
     setUserFieldNotes((p) => ({ ...p, [id]: val }));
   }, [canEditAnswers, isClient]);
+
+  const handleUserFieldNoteBlur = useCallback(async (id: string, val: string) => {
+    if (!canEditAnswers || !isClient || !preassessmentId) return;
+    if (!dirtyUserNoteFieldsRef.current.has(id)) return;
+    const nextNotes = { ...userFieldNotes, [id]: val };
+    try {
+      const res = await preassessmentApi.update({
+        userFieldNotes: nextNotes,
+        notifyUserFieldNotes: true,
+      });
+      dirtyUserNoteFieldsRef.current.delete(id);
+      setUserFieldNotes(res.userFieldNotes || nextNotes);
+      setLastSavedAt(new Date(res.updatedAt).toLocaleTimeString('it-IT'));
+      lastRemoteUpdatedAtRef.current = res.updatedAt;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante il salvataggio della nota');
+    }
+  }, [canEditAnswers, isClient, preassessmentId, userFieldNotes]);
 
   const handleSectionNote = useCallback((id: string, val: string) => {
     if (!canEditAnswers) return;
@@ -2083,6 +2126,7 @@ export default function PreassessmentPage() {
                 onConsultantNoteChange={handleFieldNote}
                 onConsultantNoteBlur={handleFieldNoteBlur}
                 onUserNoteChange={handleUserFieldNote}
+                onUserNoteBlur={handleUserFieldNoteBlur}
                 readOnly={readOnly}
                 ownerProtected={isClient && isOwnerFieldId(f.id)}
                 fieldMeta={fieldMeta[f.id]}
@@ -2372,6 +2416,7 @@ export default function PreassessmentPage() {
               currentUserId={user?.id}
               otherName={otherName}
               typingUsers={typingUsers}
+              confirm={confirm}
               onClose={() => setPanel(null)}
             />
           )}
@@ -2540,6 +2585,7 @@ function ChatPanel({
   currentUserId,
   otherName,
   typingUsers,
+  confirm,
   onClose,
 }: {
   messages: PreassessmentChatMessage[];
@@ -2551,6 +2597,7 @@ function ChatPanel({
   currentUserId?: string;
   otherName: string;
   typingUsers: Array<{ userId: string; name: string; ruolo: string }>;
+  confirm: ReturnType<typeof useConfirmDialog>['confirm'];
   onClose?: () => void;
 }) {
   const [msg, setMsg] = useState('');
@@ -2635,10 +2682,16 @@ function ChatPanel({
 
   const handleDeleteMessage = async (message: PreassessmentChatMessage) => {
     const forEveryone = message.userId === currentUserId && Date.now() - new Date(message.createdAt).getTime() <= 15 * 60 * 1000;
-    const text = forEveryone
-      ? 'Eliminare questo messaggio per tutti?'
-      : 'Eliminare questo messaggio solo per te?';
-    if (!window.confirm(text)) return;
+    const ok = await confirm({
+      title: 'Elimina messaggio',
+      message: forEveryone
+        ? 'Vuoi eliminare questo messaggio per tutti i partecipanti alla chat?'
+        : 'Il limite di tempo per eliminarlo per tutti e scaduto. Vuoi eliminare questo messaggio solo dalla tua chat?',
+      confirmText: 'Elimina',
+      cancelText: 'Annulla',
+      variant: 'danger',
+    });
+    if (!ok) return;
     await onDeleteMessage(message.id);
   };
 

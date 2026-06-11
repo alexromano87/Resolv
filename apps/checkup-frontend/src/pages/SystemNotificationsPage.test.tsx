@@ -23,7 +23,7 @@ describe('SystemNotificationsPage', () => {
     });
   });
 
-  it('non carica automaticamente le notifiche quando apro la pagina', () => {
+  it('carica automaticamente le notifiche quando apro la pagina', async () => {
     render(
       <MemoryRouter initialEntries={['/checkup/notifiche-sistema']}>
         <Routes>
@@ -31,28 +31,40 @@ describe('SystemNotificationsPage', () => {
         </Routes>
       </MemoryRouter>,
     );
-
-    expect(getSystemNotifications).not.toHaveBeenCalled();
-    expect(screen.getByText(/premi Cerca per caricare le notifiche/i)).toBeInTheDocument();
-  });
-
-  it('esegue la fetch solo quando clicco Cerca', async () => {
-    render(
-      <MemoryRouter initialEntries={['/checkup/notifiche-sistema']}>
-        <Routes>
-          <Route path="/checkup/notifiche-sistema" element={<SystemNotificationsPage />} />
-        </Routes>
-      </MemoryRouter>,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /cerca/i }));
 
     await waitFor(() => {
       expect(getSystemNotifications).toHaveBeenCalledTimes(1);
     });
     expect(getSystemNotifications).toHaveBeenCalledWith({
       query: undefined,
-      type: undefined,
+      read: 'unread',
+      notificationId: undefined,
+      limit: 20,
+      page: 1,
+    });
+  });
+
+  it('esegue una nuova fetch quando clicco Aggiorna', async () => {
+    render(
+      <MemoryRouter initialEntries={['/checkup/notifiche-sistema']}>
+        <Routes>
+          <Route path="/checkup/notifiche-sistema" element={<SystemNotificationsPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(getSystemNotifications).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /aggiorna/i }));
+
+    await waitFor(() => {
+      expect(getSystemNotifications).toHaveBeenCalledTimes(2);
+    });
+    expect(getSystemNotifications).toHaveBeenCalledWith({
+      query: undefined,
+      read: 'unread',
       notificationId: undefined,
       limit: 20,
       page: 1,
@@ -73,7 +85,7 @@ describe('SystemNotificationsPage', () => {
     });
     expect(getSystemNotifications).toHaveBeenCalledWith({
       query: undefined,
-      type: 'nota_cliente',
+      read: undefined,
       notificationId: 'notif-1',
       limit: 50,
       page: 1,
