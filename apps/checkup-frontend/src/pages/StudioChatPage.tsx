@@ -458,7 +458,7 @@ export function StudioChatPage() {
                               <div className="whitespace-pre-wrap">{message.messaggio}</div>
                             )}
                             <div className={`mt-1 flex items-center justify-end gap-1 text-right text-[10px] ${isOwn ? 'text-blue-100' : 'text-slate-400'}`}>
-                              <span>{new Date(message.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
+                              <span>{new Date(message.createdAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
                               {message.editedAt ? <span>modificato</span> : null}
                               {isOwn ? (
                                 message.letto ? <CheckCheck className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />

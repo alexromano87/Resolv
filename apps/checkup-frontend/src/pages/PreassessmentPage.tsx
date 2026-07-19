@@ -2006,7 +2006,6 @@ export default function PreassessmentPage() {
     const sectionValidation = sectionValidations[activeSection.id];
     const ownerInfo = getOwnerInfo(data, activeSection.macro);
     const isSectionValidated = !!sectionValidation;
-    const isOwnerSection = activeSection.fields.some((f) => isOwnerFieldId(f.id));
     const unresolvedFields = activeSection.fields.filter((field) => !isFieldResolved(field));
     const missingAnswersCount = unresolvedFields.length;
     const canValidateSection = sTotal(activeSection) > 0 && missingAnswersCount === 0;
@@ -2063,30 +2062,6 @@ export default function PreassessmentPage() {
           </div>
 
           <div className="space-y-5 p-6">
-            {/* Griglia validazione macro — mostrata solo nella sezione owner */}
-            {isOwnerSection && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Stato validazione macro aree</p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
-                  {macroAreas.map((m) => {
-                    const val = macroValidations[m.id];
-                    return (
-                      <div
-                        key={m.id}
-                        className={`rounded-lg border px-3 py-2 text-xs ${val ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}
-                      >
-                        <div className="font-semibold text-slate-700 truncate">{formatMacroHeading(m.id, m.label, m.displayRef)}</div>
-                        {val ? (
-                          <div className="mt-0.5 text-emerald-600 font-medium truncate">✓ {val.by.name}</div>
-                        ) : (
-                          <div className="mt-0.5 text-slate-400">Non validata</div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
             {visibleFields.length === 0 && (
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
                 Nessun campo corrispondente al filtro selezionato.

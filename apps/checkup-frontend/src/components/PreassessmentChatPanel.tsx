@@ -88,7 +88,7 @@ export function PreassessmentChatPanel({ preassessmentId, sectionId, sectionName
                     )}
                     <p className="whitespace-pre-wrap">{msg.messaggio}</p>
                     <p className={`mt-1 text-[10px] ${isOwn ? 'text-primary-200' : 'text-slate-400'}`}>
-                      {new Date(msg.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(msg.createdAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>
                 </div>

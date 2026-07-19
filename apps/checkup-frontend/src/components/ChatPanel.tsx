@@ -110,7 +110,10 @@ export function ChatPanel({ questionnaireId, sectionId, sectionName }: Props) {
                     )}
                     <p className="whitespace-pre-wrap">{msg.messaggio}</p>
                     <p className={`text-[10px] mt-1 ${isOwn ? 'text-primary-200' : 'text-gray-400'}`}>
-                      {new Date(msg.createdAt).toLocaleTimeString('it-IT', {
+                      {new Date(msg.createdAt).toLocaleString('it-IT', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
                       })}

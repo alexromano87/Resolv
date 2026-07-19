@@ -262,17 +262,15 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
   }, [hasPersonalNotificationsArea]);
 
   const markVisibleNotificationsRead = useCallback(async () => {
-    const ids = visibleNotifications.filter((item) => !item.readAt).map((item) => item.id);
-    if (ids.length === 0) return;
     if (isStaff) {
-      await meApi.markSystemNotificationsRead(ids);
+      await meApi.markAllSystemNotificationsRead();
       await loadSystemNotifications(true);
     } else {
-      await meApi.markNotificationsRead(ids);
+      await meApi.markAllNotificationsRead();
       await loadPersonalNotifications(true);
     }
     window.dispatchEvent(new Event('checkup-notifications-updated'));
-  }, [isStaff, loadPersonalNotifications, loadSystemNotifications, visibleNotifications]);
+  }, [isStaff, loadPersonalNotifications, loadSystemNotifications]);
 
   useEffect(() => {
     if (!isStaff) {
