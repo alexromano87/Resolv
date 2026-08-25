@@ -4,41 +4,36 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  DeleteDateColumn,
   ManyToOne,
-  OneToMany,
   JoinColumn,
+  Index,
 } from 'typeorm';
+import { CheckupUser } from '../users/checkup-user.entity';
+import type { CheckupUserRole } from '../users/checkup-user.entity';
 import { CheckupStudio } from '../studios/checkup-studio.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CheckupAnagraficaLicenziatario } from '../anagrafiche/checkup-anagrafica-licenziatario.entity';
-import { CheckupMembership } from '../memberships/checkup-membership.entity';
 
-export type CheckupUserRole = 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
-
-@Entity('checkup_users')
-export class CheckupUser {
+/**
+ * Appartenenza (membership): collega un'identità (CheckupUser, con email unica)
+ * a un contesto operativo (studio/cliente/sublicenza/anagrafica) con un ruolo.
+ *
+ * Un utente può avere più appartenenze attive contemporaneamente — es. la stessa
+ * persona può essere `collaboratore` di un sublicenziatario E `admin_studio` di un
+ * licenziatario diretto. Le colonne "legacy" su CheckupUser rappresentano
+ * l'appartenenza attiva/primaria (isPrimary=true) per retro-compatibilità.
+ */
+@Entity('checkup_memberships')
+@Index('IDX_checkup_memberships_user', ['userId'])
+@Index('IDX_checkup_memberships_studio', ['studioId'])
+@Index('IDX_checkup_memberships_client', ['clientId'])
+export class CheckupMembership {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
-  email: string;
-
-  @Column({ select: false })
-  password: string;
-
-  @Column({ length: 100 })
-  nome: string;
-
-  @Column({ length: 100 })
-  cognome: string;
-
-  @Column({ type: 'varchar', length: 50, nullable: true })
-  titolo: string | null;
-
-  @Column({ type: 'varchar', length: 30, nullable: true })
-  telefono: string | null;
+  @Column({ type: 'uuid' })
+  userId: string;
 
   @Column({
     type: 'enum',
@@ -71,29 +66,12 @@ export class CheckupUser {
   @Column({ type: 'boolean', default: false })
   superOwner: boolean;
 
-  @Column({ default: true })
-  attivo: boolean;
-
-  @Column({ default: true })
-  mustChangePassword: boolean;
-
-  @Column({ type: 'datetime', nullable: true })
-  lastLogin: Date | null;
-
+  /** Appartenenza attiva di default per l'utente (rispecchia le colonne legacy di CheckupUser). */
   @Column({ type: 'boolean', default: false })
-  twoFactorEnabled: boolean;
+  isPrimary: boolean;
 
-  @Column({ type: 'varchar', length: 10, nullable: true })
-  twoFactorChannel: string | null;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  twoFactorCode: string | null;
-
-  @Column({ type: 'timestamp', nullable: true })
-  twoFactorCodeExpires: Date | null;
-
-  @Column({ type: 'varchar', length: 50, nullable: true })
-  twoFactorCodePurpose: string | null;
+  @Column({ default: true })
+  attiva: boolean;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -101,14 +79,15 @@ export class CheckupUser {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @DeleteDateColumn({ nullable: true })
-  deletedAt: Date | null;
+  @ManyToOne(() => CheckupUser, (user) => user.memberships, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'userId' })
+  user: CheckupUser;
 
-  @ManyToOne(() => CheckupStudio, (studio) => studio.users, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => CheckupStudio, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'studioId' })
   studio: CheckupStudio | null;
 
-  @ManyToOne(() => CheckupClient, (client) => client.users, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => CheckupClient, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'clientId' })
   client: CheckupClient | null;
 
@@ -116,10 +95,7 @@ export class CheckupUser {
   @JoinColumn({ name: 'sublicenseId' })
   sublicense: CheckupSublicense | null;
 
-  @ManyToOne(() => CheckupAnagraficaLicenziatario, (anagrafica) => anagrafica.users, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => CheckupAnagraficaLicenziatario, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'anagraficaId' })
   anagrafica: CheckupAnagraficaLicenziatario | null;
-
-  @OneToMany(() => CheckupMembership, (membership) => membership.user)
-  memberships: CheckupMembership[];
 }

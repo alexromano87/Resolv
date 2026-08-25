@@ -1,4 +1,14 @@
-import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsIn, IsOptional, IsString, IsUUID, MinLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+/** Utenza esistente da importare nel nuovo studio come appartenenza + anagrafica. */
+export class ImportStudioUserDto {
+  @IsUUID()
+  userId: string;
+
+  @IsIn(['admin_studio', 'segreteria', 'collaboratore'])
+  ruolo: 'admin_studio' | 'segreteria' | 'collaboratore';
+}
 
 export class CreateCheckupStudioDto {
   @IsString()
@@ -64,4 +74,27 @@ export class CreateCheckupStudioDto {
   @IsOptional()
   @IsString()
   licenseId?: string;
+
+  // Fase 1 — riuso anagrafica: id dell'entità di origine da cui sono stati
+  // precompilati i dati societari. Se è uno studio, viene tracciato in linkedStudioId.
+  @IsOptional()
+  @IsString()
+  sourceStudioId?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceClientId?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceAnagraficaId?: string;
+
+  // Utenze esistenti (dell'azienda sorgente) da importare nel nuovo studio:
+  // per ciascuna viene creata un'appartenenza (stessa identità/credenziali) e
+  // un'anagrafica licenziatario collegata.
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ImportStudioUserDto)
+  importUsers?: ImportStudioUserDto[];
 }

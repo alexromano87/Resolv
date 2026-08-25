@@ -1,4 +1,4 @@
-import { api } from './config';
+import { api, ApiError } from './config';
 
 export interface CheckupStudio {
   id: string;
@@ -18,6 +18,7 @@ export interface CheckupStudio {
   logoUrl?: string | null;
   note?: string | null;
   attivo: boolean;
+  deletedAt?: string | null;
 }
 
 export interface CheckupAdminUser {
@@ -41,7 +42,21 @@ export interface CheckupAdminUser {
   macroAreaAssignments?: string[] | null;
   superOwner?: boolean;
   attivo: boolean;
+  deletedAt?: string | null;
   createdAt: string;
+  /** Appartenenze aggiuntive (utenze riusate/associate a più contesti). */
+  memberships?: {
+    id: string;
+    ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' | 'cliente';
+    studioId: string | null;
+    clientId: string | null;
+    anagraficaId: string | null;
+    attiva: boolean;
+    isPrimary: boolean;
+  }[];
+  /** Solo lato UI: id dell'appartenenza con cui l'utente compare nel contesto corrente
+   *  (valorizzato quando è presente tramite appartenenza aggiuntiva, non primaria). */
+  contextMembershipId?: string;
 }
 
 export interface CheckupLicense {
@@ -107,6 +122,7 @@ export interface CheckupAnagraficaLicenziatario {
   citta?: string | null;
   provincia?: string | null;
   attiva: boolean;
+  deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -128,6 +144,7 @@ export interface CheckupClient {
   logoUrl?: string | null;
   note?: string | null;
   attivo: boolean;
+  deletedAt?: string | null;
 }
 
 export interface CreateCheckupStudioDto {
@@ -147,6 +164,22 @@ export interface CreateCheckupStudioDto {
   sitoWeb?: string;
   logoUrl?: string;
   note?: string;
+  // Fase 1 — id dell'entità di origine da cui è stata riusata l'anagrafica.
+  sourceStudioId?: string;
+  sourceClientId?: string;
+  sourceAnagraficaId?: string;
+  // Utenze esistenti dell'azienda sorgente da importare (membership + anagrafica).
+  importUsers?: { userId: string; ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' }[];
+}
+
+/** Utenza riusabile associata a un'entità sorgente. */
+export interface ReusableUser {
+  userId: string;
+  nome: string;
+  cognome: string;
+  email: string;
+  ruolo: string;
+  ruoloLabel: string;
 }
 
 export interface UpdateCheckupStudioDto extends Partial<CreateCheckupStudioDto> {
@@ -179,7 +212,8 @@ export interface UpdateCheckupClientDto extends Partial<Omit<CreateCheckupClient
 
 export interface CreateCheckupAdminUserDto {
   email: string;
-  password: string;
+  /** Obbligatoria per una nuova utenza; omessa quando si associa un'utenza esistente. */
+  password?: string;
   nome: string;
   cognome: string;
   titolo?: string;
@@ -193,6 +227,33 @@ export interface CreateCheckupAdminUserDto {
   macroAreaOwner?: string[];
   macroAreaAssignments?: string[];
   superOwner?: boolean;
+  /** Riusa l'identità esistente con la stessa email creando una nuova appartenenza. */
+  associateExisting?: boolean;
+}
+
+/** Corpo dell'errore 409 quando l'email è già in uso ma è associabile. */
+export interface EmailExistsConflict {
+  code: 'EMAIL_EXISTS';
+  canAssociate: boolean;
+  /** True se l'utenza esistente risulta della stessa società (P.IVA/CF o collegamento). */
+  sameCompany?: boolean;
+  existingUser: { id: string; nome: string; cognome: string; email: string };
+  existingContexts?: { ruolo: string; ruoloLabel: string; companyName: string | null }[];
+  targetCompany?: { name: string | null; partitaIva: string | null; codiceFiscale: string | null };
+}
+
+/** Messaggio di conferma riuso utenza, in base al match di società. */
+export function buildAssociateMessage(c: EmailExistsConflict): string {
+  const eu = c.existingUser;
+  const contexts = (c.existingContexts ?? [])
+    .map((x) => `${x.ruoloLabel}${x.companyName ? ` presso ${x.companyName}` : ''}`)
+    .join(', ');
+  const dove = contexts ? ` (attualmente: ${contexts})` : '';
+  const targetName = c.targetCompany?.name ? ` "${c.targetCompany.name}"` : '';
+  if (c.sameCompany) {
+    return `Risulta la stessa società${targetName}. L'email ${eu.email} appartiene già a ${eu.nome} ${eu.cognome}${dove}. Vuoi riusare la stessa utenza assegnandole questo nuovo ruolo/contesto? Manterrà le proprie credenziali e potrà passare da un contesto all'altro.`;
+  }
+  return `⚠️ Attenzione: l'email ${eu.email} appartiene a ${eu.nome} ${eu.cognome}${dove}, che sembra un'altra società rispetto a${targetName || 'lla destinazione'}. Vuoi comunque riusare la stessa utenza assegnandole questo ruolo?`;
 }
 
 export interface UpdateCheckupAdminUserDto {
@@ -328,12 +389,28 @@ export interface CheckupDashboardStats {
 }
 
 export const checkupAdminApi = {
-  getStudios: async (): Promise<CheckupStudio[]> => {
-    return api.get<CheckupStudio[]>('/admin/checkup/studios');
+  getStudios: async (includeDeleted = false): Promise<CheckupStudio[]> => {
+    return api.get<CheckupStudio[]>(`/admin/checkup/studios${includeDeleted ? '?includeDeleted=true' : ''}`);
   },
 
   createStudio: async (dto: CreateCheckupStudioDto): Promise<CheckupStudio> => {
     return api.post<CheckupStudio>('/admin/checkup/studios', dto);
+  },
+
+  deleteStudio: async (id: string): Promise<{ success: true }> => {
+    return api.delete<{ success: true }>(`/admin/checkup/studios/${id}`);
+  },
+
+  restoreStudio: async (id: string): Promise<{ success: true }> => {
+    return api.post<{ success: true }>(`/admin/checkup/studios/${id}/restore`);
+  },
+
+  /** Utenze associate all'entità sorgente, per proporne l'import in creazione studio. */
+  getReusableUsers: async (params: { sourceClientId?: string; sourceStudioId?: string }): Promise<ReusableUser[]> => {
+    const q = new URLSearchParams();
+    if (params.sourceClientId) q.set('sourceClientId', params.sourceClientId);
+    if (params.sourceStudioId) q.set('sourceStudioId', params.sourceStudioId);
+    return api.get<ReusableUser[]>(`/admin/checkup/reusable-users?${q.toString()}`);
   },
 
   updateStudio: async (id: string, dto: UpdateCheckupStudioDto): Promise<CheckupStudio> => {
@@ -344,8 +421,16 @@ export const checkupAdminApi = {
     return api.patch<CheckupStudio>(`/admin/checkup/studios/${id}/deactivate`);
   },
 
-  getAdminUsers: async (): Promise<CheckupAdminUser[]> => {
-    return api.get<CheckupAdminUser[]>('/admin/checkup/users');
+  getAdminUsers: async (includeDeleted = false): Promise<CheckupAdminUser[]> => {
+    return api.get<CheckupAdminUser[]>(`/admin/checkup/users${includeDeleted ? '?includeDeleted=true' : ''}`);
+  },
+
+  deleteAdminUser: async (id: string): Promise<{ success: true }> => {
+    return api.delete<{ success: true }>(`/admin/checkup/users/${id}`);
+  },
+
+  restoreAdminUser: async (id: string): Promise<{ success: true }> => {
+    return api.post<{ success: true }>(`/admin/checkup/users/${id}/restore`);
   },
 
   getMacroAreasByModel: async (modelId: string) => {
@@ -366,16 +451,30 @@ export const checkupAdminApi = {
     return api.patch<CheckupAdminUser>(`/admin/checkup/users/${id}/deactivate`);
   },
 
+  /** Rimuove un'appartenenza (toglie un'utenza da un contesto) senza toccare l'identità. */
+  removeMembership: async (membershipId: string): Promise<{ success: true }> => {
+    return api.delete<{ success: true }>(`/admin/checkup/memberships/${membershipId}`);
+  },
+
   resetAdminPassword: async (id: string, newPassword: string): Promise<CheckupAdminUser> => {
     return api.put<CheckupAdminUser>(`/admin/checkup/users/${id}/reset-password`, { newPassword });
   },
 
-  getAnagraficheLicenziatario: async (params?: { search?: string; studioId?: string }): Promise<CheckupAnagraficaLicenziatario[]> => {
+  getAnagraficheLicenziatario: async (params?: { search?: string; studioId?: string; includeDeleted?: boolean }): Promise<CheckupAnagraficaLicenziatario[]> => {
     const search = new URLSearchParams();
     if (params?.search) search.set('search', params.search);
     if (params?.studioId) search.set('studioId', params.studioId);
+    if (params?.includeDeleted) search.set('includeDeleted', 'true');
     const suffix = search.toString() ? `?${search.toString()}` : '';
     return api.get<CheckupAnagraficaLicenziatario[]>(`/admin/checkup/anagrafiche-licenziatario${suffix}`);
+  },
+
+  deleteAnagraficaLicenziatario: async (id: string): Promise<{ success: true }> => {
+    return api.delete<{ success: true }>(`/admin/checkup/anagrafiche-licenziatario/${id}`);
+  },
+
+  restoreAnagraficaLicenziatario: async (id: string): Promise<{ success: true }> => {
+    return api.post<{ success: true }>(`/admin/checkup/anagrafiche-licenziatario/${id}/restore`);
   },
 
   createAnagraficaLicenziatario: async (
@@ -391,8 +490,16 @@ export const checkupAdminApi = {
     return api.put<CheckupAnagraficaLicenziatario>(`/admin/checkup/anagrafiche-licenziatario/${id}`, dto);
   },
 
-  getClients: async (): Promise<CheckupClient[]> => {
-    return api.get<CheckupClient[]>('/admin/checkup/clients');
+  getClients: async (includeDeleted = false): Promise<CheckupClient[]> => {
+    return api.get<CheckupClient[]>(`/admin/checkup/clients${includeDeleted ? '?includeDeleted=true' : ''}`);
+  },
+
+  deleteClient: async (id: string): Promise<{ success: true }> => {
+    return api.delete<{ success: true }>(`/admin/checkup/clients/${id}`);
+  },
+
+  restoreClient: async (id: string): Promise<{ success: true }> => {
+    return api.post<{ success: true }>(`/admin/checkup/clients/${id}/restore`);
   },
 
   createClient: async (dto: CreateCheckupClientDto): Promise<CheckupClient> => {
@@ -443,3 +550,26 @@ export const checkupAdminApi = {
     return api.get<CheckupDashboardStats>('/admin/checkup/dashboard');
   },
 };
+
+/**
+ * Crea un'utenza; se l'email è già in uso ed è associabile, chiede conferma via
+ * `confirmAssociate` e — se accettato — riusa l'identità esistente creando una
+ * nuova appartenenza (associateExisting). Ritorna `null` se l'utente annulla.
+ */
+export async function createAdminUserOrAssociate(
+  dto: CreateCheckupAdminUserDto,
+  confirmAssociate: (conflict: EmailExistsConflict) => Promise<boolean>,
+): Promise<CheckupAdminUser | null> {
+  try {
+    return await checkupAdminApi.createAdminUser(dto);
+  } catch (err) {
+    const data = err instanceof ApiError ? (err.data as EmailExistsConflict | undefined) : undefined;
+    if (data?.code === 'EMAIL_EXISTS' && data.canAssociate) {
+      const ok = await confirmAssociate(data);
+      if (!ok) return null;
+      const { password: _pw, ...rest } = dto;
+      return checkupAdminApi.createAdminUser({ ...rest, associateExisting: true });
+    }
+    throw err;
+  }
+}

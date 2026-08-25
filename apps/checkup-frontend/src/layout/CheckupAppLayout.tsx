@@ -8,6 +8,7 @@ import { useStudio } from '../contexts/StudioContext';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
 import { meApi, type PersonalNotificationItem, type SystemNotificationItem } from '../api/me';
 import { preassessmentApi, threadsUnreadApi, preassessmentAlertApi, preassessmentStaffChatApi, type PreassessmentClientEntry } from '../api/preassessment';
+import { ContextSwitcher } from '../components/ContextSwitcher';
 import { ToastNotification, type AlertToast } from '../components/ui/ToastNotification';
 import { ActivityToastNotification, type ActivityToast } from '../components/ui/ActivityToastNotification';
 
@@ -1680,6 +1681,7 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                   )}
                 </div>
               )}
+              <ContextSwitcher />
               <div className="flex items-center gap-3 rounded-2xl border border-indigo-200/60 bg-white/85 px-3 py-2 text-xs shadow-[0_16px_46px_rgba(10,16,32,0.16)]">
                 <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-800 via-indigo-600 to-blue-500 text-[11px] font-semibold text-white">
                   {initials}

@@ -13,6 +13,7 @@ import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CheckupMailService } from '../mail/checkup-mail.service';
 import { CheckupPreassessment } from '../preassessment/checkup-preassessment.entity';
 import { QuestionManagementService } from '../services/question-management.service';
+import { CheckupMembershipsService, MembershipContext } from '../memberships/checkup-memberships.service';
 
 @Injectable()
 export class CheckupUsersService {
@@ -59,6 +60,7 @@ export class CheckupUsersService {
     private preassessmentRepository: Repository<CheckupPreassessment>,
     private readonly mailService: CheckupMailService,
     private readonly questionManagementService: QuestionManagementService,
+    private readonly membershipsService: CheckupMembershipsService,
   ) {}
 
   private isStudioStaff(currentUser: CheckupCurrentUserData) {
@@ -283,12 +285,43 @@ export class CheckupUsersService {
     return sublicenses[0];
   }
 
+  /** Dati della società di destinazione per il match "stessa società" nel conflitto email. */
+  private async resolveConflictTarget(dto: CreateCheckupUserDto, currentUser: CheckupCurrentUserData) {
+    if (dto.ruolo === 'cliente' && dto.clientId?.trim()) {
+      const c = await this.clientRepository.findOne({ where: { id: dto.clientId.trim() } });
+      return {
+        ragioneSociale: c?.ragioneSociale || c?.nome || null,
+        partitaIva: c?.partitaIva ?? null,
+        codiceFiscale: c?.codiceFiscale ?? null,
+      };
+    }
+    if (currentUser.studioId) {
+      const s = await this.studioRepository.findOne({ where: { id: currentUser.studioId } });
+      return {
+        studioId: s?.id ?? null,
+        ragioneSociale: s?.ragioneSociale || s?.nome || null,
+        partitaIva: s?.partitaIva ?? null,
+        codiceFiscale: s?.codiceFiscale ?? null,
+        linkedStudioId: s?.linkedStudioId ?? null,
+      };
+    }
+    return {};
+  }
+
   async create(dto: CreateCheckupUserDto, currentUser: CheckupCurrentUserData): Promise<CheckupUser> {
     const email = dto.email.toLowerCase().trim();
 
     const existing = await this.userRepository.findOne({ where: { email } });
-    if (existing) {
-      throw new ConflictException('Email già in uso');
+    if (existing && !dto.associateExisting) {
+      // L'identità esiste già: invece di bloccare, segnaliamo al client che si può
+      // riutilizzare l'utenza esistente associandola a questo nuovo contesto/ruolo
+      // (es. stesso collaboratore di un sublicenziatario reso admin del licenziatario).
+      // Arricchiamo con i contesti esistenti e il match di società (P.IVA/CF/link).
+      const target = await this.resolveConflictTarget(dto, currentUser);
+      throw new ConflictException(await this.membershipsService.buildEmailConflict(existing, target));
+    }
+    if (existing && !existing.attivo) {
+      throw new ConflictException('L\'utenza esistente è disattivata: riattivala prima di associarla');
     }
 
     const isClient = dto.ruolo === 'cliente';
@@ -329,9 +362,7 @@ export class CheckupUsersService {
         await this.ensureUniqueSuperOwner(clientId);
       }
       maxUsers = sublicense.numeroUtenze;
-      const activeCount = await this.userRepository.count({
-        where: { sublicenseId: sublicense.id, attivo: true },
-      });
+      const activeCount = await this.membershipsService.countClientSeats(sublicense.id);
       if (maxUsers !== null && activeCount >= maxUsers) {
         throw new ConflictException('Limite utenti raggiunto per questo cliente');
       }
@@ -345,15 +376,40 @@ export class CheckupUsersService {
       }
       maxUsers = await this.getLicenseMaxUsers(targetStudioId);
       if (maxUsers !== null) {
-        const activeCount = await this.userRepository.count({
-          where: { studioId: targetStudioId, attivo: true },
-        });
+        const activeCount = await this.membershipsService.countStudioSeats(targetStudioId);
         if (activeCount >= maxUsers) {
           throw new ConflictException('Limite utenti raggiunto per questo studio');
         }
       }
     }
 
+    // Contesto (appartenenza) da assegnare in questa creazione/associazione.
+    const context: MembershipContext = {
+      ruolo: dto.ruolo,
+      studioId: isClient ? null : targetStudioId,
+      clientId: isClient ? clientId : null,
+      sublicenseId: isClient ? resolvedSublicenseId : null,
+      anagraficaId: dto.anagraficaId?.trim() || null,
+      azienda: dto.azienda || null,
+      macroAreaOwner: isClient ? this.normalizeMacroList(dto.macroAreaOwner) : null,
+      macroAreaAssignments: isClient ? this.normalizeMacroList(dto.macroAreaAssignments) : null,
+      superOwner: isClient ? Boolean(dto.superOwner) : false,
+    };
+
+    // ── Ramo "associa utenza esistente" ───────────────────────────────────────
+    // Riusa la stessa identità (stessa email/login) aggiungendo una nuova
+    // appartenenza, senza toccare password/anagrafica dell'utente esistente.
+    if (existing) {
+      await this.membershipsService.createForUser(existing.id, context, { isPrimary: false });
+      if (isClient && clientId) {
+        await this.updateMacroOwnerData(clientId, this.normalizeMacroList(dto.macroAreaOwner), existing);
+      }
+      return existing;
+    }
+
+    if (!dto.password) {
+      throw new BadRequestException('Password obbligatoria per una nuova utenza');
+    }
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
     const user = this.userRepository.create({
@@ -367,6 +423,7 @@ export class CheckupUsersService {
       studioId: isClient ? null : targetStudioId,
       clientId: isClient ? clientId : null,
       sublicenseId: isClient ? resolvedSublicenseId : null,
+      anagraficaId: dto.anagraficaId?.trim() || null,
       azienda: dto.azienda || null,
       macroAreaOwner: isClient ? this.normalizeMacroList(dto.macroAreaOwner) : null,
       macroAreaAssignments: isClient ? this.normalizeMacroList(dto.macroAreaAssignments) : null,
@@ -375,6 +432,8 @@ export class CheckupUsersService {
     });
 
     const saved = await this.userRepository.save(user);
+    // Appartenenza primaria (rispecchia le colonne legacy dell'utente).
+    await this.membershipsService.createForUser(saved.id, context, { isPrimary: true });
     if (isClient && clientId) {
       await this.updateMacroOwnerData(clientId, this.normalizeMacroList(dto.macroAreaOwner), saved);
     }
@@ -418,6 +477,19 @@ export class CheckupUsersService {
         if (clientIds.length) {
           sub.orWhere('u.clientId IN (:...clientIds)', { clientIds });
         }
+        // Include anche le identità "associate" a questo contesto tramite
+        // un'appartenenza aggiuntiva (la riga utente punta al contesto primario).
+        sub.orWhere(
+          `EXISTS (
+            SELECT 1 FROM checkup_memberships m
+            WHERE m.userId = u.id AND m.attiva = 1
+              AND (m.studioId = :mStudioId${clientIds.length ? ' OR m.clientId IN (:...mClientIds)' : ''})
+          )`,
+          {
+            mStudioId: currentUser.studioId,
+            ...(clientIds.length ? { mClientIds: clientIds } : {}),
+          },
+        );
       }));
 
     if (!includeInactive) {
@@ -441,9 +513,33 @@ export class CheckupUsersService {
       }));
     }
 
-    return qb.orderBy('u.cognome', 'ASC')
+    const users = await qb.orderBy('u.cognome', 'ASC')
       .addOrderBy('u.nome', 'ASC')
       .getMany();
+
+    // Overlay del ruolo/contesto specifico dell'appartenenza in questo studio,
+    // così un'utenza associata mostra il ruolo corretto qui (non quello primario).
+    const contextMap = await this.membershipsService.mapActiveInContext(
+      currentUser.studioId,
+      clientIds,
+    );
+    for (const u of users) {
+      const m = contextMap.get(u.id);
+      if (m && (u.studioId !== currentUser.studioId || (m.clientId && u.clientId !== m.clientId))) {
+        u.ruolo = m.ruolo;
+        u.studioId = m.studioId;
+        u.clientId = m.clientId;
+        u.sublicenseId = m.sublicenseId;
+        u.macroAreaOwner = m.macroAreaOwner;
+        u.macroAreaAssignments = m.macroAreaAssignments;
+        u.superOwner = m.superOwner;
+        u.studio = m.studio ?? u.studio;
+        u.client = m.client ?? u.client;
+        u.sublicense = m.sublicense ?? u.sublicense;
+      }
+    }
+
+    return users;
   }
 
   async findOne(id: string, currentUser: CheckupCurrentUserData, includeInactive = false): Promise<CheckupUser> {
@@ -581,6 +677,8 @@ export class CheckupUsersService {
 
     Object.assign(user, updates);
     const saved = await this.userRepository.save(user);
+    // Mantiene allineata l'appartenenza primaria alle colonne legacy dell'utente.
+    await this.membershipsService.syncPrimary(saved);
 
     if (nextRole === 'cliente' && nextClientId) {
       const removed = prevMacroOwner.filter((macro) => !nextMacroOwner.includes(macro));
@@ -633,7 +731,9 @@ export class CheckupUsersService {
   async deactivate(id: string, currentUser: CheckupCurrentUserData): Promise<CheckupUser> {
     const user = await this.findOne(id, currentUser);
     user.attivo = false;
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+    await this.membershipsService.syncPrimary(saved);
+    return saved;
   }
 
   async resetPassword(id: string, newPassword: string, currentUser: CheckupCurrentUserData): Promise<CheckupUser> {
@@ -656,26 +756,17 @@ export class CheckupUsersService {
         })
       : [];
 
-    const clientIds = sublicenses.map((s) => s.clientId!).filter(Boolean);
-    const studioCount = await this.userRepository.count({
-      where: { studioId: currentUser.studioId, attivo: true },
-    });
+    // Conteggio posti coerente con l'enforcement (appartenenze attive, non righe utente):
+    // un'utenza riusata occupa un posto in ogni contesto in cui è associata.
+    const studioCount = await this.membershipsService.countStudioSeats(currentUser.studioId);
 
-    const clientCounts = clientIds.length
-      ? await this.userRepository
-          .createQueryBuilder('u')
-          .select('u.clientId', 'clientId')
-          .addSelect('COUNT(*)', 'count')
-          .where('u.attivo = :attivo', { attivo: true })
-          .andWhere('u.clientId IN (:...clientIds)', { clientIds })
-          .groupBy('u.clientId')
-          .getRawMany()
-      : [];
-
-    const countsMap = clientCounts.reduce<Record<string, number>>((acc, row) => {
-      acc[row.clientId] = Number(row.count) || 0;
-      return acc;
-    }, {});
+    const clients = await Promise.all(
+      sublicenses.map(async (s) => ({
+        clientId: s.clientId,
+        maxUsers: s.numeroUtenze,
+        activeUsers: await this.membershipsService.countClientSeats(s.id),
+      })),
+    );
 
     return {
       license: {
@@ -683,11 +774,7 @@ export class CheckupUsersService {
         maxUsers: licenseMax,
         activeUsers: studioCount || 0,
       },
-      clients: sublicenses.map((s) => ({
-        clientId: s.clientId,
-        maxUsers: s.numeroUtenze,
-        activeUsers: countsMap[s.clientId || ''] || 0,
-      })),
+      clients,
     };
   }
 }

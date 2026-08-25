@@ -7,6 +7,7 @@ import { CheckupAuthService } from './checkup-auth.service';
 import { CheckupUser } from '../users/checkup-user.entity';
 import { CacheService } from '../../common/cache.service';
 import { EmailService } from '../../notifications/email.service';
+import { CheckupMembershipsService } from '../memberships/checkup-memberships.service';
 
 // Mock bcrypt a livello modulo per evitare il problema di "configurable: false"
 jest.mock('bcrypt', () => ({
@@ -67,7 +68,7 @@ describe('CheckupAuthService', () => {
   let service: CheckupAuthService;
   let userRepository: { createQueryBuilder: jest.Mock; save: jest.Mock; update: jest.Mock };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
-  let cacheService: { get: jest.Mock; set: jest.Mock };
+  let cacheService: { get: jest.Mock; set: jest.Mock; del: jest.Mock; increment: jest.Mock };
   let emailService: { sendEmail: jest.Mock };
   let configService: { get: jest.Mock };
 
@@ -94,6 +95,8 @@ describe('CheckupAuthService', () => {
     cacheService = {
       get: jest.fn().mockResolvedValue(null),   // non in blacklist per default
       set: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
+      increment: jest.fn().mockResolvedValue(1),
     };
 
     emailService = {
@@ -107,6 +110,13 @@ describe('CheckupAuthService', () => {
       }),
     };
 
+    const membershipsService = {
+      resolveActive: jest.fn().mockResolvedValue(null),
+      applyToUser: jest.fn((u: any) => u),
+      listForUser: jest.fn().mockResolvedValue([]),
+      assertOwnedByUser: jest.fn().mockResolvedValue({ id: 'mem-1' }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CheckupAuthService,
@@ -115,6 +125,7 @@ describe('CheckupAuthService', () => {
         { provide: ConfigService, useValue: configService },
         { provide: CacheService, useValue: cacheService },
         { provide: EmailService, useValue: emailService },
+        { provide: CheckupMembershipsService, useValue: membershipsService },
       ],
     }).compile();
 

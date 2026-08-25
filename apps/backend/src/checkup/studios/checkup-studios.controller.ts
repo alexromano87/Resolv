@@ -9,6 +9,7 @@ import { CheckupStudiosService } from './checkup-studios.service';
 import { UpdateCheckupStudioDto } from './dto/update-checkup-studio.dto';
 import { CreateCheckupClientDto } from './dto/create-checkup-client.dto';
 import { UpdateCheckupClientDto } from './dto/update-checkup-client.dto';
+import { CreateLicenseeFromSourceDto } from './dto/create-licensee-from-source.dto';
 
 @Controller('checkup/studios')
 @UseGuards(CheckupJwtAuthGuard)
@@ -33,6 +34,20 @@ export class CheckupStudiosController {
   @UseGuards(CheckupSuperadminGuard)
   listClientStudios(@CheckupCurrentUser() user: CheckupCurrentUserData) {
     return this.studiosService.listClientStudios(user);
+  }
+
+  /** Fase 1 — sorgenti anagrafiche riusabili per creare un nuovo licenziatario. */
+  @Get('reusable-sources')
+  @UseGuards(CheckupSuperadminGuard)
+  listReusableSources() {
+    return this.studiosService.listReusableSources();
+  }
+
+  /** Fase 1 — crea un licenziatario riusando l'anagrafica di una sorgente esistente. */
+  @Post('licensee-from-source')
+  @UseGuards(CheckupSuperadminGuard)
+  createLicenseeFromSource(@Body() dto: CreateLicenseeFromSourceDto) {
+    return this.studiosService.createLicenseeFromSource(dto);
   }
 
   @Get('sublicenses')

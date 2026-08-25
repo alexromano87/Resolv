@@ -26,7 +26,6 @@ import {
   ChevronRight,
   KeyRound,
   Layers,
-  SlidersHorizontal,
 } from 'lucide-react';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -122,7 +121,6 @@ const adminCheckupNavSections: Array<{ title: string; items: NavItem[] }> = [
       { path: '/admin/checkup-users', label: 'Gestione utenti', icon: Users },
       { path: '/admin/checkup-models', label: 'Gestione modelli', icon: Layers },
       { path: '/admin/checkup-questions', label: 'Gestione domande', icon: FileText },
-      { path: '/admin/checkup-pdf-config', label: 'Configurazione PDF', icon: SlidersHorizontal },
     ],
   },
   {
@@ -205,8 +203,6 @@ export function AppLayout({ children }: AppLayoutProps) {
     pageTitle = 'Gestione modelli checkup';
   } else if (location.pathname === '/admin/checkup-questions') {
     pageTitle = 'Gestione domande checkup';
-  } else if (location.pathname === '/admin/checkup-pdf-config') {
-    pageTitle = 'Configurazione PDF report';
   } else if (location.pathname === '/admin/checkup-dashboard') {
     pageTitle = 'Dashboard pre-assessment';
   } else if (location.pathname === '/admin/checkup-audit-logs') {

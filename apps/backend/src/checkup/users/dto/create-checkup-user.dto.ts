@@ -5,10 +5,12 @@ export class CreateCheckupUserDto {
   @IsNotEmpty()
   email: string;
 
+  // Password richiesta per i nuovi utenti; opzionale quando si associa
+  // un'utenza già esistente (associateExisting=true), che mantiene la propria.
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MinLength(12)
-  password: string;
+  password?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -62,4 +64,10 @@ export class CreateCheckupUserDto {
   @IsOptional()
   @IsBoolean()
   superOwner?: boolean;
+
+  // Se true e l'email corrisponde a un utente esistente, riusa quell'identità
+  // creando una nuova appartenenza (ruolo/contesto) invece di una nuova utenza.
+  @IsOptional()
+  @IsBoolean()
+  associateExisting?: boolean;
 }

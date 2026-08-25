@@ -9,6 +9,7 @@ import {
   CheckupTwoFactorVerifyDto,
 } from './dto/checkup-two-factor.dto';
 import { CheckupPasswordResetRequestDto, CheckupPasswordResetConfirmDto } from './dto/checkup-password-reset.dto';
+import { CheckupSwitchContextDto } from './dto/checkup-switch-context.dto';
 import { CheckupJwtAuthGuard } from './checkup-jwt-auth.guard';
 import { CheckupCurrentUser } from './checkup-current-user.decorator';
 import type { CheckupCurrentUserData } from './checkup-current-user.decorator';
@@ -91,7 +92,22 @@ export class CheckupAuthController {
   @UseGuards(CheckupJwtAuthGuard)
   @Get('profile')
   getProfile(@CheckupCurrentUser() user: CheckupCurrentUserData) {
-    return this.authService.getProfile(user.id);
+    const activeMembershipId = (user as CheckupCurrentUserData & { activeMembershipId?: string | null }).activeMembershipId;
+    return this.authService.getProfile(user.id, activeMembershipId);
+  }
+
+  /** Cambia il contesto attivo (appartenenza) e riemette i token di sessione. */
+  @UseGuards(CheckupJwtAuthGuard)
+  @Post('switch-context')
+  async switchContext(
+    @CheckupCurrentUser() user: CheckupCurrentUserData,
+    @Body() dto: CheckupSwitchContextDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.switchContext(user.id, dto.membershipId);
+    this.setRefreshCookie(res, result.refresh_token);
+    const { refresh_token, ...body } = result;
+    return body;
   }
 
   @UseGuards(CheckupJwtAuthGuard)

@@ -49,10 +49,33 @@ export interface CheckupUser {
   } | null;
 }
 
+export interface MembershipSummary {
+  id: string;
+  ruolo: string;
+  isPrimary: boolean;
+  attiva: boolean;
+  studioId: string | null;
+  studioNome: string | null;
+  studioTipo: string | null;
+  clientId: string | null;
+  clientNome: string | null;
+  anagraficaId: string | null;
+  anagraficaNome: string | null;
+  label: string;
+}
+
 export interface LoginResponse {
   access_token: string;
   user: CheckupUser;
+  activeMembershipId?: string | null;
+  memberships?: MembershipSummary[];
 }
+
+/** Profilo esteso con il contesto attivo e la lista appartenenze. */
+export type ProfileResponse = CheckupUser & {
+  activeMembershipId?: string | null;
+  memberships?: MembershipSummary[];
+};
 
 export interface RefreshResponse {
   access_token: string;
@@ -99,7 +122,11 @@ export const authApi = {
     api.post<LoginResponse>('/checkup/auth/change-password', { currentPassword, newPassword }, { credentials: 'include' }),
 
   getProfile: () =>
-    api.get<CheckupUser>('/checkup/auth/profile'),
+    api.get<ProfileResponse>('/checkup/auth/profile'),
+
+  /** Cambia il contesto attivo (appartenenza) e riemette i token di sessione. */
+  switchContext: (membershipId: string) =>
+    api.post<LoginResponse>('/checkup/auth/switch-context', { membershipId }, { credentials: 'include' }),
 
   requestPasswordReset: (dto: PasswordResetRequestDto) =>
     api.post('/checkup/auth/password-reset/request', dto, { skipAuthRedirect: true }),

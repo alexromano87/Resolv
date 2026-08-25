@@ -23,6 +23,7 @@ import { QuestionField } from '../checkup/entities/question-field.entity';
 import { QuestionModel } from '../checkup/entities/question-model.entity';
 import { QuestionManagementService } from '../checkup/services/question-management.service';
 import { CheckupPdfConfig } from '../checkup/entities/checkup-pdf-config.entity';
+import { CheckupMembershipsService, MembershipContext } from '../checkup/memberships/checkup-memberships.service';
 import { PdfConfigDto } from '../checkup/dto/pdf-config.dto';
 import { DEFAULT_PDF_CONFIG } from '../checkup/pdf-config/checkup-pdf-config.service';
 import { CheckupPreassessmentRenderService } from '../checkup/preassessment/checkup-preassessment-render.service';
@@ -70,6 +71,7 @@ export class CheckupAdminController {
     private pdfConfigRepository: Repository<CheckupPdfConfig>,
     private questionManagementService: QuestionManagementService,
     private renderService: CheckupPreassessmentRenderService,
+    private membershipsService: CheckupMembershipsService,
   ) {}
 
   private static OWNER_FIELDS_BY_MACRO: Record<string, { name: string; role: string; email: string }> = {
@@ -519,8 +521,8 @@ export class CheckupAdminController {
   }
 
   @Get('studios')
-  async listStudios(): Promise<CheckupStudio[]> {
-    return this.studioRepository.find({ order: { nome: 'ASC' } });
+  async listStudios(@Query('includeDeleted') includeDeleted?: string): Promise<CheckupStudio[]> {
+    return this.studioRepository.find({ order: { nome: 'ASC' }, withDeleted: includeDeleted === 'true' });
   }
 
   @Post('studios')
@@ -559,6 +561,8 @@ export class CheckupAdminController {
       sitoWeb: dto.sitoWeb?.trim() || null,
       logoUrl: dto.logoUrl?.trim() || null,
       note: dto.note?.trim() || null,
+      // Fase 1 — traccia lo studio di origine quando i dati sono stati riusati.
+      linkedStudioId: dto.sourceStudioId?.trim() || null,
       attivo: true,
     });
     const savedStudio = await this.studioRepository.save(studio);
@@ -571,7 +575,55 @@ export class CheckupAdminController {
       await this.licenseRepository.save(pendingLicense);
     }
 
+    // Import utenze esistenti: per ciascuna crea un'anagrafica licenziatario sotto
+    // il nuovo studio e un'appartenenza (stessa identità/credenziali, nuovo ruolo).
+    if (dto.importUsers?.length && (dto.tipo ?? 'licenziatario') === 'licenziatario') {
+      for (const imp of dto.importUsers) {
+        const u = await this.userRepository.findOne({ where: { id: imp.userId } });
+        if (!u || !u.attivo) continue;
+        const anagrafica = await this.anagraficaRepository.save(
+          this.anagraficaRepository.create({
+            studioId: savedStudio.id,
+            titolo: u.titolo ?? null,
+            nome: u.nome,
+            cognome: u.cognome,
+            email: u.email ?? null,
+            telefono: u.telefono ?? null,
+            attiva: true,
+          }),
+        );
+        try {
+          await this.membershipsService.createForUser(
+            u.id,
+            { ruolo: imp.ruolo, studioId: savedStudio.id, anagraficaId: anagrafica.id, azienda: savedStudio.ragioneSociale || savedStudio.nome },
+            { isPrimary: false },
+          );
+        } catch {
+          // Appartenenza già presente per questo utente in questo studio: ignora.
+        }
+      }
+    }
+
     return savedStudio;
+  }
+
+  /** Rimuove un'appartenenza (toglie un'utenza da un contesto) senza toccare l'identità. */
+  @Delete('memberships/:id')
+  async removeMembership(@Param('id') id: string): Promise<{ success: true }> {
+    await this.membershipsService.removeMembership(id);
+    return { success: true };
+  }
+
+  /** Utenze associate a un'entità (cliente/sublicenziatario o studio), per l'import in fase di creazione studio. */
+  @Get('reusable-users')
+  async listReusableUsers(
+    @Query('sourceClientId') sourceClientId?: string,
+    @Query('sourceStudioId') sourceStudioId?: string,
+  ) {
+    return this.membershipsService.listUsersForEntity({
+      clientId: sourceClientId?.trim() || null,
+      studioId: sourceStudioId?.trim() || null,
+    });
   }
 
   @Put('studios/:id')
@@ -689,6 +741,24 @@ export class CheckupAdminController {
     return this.studioRepository.save(studio);
   }
 
+  /** Eliminazione soft (reversibile) di uno studio. */
+  @Delete('studios/:id')
+  async deleteStudio(@Param('id') id: string): Promise<{ success: true }> {
+    const studio = await this.studioRepository.findOne({ where: { id } });
+    if (!studio) {
+      throw new NotFoundException('Studio non trovato');
+    }
+    await this.studioRepository.softRemove(studio);
+    return { success: true };
+  }
+
+  /** Ripristino di uno studio eliminato (soft). */
+  @Post('studios/:id/restore')
+  async restoreStudio(@Param('id') id: string): Promise<{ success: true }> {
+    await this.studioRepository.restore(id);
+    return { success: true };
+  }
+
   private isExpired(dateValue?: string | null) {
     if (!dateValue) return false;
     const today = new Date().toISOString().slice(0, 10);
@@ -698,9 +768,10 @@ export class CheckupAdminController {
   private async ensureStudioCapacity(studioId: string, excludeUserId?: string) {
     const license = await this.licenseRepository.findOne({ where: { studioId } });
     if (!license) return;
-    const where: any = { studioId, attivo: true };
-    if (excludeUserId) where.id = Not(excludeUserId);
-    const activeCount = await this.userRepository.count({ where });
+    // Conteggio per appartenenze (seat): un'utenza riusata occupa un posto in ogni contesto.
+    const activeCount = excludeUserId
+      ? await this.userRepository.count({ where: { studioId, attivo: true, id: Not(excludeUserId) } })
+      : await this.membershipsService.countStudioSeats(studioId);
     if (activeCount >= license.numeroUtenze) {
       throw new ConflictException('Limite utenti licenza raggiunto');
     }
@@ -759,19 +830,23 @@ export class CheckupAdminController {
       throw new ConflictException('La sublicenza è scaduta');
     }
 
-    const where: any = { sublicenseId, attivo: true };
-    if (excludeUserId) where.id = Not(excludeUserId);
-    const activeCount = await this.userRepository.count({ where });
+    const activeCount = excludeUserId
+      ? await this.userRepository.count({ where: { sublicenseId, attivo: true, id: Not(excludeUserId) } })
+      : await this.membershipsService.countClientSeats(sublicenseId);
     if (activeCount >= sublicense.numeroUtenze) {
       throw new ConflictException('Limite utenti sublicenza raggiunto');
     }
   }
 
   @Get('users')
-  async listUsers(): Promise<CheckupUser[]> {
+  async listUsers(@Query('includeDeleted') includeDeleted?: string): Promise<CheckupUser[]> {
     return this.userRepository.find({
-      relations: ['studio', 'client', 'sublicense', 'sublicense.license', 'anagrafica'],
+      // `memberships` include le appartenenze aggiuntive (utenze riusate/associate),
+      // così le liste per-studio possono mostrare anche gli utenti il cui contesto
+      // primario è un'altra entità.
+      relations: ['studio', 'client', 'sublicense', 'sublicense.license', 'anagrafica', 'memberships'],
       order: { createdAt: 'DESC' },
+      withDeleted: includeDeleted === 'true',
     });
   }
 
@@ -779,12 +854,18 @@ export class CheckupAdminController {
   async listAnagrafiche(
     @Query('search') search?: string,
     @Query('studioId') studioId?: string,
+    @Query('includeDeleted') includeDeleted?: string,
   ): Promise<CheckupAnagraficaLicenziatario[]> {
     const qb = this.anagraficaRepository
       .createQueryBuilder('a')
       .leftJoinAndSelect('a.studio', 'studio')
       .leftJoinAndSelect('a.users', 'users')
       .where('a.attiva = :attiva', { attiva: true });
+
+    // Include anche le anagrafiche eliminate (soft) per la vista "mostra eliminati".
+    if (includeDeleted === 'true') {
+      qb.withDeleted();
+    }
 
     if (studioId) {
       qb.andWhere('a.studioId = :studioId', { studioId });
@@ -873,12 +954,46 @@ export class CheckupAdminController {
     return this.anagraficaRepository.save(anagrafica);
   }
 
+  /** Eliminazione soft (reversibile) di un'anagrafica licenziatario. */
+  @Delete('anagrafiche-licenziatario/:id')
+  async deleteAnagrafica(@Param('id') id: string): Promise<{ success: true }> {
+    const anagrafica = await this.anagraficaRepository.findOne({ where: { id } });
+    if (!anagrafica) {
+      throw new NotFoundException('Anagrafica non trovata');
+    }
+    await this.anagraficaRepository.softRemove(anagrafica);
+    return { success: true };
+  }
+
+  /** Ripristino di un'anagrafica eliminata (soft). */
+  @Post('anagrafiche-licenziatario/:id/restore')
+  async restoreAnagrafica(@Param('id') id: string): Promise<{ success: true }> {
+    await this.anagraficaRepository.restore(id);
+    return { success: true };
+  }
+
   @Post('users')
   async createUser(@Body() dto: CreateCheckupUserDto): Promise<CheckupUser> {
     const email = dto.email.toLowerCase().trim();
     const existing = await this.userRepository.findOne({ where: { email } });
-    if (existing) {
-      throw new ConflictException('Email già in uso');
+    if (existing && !dto.associateExisting) {
+      // Identità già presente: proponi il riuso (nuova appartenenza) invece di bloccare,
+      // arricchito con i contesti esistenti e il match di società (P.IVA/CF/link).
+      let target: {
+        studioId?: string | null; ragioneSociale?: string | null;
+        partitaIva?: string | null; codiceFiscale?: string | null; linkedStudioId?: string | null;
+      } = {};
+      if (dto.ruolo === 'cliente' && dto.clientId) {
+        const c = await this.clientRepository.findOne({ where: { id: dto.clientId } });
+        target = { ragioneSociale: c?.ragioneSociale || c?.nome || null, partitaIva: c?.partitaIva ?? null, codiceFiscale: c?.codiceFiscale ?? null };
+      } else if (dto.studioId) {
+        const s = await this.studioRepository.findOne({ where: { id: dto.studioId } });
+        target = { studioId: s?.id ?? null, ragioneSociale: s?.ragioneSociale || s?.nome || null, partitaIva: s?.partitaIva ?? null, codiceFiscale: s?.codiceFiscale ?? null, linkedStudioId: s?.linkedStudioId ?? null };
+      }
+      throw new ConflictException(await this.membershipsService.buildEmailConflict(existing, target));
+    }
+    if (existing && !existing.attivo) {
+      throw new ConflictException('L\'utenza esistente è disattivata: riattivala prima di associarla');
     }
 
     let resolvedSublicenseId: string | null = null;
@@ -927,6 +1042,32 @@ export class CheckupAdminController {
       await this.ensureStudioCapacity(dto.studioId);
     }
 
+    // Contesto (appartenenza) da assegnare in questa creazione/associazione.
+    const context: MembershipContext = {
+      ruolo: dto.ruolo,
+      studioId: dto.ruolo === 'cliente' ? null : dto.studioId ?? null,
+      clientId: dto.ruolo === 'cliente' ? dto.clientId ?? null : null,
+      sublicenseId: dto.ruolo === 'cliente' ? resolvedSublicenseId : null,
+      anagraficaId: dto.ruolo === 'cliente' ? null : resolvedAnagrafica?.id ?? null,
+      azienda: dto.azienda?.trim() || null,
+      macroAreaOwner: dto.ruolo === 'cliente' ? this.normalizeMacroOwnerList(dto.macroAreaOwner) : null,
+      macroAreaAssignments: dto.ruolo === 'cliente' ? this.normalizeMacroAssignmentList(dto.macroAreaAssignments) : null,
+      superOwner: dto.ruolo === 'cliente' ? Boolean(dto.superOwner) : false,
+    };
+
+    // Ramo "associa utenza esistente": riusa l'identità aggiungendo una nuova
+    // appartenenza, senza toccare password/anagrafica dell'utente esistente.
+    if (existing) {
+      await this.membershipsService.createForUser(existing.id, context, { isPrimary: false });
+      if (dto.ruolo === 'cliente' && dto.clientId) {
+        await this.updateMacroOwnerData(dto.clientId, this.normalizeMacroOwnerList(dto.macroAreaOwner), existing);
+      }
+      return existing;
+    }
+
+    if (!dto.password) {
+      throw new BadRequestException('Password obbligatoria per una nuova utenza');
+    }
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
     const user = this.userRepository.create({
@@ -950,6 +1091,8 @@ export class CheckupAdminController {
     });
 
     const saved = await this.userRepository.save(user);
+    // Appartenenza primaria (rispecchia le colonne legacy dell'utente).
+    await this.membershipsService.createForUser(saved.id, context, { isPrimary: true });
     if (dto.ruolo === 'cliente' && dto.clientId) {
       const macroOwners = this.normalizeMacroOwnerList(dto.macroAreaOwner);
       await this.updateMacroOwnerData(dto.clientId, macroOwners, saved);
@@ -1089,6 +1232,8 @@ export class CheckupAdminController {
     if (dto.attivo !== undefined) user.attivo = Boolean(dto.attivo);
 
     const saved = await this.userRepository.save(user);
+    // Mantiene allineata l'appartenenza primaria alle colonne legacy dell'utente.
+    await this.membershipsService.syncPrimary(saved);
 
     if (nextRole === 'cliente' && nextClientId) {
       const removed = prevMacroOwner.filter((m) => !nextMacroOwner.includes(m));
@@ -1146,7 +1291,27 @@ export class CheckupAdminController {
       throw new NotFoundException('Utente non trovato');
     }
     user.attivo = false;
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+    await this.membershipsService.syncPrimary(saved);
+    return saved;
+  }
+
+  /** Eliminazione soft (reversibile) di un'utenza (l'intera identità). */
+  @Delete('users/:id')
+  async deleteUser(@Param('id') id: string): Promise<{ success: true }> {
+    const user = await this.userRepository.findOne({ where: { id } });
+    if (!user) {
+      throw new NotFoundException('Utente non trovato');
+    }
+    await this.userRepository.softRemove(user);
+    return { success: true };
+  }
+
+  /** Ripristino di un'utenza eliminata (soft). */
+  @Post('users/:id/restore')
+  async restoreUser(@Param('id') id: string): Promise<{ success: true }> {
+    await this.userRepository.restore(id);
+    return { success: true };
   }
 
   @Put('users/:id/reset-password')
@@ -1164,8 +1329,8 @@ export class CheckupAdminController {
   }
 
   @Get('clients')
-  async listClients(): Promise<CheckupClient[]> {
-    return this.clientRepository.find({ order: { createdAt: 'DESC' } });
+  async listClients(@Query('includeDeleted') includeDeleted?: string): Promise<CheckupClient[]> {
+    return this.clientRepository.find({ order: { createdAt: 'DESC' }, withDeleted: includeDeleted === 'true' });
   }
 
   @Post('clients')
@@ -1259,6 +1424,24 @@ export class CheckupAdminController {
     }
     client.attivo = false;
     return this.clientRepository.save(client);
+  }
+
+  /** Eliminazione soft (reversibile) di un cliente/sublicenziatario. */
+  @Delete('clients/:id')
+  async deleteClient(@Param('id') id: string): Promise<{ success: true }> {
+    const client = await this.clientRepository.findOne({ where: { id } });
+    if (!client) {
+      throw new NotFoundException('Cliente non trovato');
+    }
+    await this.clientRepository.softRemove(client);
+    return { success: true };
+  }
+
+  /** Ripristino di un cliente eliminato (soft). */
+  @Post('clients/:id/restore')
+  async restoreClient(@Param('id') id: string): Promise<{ success: true }> {
+    await this.clientRepository.restore(id);
+    return { success: true };
   }
 
   @Get('licenses')

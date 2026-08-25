@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { authApi, CheckupUser } from '../api/auth';
+import { authApi, CheckupUser, MembershipSummary } from '../api/auth';
 import { setAccessToken, setLogoutCallback } from '../api/config';
 
 const LAST_ACTIVITY_KEY = 'checkup_last_activity';
@@ -10,10 +10,21 @@ interface AuthContextType {
   user: CheckupUser | null;
   token: string | null; // kept for legacy consumers that just check truthiness
   loading: boolean;
+  /** Appartenenze (contesti) disponibili per l'utente autenticato. */
+  memberships: MembershipSummary[];
+  /** Id dell'appartenenza attiva (contesto corrente). */
+  activeMembershipId: string | null;
   login: (email: string, password: string) => Promise<void>;
-  setSession: (token: string, user: CheckupUser) => void;
+  setSession: (
+    token: string,
+    user: CheckupUser,
+    memberships?: MembershipSummary[],
+    activeMembershipId?: string | null,
+  ) => void;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
+  /** Cambia il contesto attivo e ricarica la sessione. */
+  switchContext: (membershipId: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -22,6 +33,8 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<CheckupUser | null>(null);
+  const [memberships, setMemberships] = useState<MembershipSummary[]>([]);
+  const [activeMembershipId, setActiveMembershipId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const logoutRef = useRef<() => void>(() => {});
   const inactivityTimerRef = useRef<number | null>(null);
@@ -31,6 +44,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     authApi.logout(); // fire-and-forget — clears httpOnly cookie server-side
     setToken(null);
     setUser(null);
+    setMemberships([]);
+    setActiveMembershipId(null);
     setAccessToken(null);
     localStorage.removeItem(LAST_ACTIVITY_KEY);
     if (inactivityTimerRef.current) {
@@ -106,6 +121,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       .then((profile) => {
         setUser(profile);
+        setMemberships(profile.memberships ?? []);
+        setActiveMembershipId(profile.activeMembershipId ?? null);
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : '';
@@ -126,14 +143,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if ('access_token' in res) {
       setToken(res.access_token);
       setUser(res.user);
+      setMemberships(res.memberships ?? []);
+      setActiveMembershipId(res.activeMembershipId ?? null);
       setAccessToken(res.access_token);
       localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
     }
   }, []);
 
-  const setSession = useCallback((accessToken: string, userData: CheckupUser) => {
+  const setSession = useCallback((
+    accessToken: string,
+    userData: CheckupUser,
+    membershipList?: MembershipSummary[],
+    activeId?: string | null,
+  ) => {
     setToken(accessToken);
     setUser(userData);
+    if (membershipList !== undefined) setMemberships(membershipList);
+    if (activeId !== undefined) setActiveMembershipId(activeId);
     setAccessToken(accessToken);
     localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
   }, []);
@@ -142,16 +168,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await authApi.changePassword(currentPassword, newPassword);
     setToken(res.access_token);
     setUser(res.user);
+    setMemberships(res.memberships ?? []);
+    setActiveMembershipId(res.activeMembershipId ?? null);
     setAccessToken(res.access_token);
   }, []);
 
   const refreshProfile = useCallback(async () => {
     const profile = await authApi.getProfile();
     setUser(profile);
+    setMemberships(profile.memberships ?? []);
+    setActiveMembershipId(profile.activeMembershipId ?? null);
+  }, []);
+
+  const switchContext = useCallback(async (membershipId: string) => {
+    const res = await authApi.switchContext(membershipId);
+    setToken(res.access_token);
+    setUser(res.user);
+    setMemberships(res.memberships ?? []);
+    setActiveMembershipId(res.activeMembershipId ?? null);
+    setAccessToken(res.access_token);
+    localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, setSession, changePassword, refreshProfile, logout }}>
+    <AuthContext.Provider value={{
+      user,
+      token,
+      loading,
+      memberships,
+      activeMembershipId,
+      login,
+      setSession,
+      changePassword,
+      refreshProfile,
+      switchContext,
+      logout,
+    }}>
       {children}
     </AuthContext.Provider>
   );

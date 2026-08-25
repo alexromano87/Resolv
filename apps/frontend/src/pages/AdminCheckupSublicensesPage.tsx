@@ -7,6 +7,7 @@ import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
 import { DateField } from '../components/ui/DateField';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
+import { useSecureConfirmDialog } from '../components/ui/SecureConfirmDialog';
 
 export default function AdminCheckupSublicensesPage() {
   const getSublicenseClientDisplayName = (sublicense: Pick<CheckupSublicense, 'client' | 'clienteStudio'>) =>
@@ -23,6 +24,7 @@ export default function AdminCheckupSublicensesPage() {
   ];
   const { success, error: toastError } = useToast();
   const { confirm, ConfirmDialog } = useConfirmDialog();
+  const { confirm: secureConfirm, SecureConfirmDialog } = useSecureConfirmDialog();
   const [sublicenses, setSublicenses] = useState<CheckupSublicense[]>([]);
   const [licenses, setLicenses] = useState<CheckupLicense[]>([]);
   const [models, setModels] = useState<questionApi.QuestionModel[]>([]);
@@ -147,9 +149,20 @@ export default function AdminCheckupSublicensesPage() {
   };
 
   const handleDeleteSublicense = async (sublicense: CheckupSublicense) => {
-    const confirmed = await confirm({
+    const label = sublicense.numeroSublicenza || 'ELIMINA';
+    const confirmed = await secureConfirm({
       title: 'Confermare eliminazione sublicenza?',
-      message: `Vuoi eliminare la sublicenza ${sublicense.numeroSublicenza ? `#${sublicense.numeroSublicenza}` : ''}?`,
+      message: (
+        <>
+          <p className="mb-3">
+            Stai per eliminare <strong>definitivamente</strong> la sublicenza {sublicense.numeroSublicenza ? `#${sublicense.numeroSublicenza}` : ''}.
+          </p>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+            ⚠️ Operazione <strong>irreversibile</strong>.
+          </div>
+        </>
+      ),
+      confirmationText: label,
       confirmText: 'Elimina sublicenza',
       variant: 'danger',
     });
@@ -572,6 +585,7 @@ export default function AdminCheckupSublicensesPage() {
         </BodyPortal>
       )}
       <ConfirmDialog />
+      <SecureConfirmDialog />
     </div>
   );
 }

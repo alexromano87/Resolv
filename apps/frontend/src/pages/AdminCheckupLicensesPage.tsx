@@ -6,10 +6,12 @@ import { useToast } from '../components/ui/ToastProvider';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { DateField } from '../components/ui/DateField';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
+import { useSecureConfirmDialog } from '../components/ui/SecureConfirmDialog';
 
 export default function AdminCheckupLicensesPage() {
   const { success, error: toastError } = useToast();
   const { confirm, ConfirmDialog } = useConfirmDialog();
+  const { confirm: secureConfirm, SecureConfirmDialog } = useSecureConfirmDialog();
   const licenseTypeOptions = [
     { value: 'Standard', label: 'Standard (preset)' },
     { value: 'Professional', label: 'Professional (preset)' },
@@ -129,9 +131,21 @@ export default function AdminCheckupLicensesPage() {
   };
 
   const handleDeleteLicense = async (license: CheckupLicense) => {
-    const confirmed = await confirm({
+    const label = license.numeroLicenza || license.intestatario || 'ELIMINA';
+    const confirmed = await secureConfirm({
       title: 'Confermare eliminazione licenza?',
-      message: `Vuoi eliminare la licenza ${license.numeroLicenza ? `#${license.numeroLicenza}` : ''}?`,
+      message: (
+        <>
+          <p className="mb-3">
+            Stai per eliminare <strong>definitivamente</strong> la licenza {license.numeroLicenza ? `#${license.numeroLicenza}` : ''}
+            {license.intestatario ? ` (${license.intestatario})` : ''}.
+          </p>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+            ⚠️ Operazione <strong>irreversibile</strong>.
+          </div>
+        </>
+      ),
+      confirmationText: label,
       confirmText: 'Elimina licenza',
       variant: 'danger',
     });
@@ -419,6 +433,7 @@ export default function AdminCheckupLicensesPage() {
         </BodyPortal>
       )}
       <ConfirmDialog />
+      <SecureConfirmDialog />
     </div>
   );
 }

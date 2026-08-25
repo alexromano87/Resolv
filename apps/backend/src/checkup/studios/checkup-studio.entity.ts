@@ -66,6 +66,14 @@ export class CheckupStudio {
   @Column({ type: 'text', nullable: true })
   note: string | null;
 
+  /**
+   * Riferimento all'entità reale di origine quando questo studio è stato creato
+   * riusando l'anagrafica di uno studio/sublicenziatario esistente (es. R&S Italy
+   * sublicenziatario → R&S Italy licenziatario diretto). Solo tracciabilità.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  linkedStudioId: string | null;
+
   @Column({ default: true })
   attivo: boolean;
 
@@ -75,7 +83,7 @@ export class CheckupStudio {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @DeleteDateColumn({ nullable: true, select: false })
+  @DeleteDateColumn({ nullable: true })
   deletedAt: Date | null;
 
   @OneToMany(() => CheckupUser, (user) => user.studio)

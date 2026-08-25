@@ -29,6 +29,8 @@ import { CheckupStudio } from './studios/checkup-studio.entity';
 import { CheckupLicense } from './licenses/checkup-license.entity';
 import { CheckupSublicense } from './licenses/checkup-sublicense.entity';
 import { CheckupAnagraficaLicenziatario } from './anagrafiche/checkup-anagrafica-licenziatario.entity';
+import { CheckupMembership } from './memberships/checkup-membership.entity';
+import { CheckupMembershipsService } from './memberships/checkup-memberships.service';
 
 // Auth
 import { CheckupJwtStrategy } from './auth/checkup-jwt.strategy';
@@ -137,6 +139,7 @@ import { CheckupNotificationsService } from './notifications/checkup-notificatio
       CheckupLicense,
       CheckupSublicense,
       CheckupAnagraficaLicenziatario,
+      CheckupMembership,
       QuestionMacroArea,
       QuestionSection,
       QuestionField,
@@ -199,6 +202,7 @@ import { CheckupNotificationsService } from './notifications/checkup-notificatio
       inject: [ConfigService],
     },
     CacheService,
+    CheckupMembershipsService,
     CheckupJwtStrategy,
     CheckupAuthService,
     CheckupUsersService,

@@ -2,7 +2,7 @@ import { useState, type FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Shield, ClipboardCheck, BarChart3, Lock, Eye, EyeOff, ArrowLeft, Loader2, Clock, Users, Layers, X } from 'lucide-react';
-import { authApi } from '../api/auth';
+import { authApi, type MembershipSummary, type LoginResponse } from '../api/auth';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -34,7 +34,8 @@ export default function LoginPage() {
   const [recoverInfo, setRecoverInfo] = useState('');
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
-  const { setSession } = useAuth();
+  const [contextChoices, setContextChoices] = useState<MembershipSummary[] | null>(null);
+  const { setSession, switchContext } = useAuth();
   const navigate = useNavigate();
 
   const forceClientDashboard = (user: { ruolo?: string; clientId?: string | null }) => {
@@ -42,6 +43,39 @@ export default function LoginPage() {
     const key = `checkup_preassessment_view_${user.clientId}`;
     sessionStorage.setItem(key, JSON.stringify({ view: 'dashboard', panel: null }));
     localStorage.removeItem(key);
+  };
+
+  const routeForRole = (ruolo?: string) => {
+    const target = ruolo !== 'cliente' ? '/checkup/dashboard-studio' : '/checkup/';
+    navigate(target, { replace: true });
+  };
+
+  // Dopo autenticazione: se l'utenza ha più contesti attivi, mostra la scelta;
+  // altrimenti entra direttamente nel contesto unico.
+  const afterAuth = (res: LoginResponse) => {
+    setSession(res.access_token, res.user, res.memberships, res.activeMembershipId);
+    const memberships = res.memberships ?? [];
+    if (memberships.length > 1) {
+      setContextChoices(memberships);
+      return;
+    }
+    forceClientDashboard(res.user);
+    routeForRole(res.user?.ruolo);
+  };
+
+  const handleChooseContext = async (m: MembershipSummary) => {
+    setError('');
+    setLoading(true);
+    try {
+      await switchContext(m.id);
+      forceClientDashboard({ ruolo: m.ruolo, clientId: m.clientId });
+      // Ricarica pulita nel contesto scelto (il refresh token porta ora il mid scelto).
+      const target = m.ruolo !== 'cliente' ? '/checkup/dashboard-studio' : '/checkup/';
+      window.location.assign(target);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore nella selezione del contesto');
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -52,11 +86,7 @@ export default function LoginPage() {
     try {
       const res = await authApi.login(email, password);
       if ('access_token' in res) {
-        setSession(res.access_token, res.user);
-        forceClientDashboard(res.user);
-        const isLicenziatario = res.user?.ruolo !== 'cliente';
-        const target = isLicenziatario ? '/checkup/dashboard-studio' : '/checkup/';
-        navigate(target, { replace: true });
+        afterAuth(res);
       } else {
         setTwoFactorUserId(res.challengeToken);
         setTwoFactorChannel(res.channel);
@@ -75,11 +105,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await authApi.verifyTwoFactorLogin(twoFactorUserId, twoFactorCode.trim());
-      setSession(res.access_token, res.user);
-      forceClientDashboard(res.user);
-      const isLicenziatario = res.user?.ruolo !== 'cliente';
-      const target = isLicenziatario ? '/checkup/dashboard-studio' : '/checkup/';
-      navigate(target, { replace: true });
+      afterAuth(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Codice 2FA non valido');
     } finally {
@@ -235,7 +261,48 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {twoFactorUserId ? (
+          {contextChoices ? (
+            /* ——— SCELTA CONTESTO (utenza multi-profilo) ——— */
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900" style={{ fontVariationSettings: "'wght' 700" }}>
+                  Scegli il profilo
+                </h2>
+                <p className="mt-2 text-sm text-slate-500 leading-relaxed">
+                  La tua utenza è associata a più contesti. Seleziona con quale vuoi accedere.
+                </p>
+              </div>
+              {error && (
+                <div className="flex items-start gap-3 rounded-xl border border-danger-200 bg-danger-50 p-4">
+                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-danger-100 flex-shrink-0 mt-0.5">
+                    <span className="text-danger-600 text-xs font-bold">!</span>
+                  </div>
+                  <p className="text-sm text-danger-700">{error}</p>
+                </div>
+              )}
+              <div className="space-y-3">
+                {contextChoices.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => handleChooseContext(m)}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-indigo-400 hover:bg-indigo-50/40 disabled:opacity-60"
+                  >
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600">
+                      <Layers className="h-5 w-5" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-slate-900">{m.label}</span>
+                      {m.isPrimary && (
+                        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Predefinito</span>
+                      )}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : twoFactorUserId ? (
             /* ——— 2FA FORM ——— */
             <div className="space-y-6">
               <div>

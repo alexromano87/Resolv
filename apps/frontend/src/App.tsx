@@ -56,7 +56,6 @@ const AdminCheckupSublicensesPage = lazyNamed(
 const AdminCheckupAnagrafichePage = lazyNamed(() => import('./pages/AdminCheckupAnagrafichePage'), 'default');
 const AdminCheckupStudiosPage = lazyNamed(() => import('./pages/AdminCheckupStudiosPage'), 'default');
 const AdminCheckupQuestionsPage = lazyNamed(() => import('./pages/AdminCheckupQuestionsPage'), 'default');
-const AdminCheckupPdfConfigPage = lazyNamed(() => import('./pages/AdminCheckupPdfConfigPage'), 'default');
 const AdminCheckupModelsPage = lazyNamed(() => import('./pages/AdminCheckupModelsPage'), 'default');
 const AdminCheckupDashboardPage = lazyNamed(
   () => import('./pages/AdminCheckupDashboardPage'),
@@ -197,7 +196,6 @@ function App() {
                     <Route path="/admin/checkup-studios" element={<AdminCheckupStudiosPage />} />
                     <Route path="/admin/checkup-models" element={<AdminCheckupModelsPage />} />
                     <Route path="/admin/checkup-questions" element={<AdminCheckupQuestionsPage />} />
-                    <Route path="/admin/checkup-pdf-config" element={<AdminCheckupPdfConfigPage />} />
                     <Route path="/admin/checkup-dashboard" element={<AdminCheckupDashboardPage />} />
                     <Route path="/admin/checkup-audit-logs" element={<AdminCheckupAuditLogsPage />} />
                     <Route path="/admin/checkup-export" element={<AdminCheckupExportPage />} />

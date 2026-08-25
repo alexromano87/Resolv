@@ -66,7 +66,7 @@ export class CheckupClient {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @DeleteDateColumn({ nullable: true, select: false })
+  @DeleteDateColumn({ nullable: true })
   deletedAt: Date | null;
 
   @OneToMany(() => CheckupUser, (user) => user.client)

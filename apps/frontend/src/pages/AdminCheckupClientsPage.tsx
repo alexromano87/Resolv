@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, X, Edit2, Power, PowerOff, Eye, EyeOff, Link2 } from 'lucide-react';
+import { Plus, X, Edit2, Power, PowerOff, Eye, EyeOff, Link2, Trash2, RotateCcw } from 'lucide-react';
 import {
   checkupAdminApi,
   type CheckupAnagraficaLicenziatario,
@@ -11,12 +11,15 @@ import { CustomSelect } from '../components/ui/CustomSelect';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
+import { useSecureConfirmDialog } from '../components/ui/SecureConfirmDialog';
 import { Pagination } from '../components/Pagination';
 
 export default function AdminCheckupClientsPage() {
   const UNASSIGNED_SUBLICENSE_VALUE = '__unassigned_sublicense__';
   const { success, error: toastError } = useToast();
   const { confirm, ConfirmDialog } = useConfirmDialog();
+  const { confirm: secureConfirm, SecureConfirmDialog } = useSecureConfirmDialog();
+  const [hideDeleted, setHideDeleted] = useState(true);
   const [clients, setClients] = useState<CheckupClient[]>([]);
   const [sublicenses, setSublicenses] = useState<CheckupSublicense[]>([]);
   const [studios, setStudios] = useState<CheckupStudio[]>([]);
@@ -68,7 +71,7 @@ export default function AdminCheckupClientsPage() {
     setLoading(true);
     try {
       const [clientsData, sublicensesData, studiosData, anagraficheData] = await Promise.all([
-        checkupAdminApi.getClients(),
+        checkupAdminApi.getClients(true),
         checkupAdminApi.getSublicenses(),
         checkupAdminApi.getStudios(),
         checkupAdminApi.getAnagraficheLicenziatario(),
@@ -511,7 +514,43 @@ export default function AdminCheckupClientsPage() {
     }
   };
 
-  const filteredClients = (hideInactive ? clients.filter((c) => c.attivo) : clients).filter((client) => {
+  const handleDeleteClient = async (client: CheckupClient) => {
+    const nome = getClientDisplayName(client);
+    const confirmed = await secureConfirm({
+      title: 'Eliminare cliente/sublicenziatario?',
+      message: (
+        <>
+          <p className="mb-3">Stai per eliminare <strong>{nome}</strong>.</p>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+            ℹ️ Eliminazione <strong>SOFT (reversibile)</strong>: potrai ripristinarlo in qualsiasi momento.
+          </div>
+        </>
+      ),
+      confirmationText: nome,
+      confirmText: 'Elimina (soft delete)',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.deleteClient(client.id);
+      success('Cliente eliminato');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante l\'eliminazione');
+    }
+  };
+
+  const handleRestoreClient = async (client: CheckupClient) => {
+    try {
+      await checkupAdminApi.restoreClient(client.id);
+      success('Cliente ripristinato');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante il ripristino');
+    }
+  };
+
+  const filteredClients = (hideInactive ? clients.filter((c) => c.attivo) : clients).filter((c) => !hideDeleted || !c.deletedAt).filter((client) => {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return true;
     return (
@@ -577,6 +616,16 @@ export default function AdminCheckupClientsPage() {
             {hideInactive ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
             {hideInactive ? 'Mostra disattivati' : 'Nascondi disattivati'}
           </button>
+          <button
+            onClick={() => {
+              setHideDeleted((prev) => !prev);
+              setCurrentPage(1);
+            }}
+            className="wow-button-ghost"
+          >
+            {hideDeleted ? <Trash2 className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            {hideDeleted ? 'Mostra eliminati' : 'Nascondi eliminati'}
+          </button>
           <button onClick={handleOpenCreate} className="wow-button">
             <Plus className="h-4 w-4" />
             Nuovo cliente
@@ -632,26 +681,49 @@ export default function AdminCheckupClientsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${client.attivo ? 'bg-success-50 text-success-700' : 'bg-slate-100 text-slate-500'}`}>
-                          {client.attivo ? 'Attivo' : 'Disattivo'}
-                        </span>
+                        {client.deletedAt ? (
+                          <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs text-rose-700">Eliminato</span>
+                        ) : (
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${client.attivo ? 'bg-success-50 text-success-700' : 'bg-slate-100 text-slate-500'}`}>
+                            {client.attivo ? 'Attivo' : 'Disattivo'}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end gap-3 text-xs font-semibold">
-                          <button
-                            onClick={() => handleOpenEdit(client)}
-                            className="text-blue-600 hover:text-blue-900"
-                            title="Modifica"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleToggleActive(client)}
-                            className={client.attivo ? 'text-amber-600 hover:text-amber-900' : 'text-emerald-600 hover:text-emerald-700'}
-                            title={client.attivo ? 'Disattiva' : 'Attiva'}
-                          >
-                            {client.attivo ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
-                          </button>
+                          {client.deletedAt ? (
+                            <button
+                              onClick={() => handleRestoreClient(client)}
+                              className="text-emerald-600 hover:text-emerald-800"
+                              title="Ripristina"
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleOpenEdit(client)}
+                                className="text-blue-600 hover:text-blue-900"
+                                title="Modifica"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleToggleActive(client)}
+                                className={client.attivo ? 'text-amber-600 hover:text-amber-900' : 'text-emerald-600 hover:text-emerald-700'}
+                                title={client.attivo ? 'Disattiva' : 'Attiva'}
+                              >
+                                {client.attivo ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteClient(client)}
+                                className="text-rose-600 hover:text-rose-800"
+                                title="Elimina"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -931,6 +1003,7 @@ export default function AdminCheckupClientsPage() {
       )}
 
       <ConfirmDialog />
+      <SecureConfirmDialog />
     </div>
   );
 }

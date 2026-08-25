@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, X } from 'lucide-react';
+import { Pencil, Plus, X, Trash2, RotateCcw, EyeOff } from 'lucide-react';
 import {
   checkupAdminApi,
   type CheckupAnagraficaLicenziatario,
@@ -9,6 +9,7 @@ import { CustomSelect } from '../components/ui/CustomSelect';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
+import { useSecureConfirmDialog } from '../components/ui/SecureConfirmDialog';
 
 const emptyForm = {
   studioId: '',
@@ -28,6 +29,8 @@ const emptyForm = {
 export default function AdminCheckupAnagrafichePage() {
   const { success, error: toastError } = useToast();
   const { confirm, ConfirmDialog } = useConfirmDialog();
+  const { confirm: secureConfirm, SecureConfirmDialog } = useSecureConfirmDialog();
+  const [hideDeleted, setHideDeleted] = useState(true);
   const [anagrafiche, setAnagrafiche] = useState<CheckupAnagraficaLicenziatario[]>([]);
   const [studios, setStudios] = useState<CheckupStudio[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,7 +47,7 @@ export default function AdminCheckupAnagrafichePage() {
     setLoading(true);
     try {
       const [anagraficheData, studiosData] = await Promise.all([
-        checkupAdminApi.getAnagraficheLicenziatario({ search: searchTerm, studioId: studioFilter }),
+        checkupAdminApi.getAnagraficheLicenziatario({ search: searchTerm, studioId: studioFilter, includeDeleted: true }),
         checkupAdminApi.getStudios(),
       ]);
       setAnagrafiche(anagraficheData);
@@ -104,6 +107,42 @@ export default function AdminCheckupAnagrafichePage() {
     await loadData();
   };
 
+  const handleDelete = async (item: CheckupAnagraficaLicenziatario) => {
+    const nome = `${item.nome} ${item.cognome}`.trim();
+    const confirmed = await secureConfirm({
+      title: 'Eliminare anagrafica?',
+      message: (
+        <>
+          <p className="mb-3">Stai per eliminare l'anagrafica <strong>{nome}</strong>.</p>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+            ℹ️ Eliminazione <strong>SOFT (reversibile)</strong>: potrai ripristinarla in qualsiasi momento.
+          </div>
+        </>
+      ),
+      confirmationText: nome,
+      confirmText: 'Elimina (soft delete)',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.deleteAnagraficaLicenziatario(item.id);
+      success('Anagrafica eliminata');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante l\'eliminazione');
+    }
+  };
+
+  const handleRestore = async (item: CheckupAnagraficaLicenziatario) => {
+    try {
+      await checkupAdminApi.restoreAnagraficaLicenziatario(item.id);
+      success('Anagrafica ripristinata');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante il ripristino');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.studioId || !formData.nome.trim() || !formData.cognome.trim()) {
@@ -143,10 +182,16 @@ export default function AdminCheckupAnagrafichePage() {
           <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Anagrafiche licenziatario</h1>
           <p className="text-sm text-slate-600 mt-1">Cerca, crea e aggiorna le anagrafiche associate ai licenziatari.</p>
         </div>
-        <button onClick={openCreate} className="wow-button">
-          <Plus className="h-4 w-4" />
-          Nuova anagrafica
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setHideDeleted((p) => !p)} className="wow-button-ghost">
+            {hideDeleted ? <Trash2 className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            {hideDeleted ? 'Mostra eliminati' : 'Nascondi eliminati'}
+          </button>
+          <button onClick={openCreate} className="wow-button">
+            <Plus className="h-4 w-4" />
+            Nuova anagrafica
+          </button>
+        </div>
       </div>
 
       <form onSubmit={handleSearch} className="wow-panel p-4 md:p-6 grid grid-cols-1 gap-3 md:grid-cols-[1fr_280px_auto] md:items-center">
@@ -184,10 +229,13 @@ export default function AdminCheckupAnagrafichePage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {anagrafiche.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50/70">
+              {anagrafiche.filter((item) => !hideDeleted || !item.deletedAt).map((item) => (
+                <tr key={item.id} className={`hover:bg-slate-50/70 ${item.deletedAt ? 'opacity-60' : ''}`}>
                   <td className="px-4 py-3 text-sm font-medium text-slate-900">
                     {[item.titolo, item.nome, item.cognome].filter(Boolean).join(' ')}
+                    {item.deletedAt && (
+                      <span className="ml-2 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">Eliminato</span>
+                    )}
                     <div className="text-xs text-slate-500">{[item.indirizzo, item.citta, item.provincia].filter(Boolean).join(' · ') || '—'}</div>
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-600">{item.studio?.nome || '—'}</td>
@@ -200,9 +248,22 @@ export default function AdminCheckupAnagrafichePage() {
                     <div className="text-xs text-slate-500">{item.codiceFiscale || '—'}</div>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button onClick={() => openEdit(item)} className="inline-flex rounded-full border border-slate-200 p-2 text-slate-600 hover:border-slate-300">
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex justify-end gap-2">
+                      {item.deletedAt ? (
+                        <button onClick={() => handleRestore(item)} className="inline-flex rounded-full border border-emerald-200 p-2 text-emerald-600 hover:border-emerald-300" title="Ripristina">
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <>
+                          <button onClick={() => openEdit(item)} className="inline-flex rounded-full border border-slate-200 p-2 text-slate-600 hover:border-slate-300" title="Modifica">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => handleDelete(item)} className="inline-flex rounded-full border border-rose-200 p-2 text-rose-600 hover:border-rose-300" title="Elimina">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -262,6 +323,7 @@ export default function AdminCheckupAnagrafichePage() {
         </BodyPortal>
       )}
       <ConfirmDialog />
+      <SecureConfirmDialog />
     </div>
   );
 }

@@ -13,12 +13,14 @@ describe('CheckupStudiosService', () => {
     const clientRepository = createRepository();
     const licenseRepository = createRepository();
     const sublicenseRepository = createRepository();
+    const anagraficaRepository = createRepository();
 
     const service = new CheckupStudiosService(
       studioRepository as any,
       clientRepository as any,
       licenseRepository as any,
       sublicenseRepository as any,
+      anagraficaRepository as any,
     );
 
     const client = {

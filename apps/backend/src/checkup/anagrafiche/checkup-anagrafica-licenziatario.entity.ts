@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   JoinColumn,
@@ -63,6 +64,9 @@ export class CheckupAnagraficaLicenziatario {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @DeleteDateColumn({ nullable: true })
+  deletedAt: Date | null;
 
   @ManyToOne(() => CheckupStudio, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'studioId' })

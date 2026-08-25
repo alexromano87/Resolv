@@ -5,9 +5,11 @@ import { CheckupStudio } from './checkup-studio.entity';
 import { CheckupClient } from '../clients/checkup-client.entity';
 import { CheckupLicense } from '../licenses/checkup-license.entity';
 import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
+import { CheckupAnagraficaLicenziatario } from '../anagrafiche/checkup-anagrafica-licenziatario.entity';
 import { UpdateCheckupStudioDto } from './dto/update-checkup-studio.dto';
 import { CreateCheckupClientDto } from './dto/create-checkup-client.dto';
 import { UpdateCheckupClientDto } from './dto/update-checkup-client.dto';
+import { CreateLicenseeFromSourceDto } from './dto/create-licensee-from-source.dto';
 import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 
 @Injectable()
@@ -21,7 +23,34 @@ export class CheckupStudiosService {
     private licenseRepository: Repository<CheckupLicense>,
     @InjectRepository(CheckupSublicense)
     private sublicenseRepository: Repository<CheckupSublicense>,
+    @InjectRepository(CheckupAnagraficaLicenziatario)
+    private anagraficaRepository: Repository<CheckupAnagraficaLicenziatario>,
   ) {}
+
+  /** Dati societari copiabili verso un nuovo studio licenziatario (Fase 1). */
+  private static readonly COMPANY_FIELDS = [
+    'ragioneSociale',
+    'partitaIva',
+    'codiceFiscale',
+    'indirizzo',
+    'citta',
+    'provincia',
+    'cap',
+    'paese',
+    'email',
+    'telefono',
+    'sitoWeb',
+    'logoUrl',
+    'note',
+  ] as const;
+
+  private pickCompanyData(source: Record<string, any>): Partial<CheckupStudio> {
+    const out: Record<string, any> = {};
+    for (const field of CheckupStudiosService.COMPANY_FIELDS) {
+      if (source[field] != null) out[field] = source[field];
+    }
+    return out;
+  }
 
   private isStudioStaff(currentUser: CheckupCurrentUserData) {
     return ['admin_studio', 'segreteria', 'collaboratore'].includes(currentUser.ruolo);
@@ -317,6 +346,105 @@ export class CheckupStudiosService {
         dataScadenza: sublicense.dataScadenza,
       },
     };
+  }
+
+  /**
+   * Fase 1 — elenca le entità esistenti riusabili come "anagrafica di origine"
+   * per creare un nuovo licenziatario (sublicenziatari/clienti, altri studi,
+   * anagrafiche licenziatario). Solo superadmin.
+   */
+  async listReusableSources() {
+    const [clients, studios, anagrafiche] = await Promise.all([
+      this.clientRepository.find({ where: { attivo: true }, order: { nome: 'ASC' } }),
+      this.studioRepository.find({ order: { nome: 'ASC' } }),
+      this.anagraficaRepository.find({ where: { attiva: true }, order: { cognome: 'ASC' } }),
+    ]);
+    return {
+      clients: clients.map((c) => ({
+        id: c.id,
+        tipo: 'client' as const,
+        nome: c.ragioneSociale || c.nome,
+        partitaIva: c.partitaIva ?? null,
+        codiceFiscale: c.codiceFiscale ?? null,
+        email: c.email ?? null,
+      })),
+      studios: studios.map((s) => ({
+        id: s.id,
+        tipo: 'studio' as const,
+        studioTipo: s.tipo,
+        nome: s.ragioneSociale || s.nome,
+        partitaIva: s.partitaIva ?? null,
+        codiceFiscale: s.codiceFiscale ?? null,
+        email: s.email ?? null,
+      })),
+      anagrafiche: anagrafiche.map((a) => ({
+        id: a.id,
+        tipo: 'anagrafica' as const,
+        nome: `${a.nome} ${a.cognome}`.trim(),
+        partitaIva: a.partitaIva ?? null,
+        codiceFiscale: a.codiceFiscale ?? null,
+        email: a.email ?? null,
+      })),
+    };
+  }
+
+  /**
+   * Fase 1 — crea uno studio licenziatario riusando i dati societari di una
+   * sorgente esistente (client/studio/anagrafica) e la relativa licenza.
+   * Imposta `linkedStudioId` per tracciare l'entità reale comune. Solo superadmin.
+   */
+  async createLicenseeFromSource(dto: CreateLicenseeFromSourceDto) {
+    let companyData: Partial<CheckupStudio> = {};
+    let sourceName: string | null = null;
+    let linkedStudioId: string | null = null;
+
+    const provided = [dto.sourceClientId, dto.sourceStudioId, dto.sourceAnagraficaId].filter(Boolean);
+    if (provided.length > 1) {
+      throw new ConflictException('Specifica una sola sorgente da cui riusare l\'anagrafica');
+    }
+
+    if (dto.sourceClientId) {
+      const client = await this.clientRepository.findOne({ where: { id: dto.sourceClientId } });
+      if (!client) throw new NotFoundException('Sublicenziatario/cliente di origine non trovato');
+      companyData = this.pickCompanyData(client);
+      sourceName = client.ragioneSociale || client.nome;
+    } else if (dto.sourceStudioId) {
+      const studio = await this.studioRepository.findOne({ where: { id: dto.sourceStudioId } });
+      if (!studio) throw new NotFoundException('Studio di origine non trovato');
+      companyData = this.pickCompanyData(studio);
+      sourceName = studio.ragioneSociale || studio.nome;
+      linkedStudioId = studio.id;
+    } else if (dto.sourceAnagraficaId) {
+      const anagrafica = await this.anagraficaRepository.findOne({ where: { id: dto.sourceAnagraficaId } });
+      if (!anagrafica) throw new NotFoundException('Anagrafica di origine non trovata');
+      companyData = this.pickCompanyData(anagrafica as unknown as Record<string, any>);
+      sourceName = `${anagrafica.nome} ${anagrafica.cognome}`.trim();
+    }
+
+    const nome = dto.nome?.trim() || sourceName || dto.intestatario.trim();
+
+    const studio = this.studioRepository.create({
+      ...companyData,
+      nome,
+      tipo: 'licenziatario',
+      linkedStudioId,
+      attivo: true,
+    });
+    const savedStudio = await this.studioRepository.save(studio);
+
+    const license = this.licenseRepository.create({
+      studioId: savedStudio.id,
+      intestatario: dto.intestatario.trim(),
+      tipo: dto.tipo?.trim() || 'licenziatario',
+      numeroUtenze: dto.numeroUtenze,
+      numeroSottolicenze: dto.numeroSottolicenze ?? 0,
+      numeroLicenza: dto.numeroLicenza?.trim() || null,
+      dataInizioValidita: dto.dataInizioValidita || null,
+      dataScadenza: dto.dataScadenza || null,
+    });
+    const savedLicense = await this.licenseRepository.save(license);
+
+    return { studio: savedStudio, license: savedLicense };
   }
 
   async updateClient(id: string, dto: UpdateCheckupClientDto, currentUser: CheckupCurrentUserData) {

@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, X, Edit2, Power, PowerOff, Eye, EyeOff, UserPlus, Key } from 'lucide-react';
+import { Plus, X, Edit2, Power, PowerOff, Eye, EyeOff, UserPlus, Key, Trash2, RotateCcw } from 'lucide-react';
 import {
   checkupAdminApi,
+  createAdminUserOrAssociate,
+  buildAssociateMessage,
   type CheckupStudio,
   type CheckupLicense,
   type CheckupAdminUser,
   type CheckupAnagraficaLicenziatario,
+  type CheckupClient,
+  type ReusableUser,
 } from '../api/checkupAdmin';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
+import { useSecureConfirmDialog } from '../components/ui/SecureConfirmDialog';
 import { Pagination } from '../components/Pagination';
 
 export default function AdminCheckupStudiosPage() {
@@ -37,15 +42,24 @@ export default function AdminCheckupStudiosPage() {
 
   const { success, error: toastError } = useToast();
   const { confirm, ConfirmDialog } = useConfirmDialog();
+  const { confirm: secureConfirm, SecureConfirmDialog } = useSecureConfirmDialog();
   const [studios, setStudios] = useState<CheckupStudio[]>([]);
   const [licenses, setLicenses] = useState<CheckupLicense[]>([]);
   const [users, setUsers] = useState<CheckupAdminUser[]>([]);
   const [anagrafiche, setAnagrafiche] = useState<CheckupAnagraficaLicenziatario[]>([]);
+  const [clients, setClients] = useState<CheckupClient[]>([]);
+  // Fase 1 — sorgente selezionata per precompilare l'anagrafica del nuovo studio ("tipo:id").
+  const [prefillSource, setPrefillSource] = useState('');
+  // Import utenze dell'azienda sorgente.
+  const [sourceUsers, setSourceUsers] = useState<ReusableUser[]>([]);
+  const [importEnabled, setImportEnabled] = useState(false);
+  const [importSelection, setImportSelection] = useState<Record<string, { selected: boolean; ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' }>>({});
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [selectedStudio, setSelectedStudio] = useState<CheckupStudio | null>(null);
   const [hideInactive, setHideInactive] = useState(false);
+  const [hideDeleted, setHideDeleted] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTipo, setFilterTipo] = useState<'all' | 'licenziatario' | 'cliente'>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -91,14 +105,16 @@ export default function AdminCheckupStudiosPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [studiosData, licensesData, usersData] = await Promise.all([
-        checkupAdminApi.getStudios(),
+      const [studiosData, licensesData, usersData, clientsData] = await Promise.all([
+        checkupAdminApi.getStudios(true),
         checkupAdminApi.getLicenses(),
         checkupAdminApi.getAdminUsers(),
+        checkupAdminApi.getClients(),
       ]);
       setStudios(studiosData);
       setLicenses(licensesData);
       setUsers(usersData);
+      setClients(clientsData);
       const anagraficheData = await checkupAdminApi.getAnagraficheLicenziatario();
       setAnagrafiche(anagraficheData);
       setCurrentPage(1);
@@ -113,10 +129,69 @@ export default function AdminCheckupStudiosPage() {
     loadData();
   }, []);
 
+  // Fase 1 — precompila i dati societari del nuovo studio da un'entità esistente
+  // (anagrafica licenziatario, studio, o cliente/sublicenziatario). L'operatore
+  // può poi rivedere/modificare prima di salvare.
+  const handlePrefillFromSource = async (value: string) => {
+    setPrefillSource(value);
+    // Reset stato import quando cambia la sorgente.
+    setSourceUsers([]);
+    setImportEnabled(false);
+    setImportSelection({});
+    if (!value) return;
+    const [type, id] = value.split(':');
+    const apply = (data: {
+      nome?: string | null; ragioneSociale?: string | null; partitaIva?: string | null;
+      codiceFiscale?: string | null; indirizzo?: string | null; citta?: string | null;
+      provincia?: string | null; cap?: string | null; paese?: string | null;
+      email?: string | null; telefono?: string | null; sitoWeb?: string | null; note?: string | null;
+    }) => {
+      setFormData((p) => ({
+        ...p,
+        nome: p.nome || data.nome || '',
+        ragioneSociale: data.ragioneSociale || '',
+        partitaIva: data.partitaIva || '',
+        codiceFiscale: data.codiceFiscale || '',
+        indirizzo: data.indirizzo || '',
+        citta: data.citta || '',
+        provincia: data.provincia || '',
+        cap: data.cap || '',
+        paese: data.paese || '',
+        email: data.email || '',
+        telefono: data.telefono || '',
+        sitoWeb: data.sitoWeb || '',
+        note: data.note || '',
+      }));
+    };
+    if (type === 'studio') {
+      const s = studios.find((x) => x.id === id);
+      if (s) apply({ ...s, nome: s.ragioneSociale || s.nome });
+    } else if (type === 'client') {
+      const c = clients.find((x) => x.id === id);
+      if (c) apply({ ...c, nome: c.ragioneSociale || c.nome });
+    }
+    // Rileva le utenze associate all'azienda sorgente (per proporne l'import).
+    try {
+      const users = await checkupAdminApi.getReusableUsers(
+        type === 'studio' ? { sourceStudioId: id } : { sourceClientId: id },
+      );
+      setSourceUsers(users);
+      setImportSelection(
+        Object.fromEntries(users.map((u) => [u.userId, { selected: true, ruolo: 'collaboratore' as const }])),
+      );
+    } catch {
+      setSourceUsers([]);
+    }
+  };
+
   const handleOpenCreate = () => {
     setIsEditing(false);
     setSelectedStudio(null);
     setFormErrors({});
+    setPrefillSource('');
+    setSourceUsers([]);
+    setImportEnabled(false);
+    setImportSelection({});
     setFormData({
       nome: '',
       tipo: 'licenziatario',
@@ -395,6 +470,13 @@ export default function AdminCheckupStudiosPage() {
           logoUrl: formData.logoUrl.trim(),
           note: formData.note.trim(),
           licenseId: formData.tipo === 'licenziatario' ? formData.licenseId || '' : undefined,
+          sourceStudioId: prefillSource.startsWith('studio:') ? prefillSource.slice('studio:'.length) : undefined,
+          sourceClientId: prefillSource.startsWith('client:') ? prefillSource.slice('client:'.length) : undefined,
+          importUsers: importEnabled && formData.tipo === 'licenziatario'
+            ? sourceUsers
+                .filter((u) => importSelection[u.userId]?.selected)
+                .map((u) => ({ userId: u.userId, ruolo: importSelection[u.userId].ruolo }))
+            : undefined,
         });
         success('Studio creato');
       }
@@ -430,6 +512,41 @@ export default function AdminCheckupStudiosPage() {
     }
   };
 
+  const handleDeleteStudio = async (studio: CheckupStudio) => {
+    const confirmed = await secureConfirm({
+      title: 'Eliminare studio?',
+      message: (
+        <>
+          <p className="mb-3">Stai per eliminare lo studio <strong>{studio.nome}</strong>.</p>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+            ℹ️ Eliminazione <strong>SOFT (reversibile)</strong>: lo studio verrà nascosto ma i dati non sono cancellati e potrai ripristinarlo in qualsiasi momento.
+          </div>
+        </>
+      ),
+      confirmationText: studio.nome,
+      confirmText: 'Elimina (soft delete)',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.deleteStudio(studio.id);
+      success('Studio eliminato');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante l\'eliminazione');
+    }
+  };
+
+  const handleRestoreStudio = async (studio: CheckupStudio) => {
+    try {
+      await checkupAdminApi.restoreStudio(studio.id);
+      success('Studio ripristinato');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante il ripristino');
+    }
+  };
+
   const handleCreateStaffUser = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!selectedStudio) return;
@@ -454,7 +571,7 @@ export default function AdminCheckupStudiosPage() {
     });
     if (!confirmed) return;
     try {
-      await checkupAdminApi.createAdminUser({
+      const created = await createAdminUserOrAssociate({
         nome: selectedAnagrafica?.nome || '',
         cognome: selectedAnagrafica?.cognome || '',
         email: selectedAnagrafica?.email || '',
@@ -462,7 +579,13 @@ export default function AdminCheckupStudiosPage() {
         ruolo: staffForm.ruolo,
         studioId: selectedStudio.id,
         anagraficaId: staffForm.anagraficaId,
-      });
+      }, (conflict) => confirm({
+        title: 'Utenza già esistente',
+        message: buildAssociateMessage(conflict),
+        confirmText: 'Riusa utenza esistente',
+        variant: conflict.sameCompany ? 'info' : 'warning',
+      }));
+      if (!created) return;
       success('Utente studio creato');
       setStaffForm(emptyStaffForm);
       setShowStaffForm(false);
@@ -547,6 +670,26 @@ export default function AdminCheckupStudiosPage() {
     }
   };
 
+  // Rimuove un'utenza "riusata" solo da questo studio (appartenenza aggiuntiva),
+  // senza toccare l'identità né gli altri contesti.
+  const handleRemoveMembership = async (user: CheckupAdminUser) => {
+    if (!user.contextMembershipId) return;
+    const confirmed = await confirm({
+      title: 'Rimuovere dallo studio?',
+      message: `Vuoi rimuovere ${user.nome} ${user.cognome} da questo studio? Verrà tolto solo il ruolo in questo contesto; l'utenza e gli altri contesti (es. sublicenziatario) restano invariati.`,
+      confirmText: 'Rimuovi da questo studio',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.removeMembership(user.contextMembershipId);
+      success('Utenza rimossa dallo studio');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante la rimozione');
+    }
+  };
+
   const handleOpenResetPassword = (user: CheckupAdminUser) => {
     setSelectedStaffUser(user);
     setResetPasswordValue('');
@@ -582,7 +725,25 @@ export default function AdminCheckupStudiosPage() {
     (l) => !l.studioId || (selectedStudio && l.studioId === selectedStudio.id),
   );
   const staffUsersForStudio = selectedStudio
-    ? users.filter((u) => u.studioId === selectedStudio.id && u.ruolo !== 'cliente')
+    ? users
+        .filter((u) => {
+          if (u.studioId === selectedStudio.id && u.ruolo !== 'cliente') return true;
+          // Include anche le utenze riusate/associate a questo studio via appartenenza.
+          return (u.memberships ?? []).some(
+            (m) => m.studioId === selectedStudio.id && m.attiva && m.ruolo !== 'cliente',
+          );
+        })
+        .map((u) => {
+          // Se l'utente appartiene a questo studio solo tramite appartenenza,
+          // mostra il ruolo/anagrafica in-contesto (non quello primario).
+          if (u.studioId !== selectedStudio.id) {
+            const m = (u.memberships ?? []).find(
+              (mm) => mm.studioId === selectedStudio.id && mm.attiva && mm.ruolo !== 'cliente',
+            );
+            if (m) return { ...u, ruolo: m.ruolo, studioId: selectedStudio.id, anagraficaId: m.anagraficaId ?? u.anagraficaId, contextMembershipId: m.id };
+          }
+          return u;
+        })
     : [];
   const activeStaffUsersForStudio = staffUsersForStudio.filter((u) => u.attivo);
   const currentLicense = selectedStudio ? licenses.find((l) => l.studioId === selectedStudio.id) || null : null;
@@ -612,6 +773,7 @@ export default function AdminCheckupStudiosPage() {
   const filteredStudios = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     return studios.filter((studio) => {
+      if (hideDeleted && studio.deletedAt) return false;
       if (hideInactive && !studio.attivo) return false;
       if (filterTipo !== 'all' && studio.tipo !== filterTipo) return false;
       if (!term) return true;
@@ -626,7 +788,7 @@ export default function AdminCheckupStudiosPage() {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term));
     });
-  }, [studios, hideInactive, filterTipo, searchTerm]);
+  }, [studios, hideDeleted, hideInactive, filterTipo, searchTerm]);
   const paginatedStudios = filteredStudios.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
   const totalPages = Math.ceil(filteredStudios.length / ITEMS_PER_PAGE);
 
@@ -648,6 +810,16 @@ export default function AdminCheckupStudiosPage() {
           >
             {hideInactive ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
             {hideInactive ? 'Mostra disattivati' : 'Nascondi disattivati'}
+          </button>
+          <button
+            onClick={() => {
+              setHideDeleted((prev) => !prev);
+              setCurrentPage(1);
+            }}
+            className="wow-button-ghost"
+          >
+            {hideDeleted ? <Trash2 className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            {hideDeleted ? 'Mostra eliminati' : 'Nascondi eliminati'}
           </button>
           <button onClick={handleOpenCreate} className="wow-button">
             <Plus className="h-4 w-4" />
@@ -713,26 +885,49 @@ export default function AdminCheckupStudiosPage() {
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{studio.email || '—'}</td>
                     <td className="px-4 py-3 text-sm">
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${studio.attivo ? 'bg-success-50 text-success-700' : 'bg-slate-100 text-slate-500'}`}>
-                        {studio.attivo ? 'Attivo' : 'Disattivo'}
-                      </span>
+                      {studio.deletedAt ? (
+                        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs text-rose-700">Eliminato</span>
+                      ) : (
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${studio.attivo ? 'bg-success-50 text-success-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {studio.attivo ? 'Attivo' : 'Disattivo'}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-3 text-xs font-semibold">
-                        <button
-                          onClick={() => handleOpenEdit(studio)}
-                          className="text-blue-600 hover:text-blue-900"
-                          title="Modifica"
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleToggleActive(studio)}
-                          className={studio.attivo ? 'text-amber-600 hover:text-amber-900' : 'text-emerald-600 hover:text-emerald-700'}
-                          title={studio.attivo ? 'Disattiva' : 'Attiva'}
-                        >
-                          {studio.attivo ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
-                        </button>
+                        {studio.deletedAt ? (
+                          <button
+                            onClick={() => handleRestoreStudio(studio)}
+                            className="text-emerald-600 hover:text-emerald-800"
+                            title="Ripristina"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleOpenEdit(studio)}
+                              className="text-blue-600 hover:text-blue-900"
+                              title="Modifica"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleToggleActive(studio)}
+                              className={studio.attivo ? 'text-amber-600 hover:text-amber-900' : 'text-emerald-600 hover:text-emerald-700'}
+                              title={studio.attivo ? 'Disattiva' : 'Attiva'}
+                            >
+                              {studio.attivo ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteStudio(studio)}
+                              className="text-rose-600 hover:text-rose-800"
+                              title="Elimina"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -765,6 +960,80 @@ export default function AdminCheckupStudiosPage() {
                 </button>
               </div>
               <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto p-6">
+                {!isEditing && (
+                  <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
+                    <label className="block text-sm font-medium text-slate-700">
+                      Riusa anagrafica esistente <span className="font-normal text-slate-400">(opzionale)</span>
+                    </label>
+                    <p className="mb-2 mt-0.5 text-xs text-slate-500">
+                      Precompila i dati societari da un'entità già presente (es. lo stesso soggetto già sublicenziatario). Potrai comunque rivederli prima di salvare.
+                    </p>
+                    <CustomSelect
+                      value={prefillSource}
+                      onChange={(val: string) => handlePrefillFromSource(val)}
+                      options={[
+                        { value: '', label: '— Nessuna (compila manualmente) —' },
+                        ...clients.map((c) => ({ value: `client:${c.id}`, label: `Cliente/Sublicenziatario · ${c.ragioneSociale || c.nome}` })),
+                        ...studios.map((s) => ({ value: `studio:${s.id}`, label: `Studio · ${s.ragioneSociale || s.nome}` })),
+                      ]}
+                    />
+                  </div>
+                )}
+                {!isEditing && formData.tipo === 'licenziatario' && sourceUsers.length > 0 && (
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={importEnabled}
+                        onChange={(e) => setImportEnabled(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      Importa le {sourceUsers.length} utenze associate a questa azienda
+                    </label>
+                    <p className="mb-2 mt-0.5 text-xs text-slate-500">
+                      Le utenze vengono riusate (stessa email e password) creando l'appartenenza al nuovo studio e la relativa anagrafica licenziatario. Scegli quali importare e con quale ruolo.
+                    </p>
+                    {importEnabled && (
+                      <div className="space-y-2">
+                        {sourceUsers.map((u) => (
+                          <div key={u.userId} className="flex items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={importSelection[u.userId]?.selected ?? false}
+                              onChange={(e) =>
+                                setImportSelection((prev) => ({
+                                  ...prev,
+                                  [u.userId]: { ruolo: prev[u.userId]?.ruolo ?? 'collaboratore', selected: e.target.checked },
+                                }))
+                              }
+                              className="h-4 w-4 rounded border-slate-300"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-medium text-slate-800">{u.nome} {u.cognome}</div>
+                              <div className="truncate text-xs text-slate-500">{u.email} · attuale: {u.ruoloLabel}</div>
+                            </div>
+                            <div className="w-44 shrink-0">
+                              <CustomSelect
+                                value={importSelection[u.userId]?.ruolo ?? 'collaboratore'}
+                                onChange={(val: string) =>
+                                  setImportSelection((prev) => ({
+                                    ...prev,
+                                    [u.userId]: { selected: prev[u.userId]?.selected ?? true, ruolo: val as 'admin_studio' | 'segreteria' | 'collaboratore' },
+                                  }))
+                                }
+                                options={[
+                                  { value: 'collaboratore', label: 'Collaboratore' },
+                                  { value: 'segreteria', label: 'Segreteria' },
+                                  { value: 'admin_studio', label: 'Amministratore' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
                     <label className={labelClass('nome')}>Nome studio <span className="text-rose-600">*</span></label>
@@ -1094,31 +1363,51 @@ export default function AdminCheckupStudiosPage() {
                                 <span className={`rounded-full px-2 py-0.5 ${user.attivo ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                                   {user.attivo ? 'Attivo' : 'Disattivo'}
                                 </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEditStaff(user)}
-                                  className="rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:border-slate-300"
-                                >
-                                  Modifica
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenResetPassword(user)}
-                                  className="rounded-full border border-blue-200 px-2 py-0.5 text-[10px] font-semibold text-blue-700 hover:border-blue-300"
-                                >
-                                  Reset
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleStaffActive(user)}
-                                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                                    user.attivo
-                                      ? 'border-amber-200 text-amber-700 hover:border-amber-300'
-                                      : 'border-emerald-200 text-emerald-700 hover:border-emerald-300'
-                                  }`}
-                                >
-                                  {user.attivo ? 'Elimina' : 'Ripristina'}
-                                </button>
+                                {user.contextMembershipId ? (
+                                  <>
+                                    <span
+                                      className="rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-700"
+                                      title="Utenza riusata: il suo contesto principale è un'altra entità"
+                                    >
+                                      Riusata
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveMembership(user)}
+                                      className="rounded-full border border-rose-200 px-2 py-0.5 text-[10px] font-semibold text-rose-700 hover:border-rose-300"
+                                    >
+                                      Rimuovi da questo studio
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEditStaff(user)}
+                                      className="rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:border-slate-300"
+                                    >
+                                      Modifica
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenResetPassword(user)}
+                                      className="rounded-full border border-blue-200 px-2 py-0.5 text-[10px] font-semibold text-blue-700 hover:border-blue-300"
+                                    >
+                                      Reset
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleStaffActive(user)}
+                                      className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                        user.attivo
+                                          ? 'border-amber-200 text-amber-700 hover:border-amber-300'
+                                          : 'border-emerald-200 text-emerald-700 hover:border-emerald-300'
+                                      }`}
+                                    >
+                                      {user.attivo ? 'Elimina' : 'Ripristina'}
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -1320,6 +1609,7 @@ export default function AdminCheckupStudiosPage() {
       )}
 
       <ConfirmDialog />
+      <SecureConfirmDialog />
     </div>
   );
 }

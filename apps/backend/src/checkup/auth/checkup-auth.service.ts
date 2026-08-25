@@ -12,6 +12,7 @@ import { CheckupJwtPayload } from './checkup-jwt.strategy';
 import { EmailService } from '../../notifications/email.service';
 import { buildTwoFactorEmailHtml, buildTwoFactorEmailText } from '../../notifications/email-templates';
 import { CacheService } from '../../common/cache.service';
+import { CheckupMembershipsService } from '../memberships/checkup-memberships.service';
 
 /** TTL in seconds for a refresh token (7 days) */
 const REFRESH_TOKEN_TTL_S = 7 * 24 * 60 * 60;
@@ -46,6 +47,7 @@ export class CheckupAuthService {
     private configService: ConfigService,
     private cacheService: CacheService,
     private emailService: EmailService,
+    private membershipsService: CheckupMembershipsService,
   ) {
     const secret = this.configService.get<string>('CHECKUP_REFRESH_SECRET');
     if (!secret) {
@@ -158,17 +160,51 @@ export class CheckupAuthService {
   // ── Refresh-token helpers ──────────────────────────────────────────────────
 
   /** Issue a refresh token (JWT signed with CHECKUP_REFRESH_SECRET, 7d TTL). */
-  private issueRefreshToken(userId: string): string {
+  private issueRefreshToken(userId: string, mid?: string | null): string {
     const jti = crypto.randomUUID();
     return this.jwtService.sign(
-      { sub: userId, jti },
+      { sub: userId, jti, mid: mid ?? undefined },
       { secret: this.refreshSecret, expiresIn: `${REFRESH_TOKEN_TTL_S}s` },
     );
   }
 
+  /**
+   * Costruisce la risposta di sessione (access + refresh + user + lista contesti)
+   * per un utente in uno specifico contesto (appartenenza attiva). Se `membershipId`
+   * non è passato usa la primaria.
+   */
+  private async buildSession(user: CheckupUser, membershipId?: string | null) {
+    const membership = await this.membershipsService.resolveActive(user.id, membershipId);
+    this.membershipsService.applyToUser(user, membership);
+    const memberships = await this.membershipsService.listForUser(user.id);
+    const payload: CheckupJwtPayload = {
+      sub: user.id,
+      email: user.email,
+      ruolo: user.ruolo,
+      mid: membership?.id,
+    };
+    return {
+      access_token: this.jwtService.sign(payload),
+      refresh_token: this.issueRefreshToken(user.id, membership?.id),
+      user: this.mapUserPayload(user),
+      activeMembershipId: membership?.id ?? null,
+      memberships,
+    };
+  }
+
+  /** Cambia il contesto attivo (appartenenza) e riemette i token. */
+  async switchContext(userId: string, membershipId: string) {
+    await this.membershipsService.assertOwnedByUser(userId, membershipId);
+    const user = await this.loadUserForAuth({ id: userId });
+    if (!user) {
+      throw new UnauthorizedException('Utente non trovato');
+    }
+    return this.buildSession(user, membershipId);
+  }
+
   /** Verify refresh token, check blacklist, and return a fresh access token. */
   async refreshAccessToken(refreshToken: string): Promise<{ access_token: string; refresh_token: string }> {
-    let payload: { sub: string; jti: string; exp: number };
+    let payload: { sub: string; jti: string; exp: number; mid?: string };
     try {
       payload = this.jwtService.verify(refreshToken, { secret: this.refreshSecret });
     } catch {
@@ -191,10 +227,18 @@ export class CheckupAuthService {
       throw new UnauthorizedException('Utente non trovato');
     }
 
-    const accessPayload: CheckupJwtPayload = { sub: user.id, email: user.email, ruolo: user.ruolo };
+    // Preserva il contesto attivo (mid) attraverso la rotazione del refresh token.
+    const membership = await this.membershipsService.resolveActive(user.id, payload.mid);
+    this.membershipsService.applyToUser(user, membership);
+    const accessPayload: CheckupJwtPayload = {
+      sub: user.id,
+      email: user.email,
+      ruolo: user.ruolo,
+      mid: membership?.id,
+    };
     return {
       access_token: this.jwtService.sign(accessPayload),
-      refresh_token: this.issueRefreshToken(user.id),
+      refresh_token: this.issueRefreshToken(user.id, membership?.id),
     };
   }
 
@@ -345,17 +389,7 @@ export class CheckupAuthService {
 
     await this.userRepository.update(user.id, { lastLogin: new Date() });
 
-    const payload: CheckupJwtPayload = {
-      sub: user.id,
-      email: user.email,
-      ruolo: user.ruolo,
-    };
-
-    return {
-      access_token: this.jwtService.sign(payload),
-      refresh_token: this.issueRefreshToken(user.id),
-      user: this.mapUserPayload(user),
-    };
+    return this.buildSession(user);
   }
 
   async verifyTwoFactorLogin(challengeToken: string, code: string) {
@@ -392,17 +426,7 @@ export class CheckupAuthService {
     user.lastLogin = new Date();
     await this.userRepository.save(user);
 
-    const payload: CheckupJwtPayload = {
-      sub: user.id,
-      email: user.email,
-      ruolo: user.ruolo,
-    };
-
-    return {
-      access_token: this.jwtService.sign(payload),
-      refresh_token: this.issueRefreshToken(user.id),
-      user: this.mapUserPayload(user),
-    };
+    return this.buildSession(user);
   }
 
   async requestTwoFactorEnable(userId: string, channel: 'sms' | 'email', telefono?: string) {
@@ -526,20 +550,7 @@ export class CheckupAuthService {
     user.mustChangePassword = false;
     await this.userRepository.save(user);
 
-    const payload: CheckupJwtPayload = {
-      sub: user.id,
-      email: user.email,
-      ruolo: user.ruolo,
-    };
-
-    return {
-      access_token: this.jwtService.sign(payload),
-      refresh_token: this.issueRefreshToken(user.id),
-      user: {
-        ...this.mapUserPayload(user),
-        mustChangePassword: false,
-      },
-    };
+    return this.buildSession(user);
   }
 
   async requestPasswordReset(email: string) {
@@ -588,13 +599,21 @@ export class CheckupAuthService {
     return { success: true };
   }
 
-  async getProfile(userId: string) {
+  async getProfile(userId: string, membershipId?: string | null) {
     const user = await this.loadUserForAuth({ id: userId });
 
     if (!user) {
       throw new UnauthorizedException('Utente non trovato');
     }
 
-    return this.mapUserPayload(user);
+    const membership = await this.membershipsService.resolveActive(user.id, membershipId);
+    this.membershipsService.applyToUser(user, membership);
+    const memberships = await this.membershipsService.listForUser(user.id);
+
+    return {
+      ...this.mapUserPayload(user),
+      activeMembershipId: membership?.id ?? null,
+      memberships,
+    };
   }
 }

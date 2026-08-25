@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Plus, X, Edit2, Key, Power, PowerOff, Eye, EyeOff } from 'lucide-react';
-import { checkupAdminApi, type CheckupAdminUser, type CheckupStudio, type CheckupClient, type CheckupSublicense } from '../api/checkupAdmin';
+import { Plus, X, Edit2, Key, Power, PowerOff, Eye, EyeOff, Trash2, RotateCcw } from 'lucide-react';
+import { checkupAdminApi, createAdminUserOrAssociate, buildAssociateMessage, type CheckupAdminUser, type CheckupStudio, type CheckupClient, type CheckupSublicense } from '../api/checkupAdmin';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { useToast } from '../components/ui/ToastProvider';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
+import { useSecureConfirmDialog } from '../components/ui/SecureConfirmDialog';
 import { Pagination } from '../components/Pagination';
 
 export default function AdminCheckupUsersPage() {
@@ -22,6 +23,7 @@ export default function AdminCheckupUsersPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedUser, setSelectedUser] = useState<CheckupAdminUser | null>(null);
   const [hideInactive, setHideInactive] = useState(false);
+  const [hideDeleted, setHideDeleted] = useState(true);
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
   const [resetPasswordValue, setResetPasswordValue] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -60,12 +62,13 @@ export default function AdminCheckupUsersPage() {
   };
 
   const { confirm, ConfirmDialog } = useConfirmDialog();
+  const { confirm: secureConfirm, SecureConfirmDialog } = useSecureConfirmDialog();
 
   const loadData = async () => {
     setLoading(true);
     try {
       const [usersData, studiosData, clientsData, sublicensesData] = await Promise.all([
-        checkupAdminApi.getAdminUsers(),
+        checkupAdminApi.getAdminUsers(true),
         checkupAdminApi.getStudios(),
         checkupAdminApi.getClients(),
         checkupAdminApi.getSublicenses(),
@@ -204,7 +207,7 @@ export default function AdminCheckupUsersPage() {
         });
         success('Utente aggiornato');
       } else {
-        await checkupAdminApi.createAdminUser({
+        const created = await createAdminUserOrAssociate({
           nome: formData.nome.trim(),
           cognome: formData.cognome.trim(),
           titolo: formData.titolo.trim() || undefined,
@@ -219,7 +222,13 @@ export default function AdminCheckupUsersPage() {
           macroAreaAssignments: assignAllMacroAreas ? [] : formData.macroAreaAssignments,
           macroAreaOwner: formData.macroAreaOwner,
           superOwner: Boolean(formData.superOwner),
-        });
+        }, (conflict) => confirm({
+          title: 'Utenza già esistente',
+          message: buildAssociateMessage(conflict),
+          confirmText: 'Riusa utenza esistente',
+          variant: conflict.sameCompany ? 'info' : 'warning',
+        }));
+        if (!created) return;
         success('Utente creato');
       }
       setShowUserModal(false);
@@ -253,6 +262,42 @@ export default function AdminCheckupUsersPage() {
       loadData();
     } catch (err: any) {
       toastError(err.message || 'Errore durante l\'operazione');
+    }
+  };
+
+  const handleDeleteUser = async (user: CheckupAdminUser) => {
+    const nome = `${user.nome} ${user.cognome}`.trim();
+    const confirmed = await secureConfirm({
+      title: 'Eliminare utenza?',
+      message: (
+        <>
+          <p className="mb-3">Stai per eliminare l'utenza <strong>{nome}</strong> ({user.email}).</p>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+            ℹ️ Eliminazione <strong>SOFT (reversibile)</strong>: l'intera identità (tutti i contesti) viene nascosta e il login bloccato; potrai ripristinarla in qualsiasi momento.
+          </div>
+        </>
+      ),
+      confirmationText: nome,
+      confirmText: 'Elimina (soft delete)',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.deleteAdminUser(user.id);
+      success('Utenza eliminata');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante l\'eliminazione');
+    }
+  };
+
+  const handleRestoreUser = async (user: CheckupAdminUser) => {
+    try {
+      await checkupAdminApi.restoreAdminUser(user.id);
+      success('Utenza ripristinata');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante il ripristino');
     }
   };
 
@@ -355,6 +400,7 @@ export default function AdminCheckupUsersPage() {
   });
   const submitLimitReached = selectedClientLimitReached;
   const filteredUsers = clientUsers.filter((u) => {
+    if (hideDeleted && u.deletedAt) return false;
     if (hideInactive && !u.attivo) return false;
     if (filterStudioId) {
       const studioId = u.sublicenseId ? sublicensesById.get(u.sublicenseId)?.license?.studio?.id : undefined;
@@ -395,6 +441,16 @@ export default function AdminCheckupUsersPage() {
           >
             {hideInactive ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
             {hideInactive ? 'Mostra disattivati' : 'Nascondi disattivati'}
+          </button>
+          <button
+            onClick={() => {
+              setHideDeleted((prev) => !prev);
+              setCurrentPage(1);
+            }}
+            className="wow-button-ghost"
+          >
+            {hideDeleted ? <Trash2 className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            {hideDeleted ? 'Mostra eliminati' : 'Nascondi eliminati'}
           </button>
           <button onClick={handleOpenCreateUser} className="wow-button">
             <Plus className="h-4 w-4" />
@@ -481,33 +537,56 @@ export default function AdminCheckupUsersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${u.attivo ? 'bg-success-50 text-success-700' : 'bg-slate-100 text-slate-500'}`}>
-                        {u.attivo ? 'Attivo' : 'Disattivo'}
-                      </span>
+                      {u.deletedAt ? (
+                        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs text-rose-700">Eliminato</span>
+                      ) : (
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${u.attivo ? 'bg-success-50 text-success-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {u.attivo ? 'Attivo' : 'Disattivo'}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-3 text-xs font-semibold">
-                        <button
-                          onClick={() => handleOpenEditUser(u)}
-                          className="text-blue-600 hover:text-blue-900"
-                          title="Modifica"
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleOpenResetPassword(u)}
-                          className="text-orange-600 hover:text-orange-900"
-                          title="Reset password"
-                        >
-                          <Key className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleToggleActive(u)}
-                          className={u.attivo ? 'text-amber-600 hover:text-amber-900' : 'text-emerald-600 hover:text-emerald-700'}
-                          title={u.attivo ? 'Disattiva' : 'Attiva'}
-                        >
-                          {u.attivo ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
-                        </button>
+                        {u.deletedAt ? (
+                          <button
+                            onClick={() => handleRestoreUser(u)}
+                            className="text-emerald-600 hover:text-emerald-800"
+                            title="Ripristina"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleOpenEditUser(u)}
+                              className="text-blue-600 hover:text-blue-900"
+                              title="Modifica"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleOpenResetPassword(u)}
+                              className="text-orange-600 hover:text-orange-900"
+                              title="Reset password"
+                            >
+                              <Key className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleToggleActive(u)}
+                              className={u.attivo ? 'text-amber-600 hover:text-amber-900' : 'text-emerald-600 hover:text-emerald-700'}
+                              title={u.attivo ? 'Disattiva' : 'Attiva'}
+                            >
+                              {u.attivo ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteUser(u)}
+                              className="text-rose-600 hover:text-rose-800"
+                              title="Elimina"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -905,6 +984,7 @@ export default function AdminCheckupUsersPage() {
       )}
 
       <ConfirmDialog />
+      <SecureConfirmDialog />
     </div>
   );
 }

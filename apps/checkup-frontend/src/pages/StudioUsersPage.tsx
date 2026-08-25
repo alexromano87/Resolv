@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, X, Edit2, Key, Power, PowerOff, Eye, EyeOff } from 'lucide-react';
-import { usersApi, CreateCheckupUserPayload } from '../api/users';
+import { usersApi, CreateCheckupUserPayload, EmailExistsConflict, buildAssociateMessage } from '../api/users';
+import { ApiError } from '../api/config';
 import { CheckupUser } from '../api/auth';
 import { studiosApi, CheckupClientRecord, CheckupSublicenseOption, CheckupLicenseInfo } from '../api/studios';
 import { CustomSelect } from '../components/CustomSelect';
@@ -248,7 +249,26 @@ export default function StudioUsersPage({ embedded = false }: { embedded?: boole
           macroAreaOwner: formData.ruolo === 'cliente' ? formData.macroAreaOwner : [],
           superOwner: formData.ruolo === 'cliente' ? Boolean(formData.superOwner) : false,
         };
-        await usersApi.create(payload);
+        try {
+          await usersApi.create(payload);
+        } catch (err) {
+          // Email già presente: proponi di riusare l'identità esistente
+          // creando una nuova appartenenza (stessa persona, nuovo ruolo/contesto).
+          const body = err instanceof ApiError ? (err.body as EmailExistsConflict | undefined) : undefined;
+          if (body?.code === 'EMAIL_EXISTS' && body.canAssociate) {
+            const wantAssociate = await confirm({
+              title: 'Utenza già esistente',
+              message: buildAssociateMessage(body),
+              confirmText: 'Riusa utenza esistente',
+              variant: body.sameCompany ? 'info' : 'warning',
+            });
+            if (!wantAssociate) return;
+            const { password: _pw, ...rest } = payload;
+            await usersApi.create({ ...rest, associateExisting: true });
+          } else {
+            throw err;
+          }
+        }
       }
       handleCloseForm();
       resetForm();

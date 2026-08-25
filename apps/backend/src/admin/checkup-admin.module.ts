@@ -12,8 +12,10 @@ import { QuestionSection } from '../checkup/entities/question-section.entity';
 import { QuestionField } from '../checkup/entities/question-field.entity';
 import { QuestionModel } from '../checkup/entities/question-model.entity';
 import { CheckupPdfConfig } from '../checkup/entities/checkup-pdf-config.entity';
+import { CheckupMembership } from '../checkup/memberships/checkup-membership.entity';
 import { CheckupAdminController } from './checkup-admin.controller';
 import { QuestionManagementService } from '../checkup/services/question-management.service';
+import { CheckupMembershipsService } from '../checkup/memberships/checkup-memberships.service';
 import { CheckupPreassessmentRenderService } from '../checkup/preassessment/checkup-preassessment-render.service';
 
 @Module({
@@ -31,9 +33,10 @@ import { CheckupPreassessmentRenderService } from '../checkup/preassessment/chec
       QuestionField,
       QuestionModel,
       CheckupPdfConfig,
+      CheckupMembership,
     ]),
   ],
   controllers: [CheckupAdminController],
-  providers: [QuestionManagementService, CheckupPreassessmentRenderService],
+  providers: [QuestionManagementService, CheckupMembershipsService, CheckupPreassessmentRenderService],
 })
 export class CheckupAdminModule {}

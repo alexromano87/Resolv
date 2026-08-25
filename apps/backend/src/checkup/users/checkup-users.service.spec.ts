@@ -11,6 +11,7 @@ import { CheckupSublicense } from '../licenses/checkup-sublicense.entity';
 import { CheckupMailService } from '../mail/checkup-mail.service';
 import { CheckupPreassessment } from '../preassessment/checkup-preassessment.entity';
 import { QuestionManagementService } from '../services/question-management.service';
+import { CheckupMembershipsService } from '../memberships/checkup-memberships.service';
 
 jest.mock('bcrypt', () => ({
   hash: jest.fn().mockResolvedValue('hashed-password'),
@@ -34,6 +35,12 @@ describe('CheckupUsersService', () => {
   let preassessmentRepository: ReturnType<typeof mockRepository>;
   let mailService: { sendMail: jest.Mock };
   let questionManagementService: { getAllMacroAreas: jest.Mock };
+  let membershipsService: {
+    createForUser: jest.Mock;
+    syncPrimary: jest.Mock;
+    countStudioSeats: jest.Mock;
+    countClientSeats: jest.Mock;
+  };
 
   const currentUser = {
     id: 'admin-1',
@@ -50,6 +57,12 @@ describe('CheckupUsersService', () => {
     sublicenseRepository = mockRepository();
     preassessmentRepository = mockRepository();
     mailService = { sendMail: jest.fn() };
+    membershipsService = {
+      createForUser: jest.fn().mockResolvedValue({ id: 'mem-1' }),
+      syncPrimary: jest.fn().mockResolvedValue(undefined),
+      countStudioSeats: jest.fn().mockResolvedValue(0),
+      countClientSeats: jest.fn().mockResolvedValue(0),
+    };
     questionManagementService = {
       getAllMacroAreas: jest.fn().mockResolvedValue([
         { code: 'a', label: 'Area A' },
@@ -69,6 +82,7 @@ describe('CheckupUsersService', () => {
         { provide: getRepositoryToken(CheckupPreassessment), useValue: preassessmentRepository },
         { provide: CheckupMailService, useValue: mailService },
         { provide: QuestionManagementService, useValue: questionManagementService },
+        { provide: CheckupMembershipsService, useValue: membershipsService },
       ],
     }).compile();
 
@@ -83,6 +97,7 @@ describe('CheckupUsersService', () => {
       id: 'sub-1',
       clientId: 'client-1',
       licenseId: 'lic-1',
+      modelId: 'model-1',
       numeroUtenze: 5,
       license: { studioId: 'studio-1' },
     });
@@ -91,6 +106,7 @@ describe('CheckupUsersService', () => {
         id: 'sub-1',
         clientId: 'client-1',
         licenseId: 'lic-1',
+        modelId: 'model-1',
         numeroUtenze: 5,
       },
     ]);

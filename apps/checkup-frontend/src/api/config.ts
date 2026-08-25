@@ -3,6 +3,18 @@ export const apiBase = API_BASE;
 
 const DEFAULT_TIMEOUT_MS = 20000;
 
+/** Error che conserva lo status HTTP e il corpo strutturato della risposta. */
+export class ApiError extends Error {
+  status: number;
+  body: any;
+  constructor(message: string, status: number, body: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 // ── In-memory access token store ─────────────────────────────────────────────
 // Access token intentionally stays only in memory to reduce XSS exfiltration risk.
 // Session restore on page reload relies on the httpOnly refresh cookie.
@@ -132,7 +144,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     const fallbackMessage = isTimeout
       ? 'Tempo di risposta scaduto. Riprova tra qualche istante.'
       : `Errore ${response.status}`;
-    throw new Error(error.message || fallbackMessage);
+    throw new ApiError(error.message || fallbackMessage, response.status, error);
   }
 
   if (
@@ -206,7 +218,7 @@ export async function requestBlob(endpoint: string, options: RequestOptions = {}
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Errore di rete' }));
     const isTimeout = response.status === 408 || response.status === 504;
-    throw new Error(error.message || (isTimeout ? 'Tempo di risposta scaduto. Riprova tra qualche istante.' : `Errore ${response.status}`));
+    throw new ApiError(error.message || (isTimeout ? 'Tempo di risposta scaduto. Riprova tra qualche istante.' : `Errore ${response.status}`), response.status, error);
   }
 
   return response.blob();
@@ -273,7 +285,7 @@ export async function requestBlobWithFilename(
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Errore di rete' }));
     const isTimeout = response.status === 408 || response.status === 504;
-    throw new Error(error.message || (isTimeout ? 'Tempo di risposta scaduto. Riprova tra qualche istante.' : `Errore ${response.status}`));
+    throw new ApiError(error.message || (isTimeout ? 'Tempo di risposta scaduto. Riprova tra qualche istante.' : `Errore ${response.status}`), response.status, error);
   }
 
   const contentDisposition = response.headers.get('Content-Disposition') || response.headers.get('content-disposition');
