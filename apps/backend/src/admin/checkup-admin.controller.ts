@@ -1702,13 +1702,20 @@ export class CheckupAdminController {
         throw new ConflictException('Assegna prima la licenza a un licenziatario');
       }
       const consultant = await this.resolveAnagraficaForStudio(license.studioId, dto.consultantAnagraficaId);
-      const linkedUser = await this.userRepository.findOne({
-        where: [
-          { anagraficaId: consultant!.id, ruolo: 'admin_studio', attivo: true },
-          { anagraficaId: consultant!.id, ruolo: 'collaboratore', attivo: true },
-        ],
-      });
-      if (!linkedUser) {
+      // Staff collegato all'anagrafica: sia via colonna utente sia via appartenenza
+      // (utenze importate/riusate → legame su membership.anagraficaId, non sulla riga).
+      const linkedViaMembership = (
+        await this.membershipsService.anagraficaIdsWithActiveStaff([consultant!.id])
+      ).has(consultant!.id);
+      const linkedViaRow = linkedViaMembership
+        ? true
+        : await this.userRepository.findOne({
+            where: [
+              { anagraficaId: consultant!.id, ruolo: 'admin_studio', attivo: true },
+              { anagraficaId: consultant!.id, ruolo: 'collaboratore', attivo: true },
+            ],
+          });
+      if (!linkedViaMembership && !linkedViaRow) {
         throw new ConflictException('Il consulente deve essere associato ad un utente Admin studio o Collaboratore');
       }
       payload.consultantAnagraficaId = consultant!.id;
