@@ -304,6 +304,20 @@ export class CheckupPreassessmentPdfTemplateService {
               <div>
                 <div class="section-kicker">${escapeHtml(group.macro)}</div>
                 <h2>${escapeHtml(`${section.displayCode} - ${this.stripSectionCodePrefix(section.title, section.displayCode)}`)}</h2>
+                ${(() => {
+                  // Owner della sotto-area (iniezione): mostrato solo se assegnato un
+                  // owner a livello di sotto-area (owner_<codice sezione>_*). L'owner
+                  // dell'intera macro resta nell'area owner esistente.
+                  const oNome = (data[`owner_${section.id}_nome`] || '').trim();
+                  const oRuolo = (data[`owner_${section.id}_ruolo`] || '').trim();
+                  const oEmail = (data[`owner_${section.id}_email`] || '').trim();
+                  if (!oNome && !oEmail) return '';
+                  const parts = [oNome, oRuolo ? `(${oRuolo})` : '', oEmail]
+                    .filter(Boolean)
+                    .map((p) => escapeHtml(p))
+                    .join(' ');
+                  return `<div class="section-owner" style="margin-top:4px;font-size:11px;font-weight:600;color:#475569;">Owner sotto-area: ${parts}</div>`;
+                })()}
               </div>
             </div>
             <table class="qa-table">
@@ -1039,6 +1053,20 @@ export class CheckupPreassessmentPdfTemplateService {
       doc.fillColor(borderColor).font('Helvetica-Bold').fontSize(13).text(`${sectionCode} - ${sectionTitle}`, startX + 14, cursorY + 10, {
         width: bodyWidth - 28,
       });
+      // Owner della sotto-area (iniezione): mostrato solo se assegnato un owner a
+      // livello di sotto-area (owner_<codice sezione>_*), allineato a destra nella
+      // banda del titolo — nessuna modifica alle altezze/layout.
+      {
+        const oNome = (payload.data[`owner_${section.id}_nome`] || '').trim();
+        const oEmail = (payload.data[`owner_${section.id}_email`] || '').trim();
+        if (oNome || oEmail) {
+          const oRuolo = (payload.data[`owner_${section.id}_ruolo`] || '').trim();
+          const ownerLabel = `Owner: ${oNome}${oRuolo ? ` (${oRuolo})` : ''}${oEmail ? ` · ${oEmail}` : ''}`;
+          doc.font('Helvetica').fontSize(7.5).fillColor('#64748b');
+          const w = Math.min(doc.widthOfString(ownerLabel), 300);
+          doc.text(ownerLabel, startX + bodyWidth - w - 14, cursorY + 14, { width: w + 2, align: 'right', lineBreak: false });
+        }
+      }
       cursorY += sectionTitleHeight;
       doc.roundedRect(startX + 1, cursorY, bodyWidth - 2, tableHeaderHeight, 0).fill('#f8fafc');
       doc.fillColor(borderColor).font('Helvetica-Bold').fontSize(9).text('DOMANDE', startX + 12, cursorY + 8, {

@@ -190,7 +190,7 @@ describe('CheckupUsersService', () => {
       macroAreaAssignments: ['a'],
       macroAreaOwner: ['a'],
     }, currentUser)).rejects.toThrow(
-      'La macro area "Area A" risulta gia assegnata come owner a Giulia Bianchi.',
+      'L\'area/sotto-area "Area A" risulta già assegnata come owner a Giulia Bianchi.',
     );
 
     expect(userRepository.save).not.toHaveBeenCalled();

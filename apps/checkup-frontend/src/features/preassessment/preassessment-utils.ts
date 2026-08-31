@@ -119,8 +119,12 @@ export function getMacroCodePrefix(macroId: string) {
 export function getOwnerEmailFieldForMacro(macroId: string) {
   const base = getBaseMacroCode(macroId);
   const field = OWNER_EMAIL_BY_MACRO[base];
+  if (!field) {
+    // Codice sotto-area: campo email owner derivato dal codice.
+    return `owner_${macroId}_email`;
+  }
   const prefix = getMacroCodePrefix(macroId);
-  return field && prefix ? `${prefix}_${field}` : field;
+  return prefix ? `${prefix}_${field}` : field;
 }
 
 export function isOwnerFieldId(fieldId: string) {
@@ -189,16 +193,16 @@ export function getOwnerInfo(data: Record<string, string> | null | undefined, ma
   if (!data) return null;
   const base = getBaseMacroCode(macroId);
   const baseFields = OWNER_FIELDS_BY_MACRO[base];
-  if (!baseFields) return null;
-  const prefix = getMacroCodePrefix(macroId);
-  const fields = prefix
-    ? {
-      name: `${prefix}_${baseFields.name}`,
-      role: `${prefix}_${baseFields.role}`,
-      email: `${prefix}_${baseFields.email}`,
-    }
-    : baseFields;
-  if (!fields) return null;
+  let fields: { name: string; role: string; email: string };
+  if (baseFields) {
+    const prefix = getMacroCodePrefix(macroId);
+    fields = prefix
+      ? { name: `${prefix}_${baseFields.name}`, role: `${prefix}_${baseFields.role}`, email: `${prefix}_${baseFields.email}` }
+      : baseFields;
+  } else {
+    // Codice sotto-area: campi owner derivati dal codice (owner_<code>_*).
+    fields = { name: `owner_${macroId}_nome`, role: `owner_${macroId}_ruolo`, email: `owner_${macroId}_email` };
+  }
   const name = (data[fields.name] || '').trim();
   const role = (data[fields.role] || '').trim();
   const email = (data[fields.email] || '').trim();

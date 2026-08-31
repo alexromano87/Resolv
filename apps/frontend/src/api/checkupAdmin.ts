@@ -444,7 +444,14 @@ export const checkupAdminApi = {
   },
 
   getMacroAreasByModel: async (modelId: string) => {
-    return api.get<{ id: number; code: string; label: string; color: string; sortOrder: number }[]>(
+    return api.get<{
+      id: number;
+      code: string;
+      label: string;
+      color: string;
+      sortOrder: number;
+      sections?: { id: number; code: string; title: string; sortOrder: number }[];
+    }[]>(
       `/admin/checkup/questions/macro-areas?modelId=${encodeURIComponent(modelId)}`,
     );
   },

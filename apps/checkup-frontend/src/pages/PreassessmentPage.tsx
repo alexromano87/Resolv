@@ -337,12 +337,21 @@ export default function PreassessmentPage() {
             })),
           }))
         );
-        const visibleMacroAreas = assignedClientMacroAreas
-          ? nextMacroAreas.filter((macro) => assignedClientMacroAreas.has(macro.id))
-          : nextMacroAreas;
+        // Granularità mista: un'assegnazione può essere l'area intera (codice macro)
+        // o una singola sotto-area (codice sezione). Una sezione è visibile se la sua
+        // macro è assegnata OPPURE la sezione stessa è assegnata.
         const visibleSections = assignedClientMacroAreas
-          ? nextSections.filter((section) => assignedClientMacroAreas.has(section.macro))
+          ? nextSections.filter(
+              (section) => assignedClientMacroAreas.has(section.macro) || assignedClientMacroAreas.has(section.id),
+            )
           : nextSections;
+        const visibleMacroAreas = assignedClientMacroAreas
+          ? nextMacroAreas.filter(
+              (macro) =>
+                assignedClientMacroAreas.has(macro.id) ||
+                nextSections.some((s) => s.macro === macro.id && assignedClientMacroAreas.has(s.id)),
+            )
+          : nextMacroAreas;
 
         setMacroAreas(visibleMacroAreas.length || assignedClientMacroAreas ? visibleMacroAreas : DEFAULT_MACRO_AREAS);
         setSections(visibleSections.length || assignedClientMacroAreas ? visibleSections : DEFAULT_SECTIONS);
@@ -1168,6 +1177,11 @@ export default function PreassessmentPage() {
     return ownerEmail !== '' && ownerEmail === user.email.toLowerCase();
   };
 
+  // Owner della sezione: è owner se lo è della sotto-area specifica (codice sezione)
+  // oppure dell'intera macro area.
+  const isOwnerForSection = (section: { id: string; macro: string }) =>
+    isOwnerForMacro(section.id) || isOwnerForMacro(section.macro);
+
   const dashFilterLabel = dashFilter === 'completed'
     ? 'Completati'
     : dashFilter === 'todo'
@@ -1529,6 +1543,15 @@ export default function PreassessmentPage() {
       const naCount = sects.reduce((a, s) => a + sNA(s), 0);
       const pctMacro = total > 0 ? Math.round((done / total) * 100) : 0;
       const ownerInfo = getOwnerInfo(data, m.id);
+      // Owner definiti a livello di singola sotto-area (per feedback senza espandere).
+      const subOwnerNames = Array.from(
+        new Set(
+          sects
+            .map((s) => getOwnerInfo(data, s.id))
+            .filter((info): info is NonNullable<typeof info> => !!info)
+            .map((info) => info.name || info.primary),
+        ),
+      );
       const validatedSections = sects.filter((s) => sectionValidations[s.id]).length;
       const excluded = sects.length > 0 && sects.every((section) => isOwnerSection(section));
       const validated = excluded || (sects.length > 0 && validatedSections === sects.length);
@@ -1542,6 +1565,7 @@ export default function PreassessmentPage() {
         pctMacro,
         sections: sects.length,
         ownerInfo,
+        subOwnerNames,
         validated,
         validatedSections,
         excluded,
@@ -1805,6 +1829,10 @@ export default function PreassessmentPage() {
                             <div className="text-[10px] text-slate-400">{row.ownerInfo.secondary}</div>
                           )}
                         </div>
+                      ) : row.subOwnerNames.length > 0 ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-600">
+                          {row.subOwnerNames.length} owner
+                        </span>
                       ) : (
                         <span className="text-xs text-slate-400">—</span>
                       )}
@@ -1908,6 +1936,7 @@ export default function PreassessmentPage() {
                               <thead className="bg-slate-100">
                                 <tr className="text-left text-[10px] uppercase tracking-wider text-slate-400">
                                   <th className="px-3 py-2">Sezione</th>
+                                  <th className="px-3 py-2">Owner</th>
                                   <th className="px-3 py-2">Domande</th>
                                   <th className="px-3 py-2">Compilati</th>
                                   <th className="px-3 py-2">N/A</th>
@@ -1923,6 +1952,7 @@ export default function PreassessmentPage() {
                                   const naCount = sNA(s);
                                   const sp = total > 0 ? Math.round((done / total) * 100) : 0;
                                   const validated = !!sectionValidations[s.id];
+                                  const sectionOwner = getOwnerInfo(data, s.id);
                                   const realIndex = sections.findIndex((sec) => sec.id === s.id);
                                   return (
                                     <tr
@@ -1936,6 +1966,18 @@ export default function PreassessmentPage() {
                                       }}
                                     >
                                       <td className="px-3 py-2 font-medium text-slate-700">{formatSectionHeading(s, rowSects.findIndex((section) => section.id === s.id), row.displayRef)}</td>
+                                      <td className="px-3 py-2">
+                                        {sectionOwner ? (
+                                          <div className="text-slate-600">
+                                            <div className="font-semibold text-slate-700">{sectionOwner.primary}</div>
+                                            {sectionOwner.secondary && (
+                                              <div className="text-[10px] text-slate-400">{sectionOwner.secondary}</div>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-400">—</span>
+                                        )}
+                                      </td>
                                       <td className="px-3 py-2 text-slate-500">{total}</td>
                                       <td className="px-3 py-2 text-slate-500">{done}</td>
                                       <td className="px-3 py-2">
@@ -2004,7 +2046,7 @@ export default function PreassessmentPage() {
     const visibleFields = activeSection.fields.filter(fieldMatchesFilter);
     const macroValidation = macroValidations[activeSection.macro];
     const sectionValidation = sectionValidations[activeSection.id];
-    const ownerInfo = getOwnerInfo(data, activeSection.macro);
+    const ownerInfo = getOwnerInfo(data, activeSection.id) || getOwnerInfo(data, activeSection.macro);
     const isSectionValidated = !!sectionValidation;
     const unresolvedFields = activeSection.fields.filter((field) => !isFieldResolved(field));
     const missingAnswersCount = unresolvedFields.length;
@@ -2067,7 +2109,7 @@ export default function PreassessmentPage() {
                 Nessun campo corrispondente al filtro selezionato.
               </div>
             )}
-            {isClient && isOwnerForMacro(activeSection.macro) && !isSectionValidated && missingAnswersCount > 0 && (
+            {isClient && isOwnerForSection(activeSection) && !isSectionValidated && missingAnswersCount > 0 && (
               <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
                 <div className="font-semibold">Sezione non validabile</div>
                 <div className="mt-1">
@@ -2146,7 +2188,7 @@ export default function PreassessmentPage() {
             )}
           </div>
 
-          {isClient && isOwnerForMacro(activeSection.macro) && (
+          {isClient && isOwnerForSection(activeSection) && (
             <div className="border-t border-slate-100 px-6 py-4">
               {sectionValidations[activeSection.id] ? (
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-700">

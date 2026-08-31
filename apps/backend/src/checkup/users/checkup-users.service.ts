@@ -14,6 +14,13 @@ import { CheckupMailService } from '../mail/checkup-mail.service';
 import { CheckupPreassessment } from '../preassessment/checkup-preassessment.entity';
 import { QuestionManagementService } from '../services/question-management.service';
 import { CheckupMembershipsService, MembershipContext } from '../memberships/checkup-memberships.service';
+import {
+  buildMacroAreaScope,
+  exclusivityConflicts,
+  ownersWithinAssignments,
+  ownerCodesConflict,
+  type MacroAreaScope,
+} from '../common/macro-area-scope';
 
 @Injectable()
 export class CheckupUsersService {
@@ -36,12 +43,20 @@ export class CheckupUsersService {
       ? macroId
       : macroId.split('_').pop() || macroId;
     const fields = CheckupUsersService.OWNER_FIELDS_BY_MACRO[base];
-    if (!fields || base === macroId) return fields;
-    const prefix = macroId.slice(0, -(base.length + 1));
+    if (fields && base === macroId) return fields;
+    if (fields) {
+      const prefix = macroId.slice(0, -(base.length + 1));
+      return {
+        name: `${prefix}_${fields.name}`,
+        role: `${prefix}_${fields.role}`,
+        email: `${prefix}_${fields.email}`,
+      };
+    }
+    // Codice sotto-area (o non mappato): campi owner derivati dal codice (owner_<code>_*).
     return {
-      name: `${prefix}_${fields.name}`,
-      role: `${prefix}_${fields.role}`,
-      email: `${prefix}_${fields.email}`,
+      name: `owner_${macroId}_nome`,
+      role: `owner_${macroId}_ruolo`,
+      email: `owner_${macroId}_email`,
     };
   }
 
@@ -88,18 +103,45 @@ export class CheckupUsersService {
     }
   }
 
+  /**
+   * Costruisce lo scope del modello (macro + sotto-aree, escluse le aree "owner")
+   * più la mappa etichette e i codici macro validi. Base per la validazione
+   * a granularità mista (area intera vs singola sotto-area).
+   */
+  private async getScope(modelId: string): Promise<{ scope: MacroAreaScope; macroCodes: Set<string>; labels: Map<string, string> }> {
+    const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
+    const selectable = macroAreas.filter((macro) => !this.isOwnerMacroArea(macro.code, macro.label));
+    const sections: Array<{ code: string; macroCode: string }> = [];
+    const macroCodes = new Set<string>();
+    const labels = new Map<string, string>();
+    for (const macro of selectable) {
+      macroCodes.add(macro.code);
+      labels.set(macro.code, macro.label || macro.code);
+      for (const section of (macro as { sections?: Array<{ code: string; title?: string }> }).sections || []) {
+        sections.push({ code: section.code, macroCode: macro.code });
+        labels.set(section.code, section.title || section.code);
+      }
+    }
+    return { scope: buildMacroAreaScope(sections), macroCodes, labels };
+  }
+
   private async validateMacroAreaSelection(modelId: string | null | undefined, macroIds?: string[] | null) {
     const normalized = this.normalizeMacroList(macroIds);
     if (normalized.length === 0) return;
     if (!modelId) {
       throw new ConflictException('La sublicenza non ha un modello associato');
     }
-    const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
-    const allowed = macroAreas.filter((macro) => !this.isOwnerMacroArea(macro.code, macro.label));
-    const allowedSet = new Set(allowed.map((macro) => macro.code));
-    const invalid = normalized.filter((macroId) => !allowedSet.has(macroId));
+    const { scope, macroCodes } = await this.getScope(modelId);
+    const allowed = new Set<string>([...macroCodes, ...scope.sectionCodes]);
+    const invalid = normalized.filter((code) => !allowed.has(code));
     if (invalid.length) {
-      throw new ConflictException('Macro area non valida');
+      throw new ConflictException('Area/sotto-area non valida');
+    }
+    // Esclusività: per una stessa area non si possono indicare sia l'area intera
+    // sia una sua sotto-area.
+    const conflicts = exclusivityConflicts(normalized, scope);
+    if (conflicts.length) {
+      throw new ConflictException('Per una stessa area scegli l\'area intera oppure singole sotto-aree, non entrambe');
     }
   }
 
@@ -107,47 +149,51 @@ export class CheckupUsersService {
     if (!modelId) {
       return new Map<string, string>();
     }
-    const macroAreas = await this.questionManagementService.getAllMacroAreas(modelId);
-    return new Map(macroAreas.map((macro) => [macro.code, macro.label || macro.code]));
+    const { labels } = await this.getScope(modelId);
+    return labels;
   }
 
-  private ensureMacroOwnersWithinAssignments(ownerIds?: string[] | null, assignmentIds?: string[] | null) {
+  private async ensureMacroOwnersWithinAssignments(
+    modelId: string | null | undefined,
+    ownerIds?: string[] | null,
+    assignmentIds?: string[] | null,
+  ) {
     const owners = this.normalizeMacroList(ownerIds);
     const assignments = this.normalizeMacroList(assignmentIds);
-    if (owners.length === 0 || assignments.length === 0) return;
-    const assignmentSet = new Set(assignments);
-    const invalid = owners.filter((macroId) => !assignmentSet.has(macroId));
-    if (invalid.length) {
-      throw new ConflictException('Le macro aree owner devono essere incluse tra le macro aree assegnate');
+    if (owners.length === 0) return;
+    const scope = modelId ? (await this.getScope(modelId)).scope : buildMacroAreaScope([]);
+    if (!ownersWithinAssignments(owners, assignments, scope)) {
+      throw new ConflictException('Le aree/sotto-aree owner devono essere incluse tra quelle assegnate');
     }
   }
 
   private async ensureUniqueMacroOwners(
     clientId: string,
+    modelId: string | null | undefined,
     macroIds: string[],
-    macroAreaLabels?: Map<string, string>,
     excludeUserId?: string,
   ) {
     const normalized = this.normalizeMacroList(macroIds);
     if (normalized.length === 0) return;
+    const { scope, labels } = modelId
+      ? await this.getScope(modelId)
+      : { scope: buildMacroAreaScope([]), labels: new Map<string, string>() };
     const where: Record<string, any> = { clientId, attivo: true };
     if (excludeUserId) where.id = Not(excludeUserId);
     const otherUsers = await this.userRepository.find({ where });
-    const alreadyOwned = new Map<string, CheckupUser>();
-    otherUsers.forEach((user) => {
-      (user.macroAreaOwner || []).forEach((macroId) => alreadyOwned.set(macroId, user));
-    });
-    const conflicts = normalized.filter((macroId) => alreadyOwned.has(macroId));
-    if (conflicts.length) {
-      const conflictMacroId = conflicts[0];
-      const assignedUser = alreadyOwned.get(conflictMacroId);
-      const macroLabel = macroAreaLabels?.get(conflictMacroId) || conflictMacroId;
-      const ownerName = assignedUser
-        ? `${assignedUser.nome} ${assignedUser.cognome}`.trim() || assignedUser.email
-        : 'un altro utente';
-      throw new ConflictException(
-        `La macro area "${macroLabel}" risulta gia assegnata come owner a ${ownerName}.`,
-      );
+    // Conflitto se un mio codice owner copre sotto-aree già coperte da un altro
+    // owner (incluso il caso area-intera ↔ sotto-area).
+    for (const myCode of normalized) {
+      for (const other of otherUsers) {
+        const otherOwner = (other.macroAreaOwner || []).find((oc) => ownerCodesConflict(myCode, oc, scope));
+        if (otherOwner) {
+          const ownerName = `${other.nome} ${other.cognome}`.trim() || other.email;
+          const label = labels.get(myCode) || myCode;
+          throw new ConflictException(
+            `L'area/sotto-area "${label}" risulta già assegnata come owner a ${ownerName}.`,
+          );
+        }
+      }
     }
   }
 
@@ -353,11 +399,10 @@ export class CheckupUsersService {
         throw new ForbiddenException('Cliente non attivo');
       }
       resolvedModelId = sublicense.modelId ?? null;
-      const macroAreaLabels = await this.getMacroAreaLabelMap(resolvedModelId);
       await this.validateMacroAreaSelection(resolvedModelId, dto.macroAreaAssignments);
       await this.validateMacroAreaSelection(resolvedModelId, dto.macroAreaOwner);
-      this.ensureMacroOwnersWithinAssignments(dto.macroAreaOwner, dto.macroAreaAssignments);
-      await this.ensureUniqueMacroOwners(clientId, dto.macroAreaOwner || [], macroAreaLabels);
+      await this.ensureMacroOwnersWithinAssignments(resolvedModelId, dto.macroAreaOwner, dto.macroAreaAssignments);
+      await this.ensureUniqueMacroOwners(clientId, resolvedModelId, dto.macroAreaOwner || []);
       if (nextSuperOwner) {
         await this.ensureUniqueSuperOwner(clientId);
       }
@@ -606,10 +651,9 @@ export class CheckupUsersService {
         nextSublicenseId,
       );
       const modelId = nextSublicense.modelId ?? null;
-      const macroAreaLabels = await this.getMacroAreaLabelMap(modelId);
       await this.validateMacroAreaSelection(modelId, nextMacroAssignments);
       await this.validateMacroAreaSelection(modelId, nextMacroOwner);
-      this.ensureMacroOwnersWithinAssignments(nextMacroOwner, nextMacroAssignments);
+      await this.ensureMacroOwnersWithinAssignments(modelId, nextMacroOwner, nextMacroAssignments);
       const shouldCheckOwnerConflicts =
         nextMacroOwner.length > 0
         && (
@@ -618,7 +662,7 @@ export class CheckupUsersService {
           || nextRole !== user.ruolo
         );
       if (shouldCheckOwnerConflicts) {
-        await this.ensureUniqueMacroOwners(nextClientId, nextMacroOwner, macroAreaLabels, user.id);
+        await this.ensureUniqueMacroOwners(nextClientId, modelId, nextMacroOwner, user.id);
       }
       if (nextSuperOwner && (dto.superOwner !== undefined || nextClientId !== user.clientId || !user.superOwner)) {
         await this.ensureUniqueSuperOwner(nextClientId, user.id);

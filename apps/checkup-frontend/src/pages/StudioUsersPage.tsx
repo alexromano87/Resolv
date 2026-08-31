@@ -5,6 +5,7 @@ import { ApiError } from '../api/config';
 import { CheckupUser } from '../api/auth';
 import { studiosApi, CheckupClientRecord, CheckupSublicenseOption, CheckupLicenseInfo } from '../api/studios';
 import { CustomSelect } from '../components/CustomSelect';
+import { AreaScopeSelector } from '../components/AreaScopeSelector';
 import { Pagination } from '../components/Pagination';
 import { ModalPortal } from '../components/ModalPortal';
 import { useConfirmDialog } from '../components/ui/ConfirmDialog';
@@ -28,7 +29,7 @@ export default function StudioUsersPage({ embedded = false }: { embedded?: boole
     clients: Array<{ clientId: string | null; maxUsers: number; activeUsers: number }>;
   } | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
-  const [macroAreas, setMacroAreas] = useState<{ code: string; label: string; sortOrder: number }[]>([]);
+  const [macroAreas, setMacroAreas] = useState<{ code: string; label: string; sortOrder: number; sections?: { code: string; title: string }[] }[]>([]);
   const [macroLoading, setMacroLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -376,7 +377,15 @@ export default function StudioUsersPage({ embedded = false }: { embedded?: boole
           data
             .filter((m) => m.code !== 'k' && !m.label.toLowerCase().includes('owner'))
             .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-            .map((m) => ({ code: m.code, label: m.label, sortOrder: m.sortOrder })),
+            .map((m) => ({
+              code: m.code,
+              label: m.label,
+              sortOrder: m.sortOrder,
+              sections: (m.sections ?? [])
+                .slice()
+                .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+                .map((s) => ({ code: s.code, title: s.title })),
+            })),
         );
       })
       .catch(() => setMacroAreas([]))
@@ -385,14 +394,22 @@ export default function StudioUsersPage({ embedded = false }: { embedded?: boole
 
   useEffect(() => {
     if (macroAreas.length === 0) return;
-    const allowed = new Set(macroAreas.map((m) => m.code));
+    const allowed = new Set<string>();
+    const macroOfSection = new Map<string, string>();
+    macroAreas.forEach((m) => {
+      allowed.add(m.code);
+      (m.sections ?? []).forEach((s) => {
+        allowed.add(s.code);
+        macroOfSection.set(s.code, m.code);
+      });
+    });
     const currentAssignments = formData.macroAreaAssignments ?? [];
     const currentOwners = formData.macroAreaOwner ?? [];
-    const filteredAssignments = currentAssignments.filter((macro) => allowed.has(macro));
-    const assignmentSet = new Set(assignAllMacroAreas ? macroAreas.map((m) => m.code) : filteredAssignments);
-    const filteredOwners = currentOwners
-      .filter((macro) => allowed.has(macro))
-      .filter((macro) => assignmentSet.has(macro));
+    const filteredAssignments = currentAssignments.filter((c) => allowed.has(c));
+    const assignSet = new Set(filteredAssignments);
+    const covered = (c: string) =>
+      assignAllMacroAreas || assignSet.has(c) || (macroOfSection.has(c) && assignSet.has(macroOfSection.get(c)!));
+    const filteredOwners = currentOwners.filter((c) => allowed.has(c) && covered(c));
     if (
       filteredAssignments.length !== currentAssignments.length
       || filteredOwners.length !== currentOwners.length
@@ -769,86 +786,24 @@ export default function StudioUsersPage({ embedded = false }: { embedded?: boole
                       />
                       <span>Tutte le macro aree</span>
                     </label>
-                    {!assignAllMacroAreas && (
-                      <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                        {macroLoading && (
-                          <div className="py-2 text-xs text-slate-500">Caricamento macro aree...</div>
-                        )}
-                        {!macroLoading && macroAreas.length === 0 && (
-                          <div className="py-2 text-xs text-slate-500">Nessuna macro area disponibile.</div>
-                        )}
-                        {!macroLoading && macroAreas.length > 0 && (
-                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                            {macroAreas.map((macro) => {
-                              const checked = (formData.macroAreaAssignments ?? []).includes(macro.code);
-                              return (
-                                <label key={macro.code} className="flex items-center gap-2 text-sm text-slate-700">
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={(e) => {
-                                      const next = e.target.checked
-                                        ? Array.from(new Set([...(formData.macroAreaAssignments ?? []), macro.code]))
-                                        : (formData.macroAreaAssignments ?? []).filter((m) => m !== macro.code);
-                                      setFormData((prev) => ({
-                                        ...prev,
-                                        macroAreaAssignments: next,
-                                        macroAreaOwner: (prev.macroAreaOwner ?? []).filter((m) => next.includes(m)),
-                                      }));
-                                    }}
-                                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
-                                    disabled={!selectedClientSublicense}
-                                  />
-                                  <span>{macro.label}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        )}
+                    {macroLoading && <div className="py-2 text-xs text-slate-500">Caricamento aree...</div>}
+                    {!macroLoading && macroAreas.length === 0 && selectedClientSublicense && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        Nessuna area disponibile per il modello selezionato.
                       </div>
                     )}
-                  </div>
-                </div>
-              )}
-              {formData.ruolo === 'cliente' && (
-                <div>
-                  <label className="text-sm font-medium text-slate-700">Macro aree owner</label>
-                  <div className="mt-1 space-y-2">
-                    <p className="text-xs text-slate-500">Opzionale: seleziona le aree assegnate di cui questo utente è owner. Solo su queste aree potrà validare.</p>
-                    <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                      {macroLoading && (
-                        <div className="py-2 text-xs text-slate-500">Caricamento macro aree...</div>
-                      )}
-                      {!macroLoading && macroAreas.length === 0 && (
-                        <div className="py-2 text-xs text-slate-500">Nessuna macro area disponibile.</div>
-                      )}
-                      {!macroLoading && macroAreas.length > 0 && (
-                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                          {macroAreas
-                            .filter((macro) => assignAllMacroAreas || (formData.macroAreaAssignments ?? []).includes(macro.code))
-                            .map((macro) => {
-                              const checked = (formData.macroAreaOwner ?? []).includes(macro.code);
-                              return (
-                                <label key={macro.code} className="flex items-center gap-2 text-sm text-slate-700">
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={(e) => {
-                                      const next = e.target.checked
-                                        ? Array.from(new Set([...(formData.macroAreaOwner ?? []), macro.code]))
-                                        : (formData.macroAreaOwner ?? []).filter((m) => m !== macro.code);
-                                      setFormData((prev) => ({ ...prev, macroAreaOwner: next }));
-                                    }}
-                                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
-                                    disabled={!selectedClientSublicense}
-                                  />
-                                  <span>{macro.label}</span>
-                                </label>
-                              );
-                            })}
-                        </div>
-                      )}
-                    </div>
+                    {!macroLoading && macroAreas.length > 0 && (
+                      <AreaScopeSelector
+                        macroAreas={macroAreas}
+                        assignments={formData.macroAreaAssignments ?? []}
+                        owner={formData.macroAreaOwner ?? []}
+                        assignAll={assignAllMacroAreas}
+                        disabled={!selectedClientSublicense}
+                        onChange={({ assignments, owner }) =>
+                          setFormData((prev) => ({ ...prev, macroAreaAssignments: assignments, macroAreaOwner: owner }))
+                        }
+                      />
+                    )}
                   </div>
                 </div>
               )}
