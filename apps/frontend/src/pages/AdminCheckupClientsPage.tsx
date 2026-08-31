@@ -136,7 +136,7 @@ export default function AdminCheckupClientsPage() {
     if (!selectedStudioId) return [];
     return anagrafiche
       .filter((item) => item.studioId === selectedStudioId)
-      .filter((item) => (item.users || []).some((user) => user.attivo && ['admin_studio', 'collaboratore'].includes(user.ruolo)))
+      .filter((item) => item.staffLinked ?? (item.users || []).some((user) => user.attivo && ['admin_studio', 'collaboratore'].includes(user.ruolo)))
       .map((item) => ({
         value: item.id,
         label: [item.titolo, item.nome, item.cognome].filter(Boolean).join(' '),
@@ -550,6 +550,32 @@ export default function AdminCheckupClientsPage() {
     }
   };
 
+  const handlePermanentDeleteClient = async (client: CheckupClient) => {
+    const nome = getClientDisplayName(client);
+    const confirmed = await secureConfirm({
+      title: 'Eliminare DEFINITIVAMENTE?',
+      message: (
+        <>
+          <p className="mb-3">Stai per eliminare in modo <strong>definitivo e irreversibile</strong> <strong>{nome}</strong>.</p>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+            ⚠️ Operazione <strong>IRREVERSIBILE</strong>: i dati non potranno più essere recuperati. Digita <strong>ELIMINA DEFINITIVAMENTE</strong> per confermare.
+          </div>
+        </>
+      ),
+      confirmationText: 'ELIMINA DEFINITIVAMENTE',
+      confirmText: 'Elimina definitivamente',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.permanentlyDeleteClient(client.id);
+      success('Cliente eliminato definitivamente');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante l\'eliminazione definitiva');
+    }
+  };
+
   const filteredClients = (hideInactive ? clients.filter((c) => c.attivo) : clients).filter((c) => !hideDeleted || !c.deletedAt).filter((client) => {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return true;
@@ -692,13 +718,22 @@ export default function AdminCheckupClientsPage() {
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end gap-3 text-xs font-semibold">
                           {client.deletedAt ? (
-                            <button
-                              onClick={() => handleRestoreClient(client)}
-                              className="text-emerald-600 hover:text-emerald-800"
-                              title="Ripristina"
-                            >
-                              <RotateCcw className="h-4 w-4" />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleRestoreClient(client)}
+                                className="text-emerald-600 hover:text-emerald-800"
+                                title="Ripristina"
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handlePermanentDeleteClient(client)}
+                                className="text-rose-700 hover:text-rose-900"
+                                title="Elimina definitivamente"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </>
                           ) : (
                             <>
                               <button

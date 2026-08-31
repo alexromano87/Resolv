@@ -8,6 +8,7 @@ import { CheckupPreassessment } from '../preassessment/checkup-preassessment.ent
 import type { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupUser } from '../users/checkup-user.entity';
 import { CheckupNotification, type CheckupNotificationType } from './checkup-notification.entity';
+import { CheckupMembershipsService } from '../memberships/checkup-memberships.service';
 
 interface CreateNotificationPayload {
   type: CheckupNotificationType;
@@ -41,6 +42,7 @@ export class CheckupNotificationsService {
     private readonly licenseRepository: Repository<CheckupLicense>,
     @InjectRepository(CheckupSublicense)
     private readonly sublicenseRepository: Repository<CheckupSublicense>,
+    private readonly membershipsService: CheckupMembershipsService,
   ) {}
 
   private actorName(actor?: CheckupCurrentUserData | null) {
@@ -93,15 +95,16 @@ export class CheckupNotificationsService {
     const license = sublicense
       ? await this.licenseRepository.findOne({ where: { id: sublicense.licenseId } })
       : null;
-    const staffUsers = license?.studioId
-      ? await this.userRepository.find({
-          where: { studioId: license.studioId, attivo: true },
-          select: ['id'],
+    // Staff dello studio via appartenenze (include utenze riusate/associate).
+    const staffIds = license?.studioId
+      ? await this.membershipsService.activeUserIdsForContext({
+          studioId: license.studioId,
+          ruoli: ['admin_studio', 'segreteria', 'collaboratore'],
         })
       : [];
 
     return this.notifyUsers(
-      [...clientUsers, ...staffUsers].map((user) => user.id),
+      [...clientUsers.map((user) => user.id), ...staffIds],
       {
         ...payload,
         preassessmentId,

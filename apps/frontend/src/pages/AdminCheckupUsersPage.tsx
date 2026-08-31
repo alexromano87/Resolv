@@ -26,6 +26,11 @@ export default function AdminCheckupUsersPage() {
   const [hideDeleted, setHideDeleted] = useState(true);
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
   const [resetPasswordValue, setResetPasswordValue] = useState('');
+  // Aggiunta appartenenza staff dall'hub identità.
+  const [addMembershipUser, setAddMembershipUser] = useState<CheckupAdminUser | null>(null);
+  const [addStudioId, setAddStudioId] = useState('');
+  const [addRuolo, setAddRuolo] = useState<'admin_studio' | 'segreteria' | 'collaboratore'>('collaboratore');
+  const [addMembershipBusy, setAddMembershipBusy] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
   const [searchTerm, setSearchTerm] = useState('');
@@ -301,6 +306,71 @@ export default function AdminCheckupUsersPage() {
     }
   };
 
+  const handlePermanentDeleteUser = async (user: CheckupAdminUser) => {
+    const nome = `${user.nome} ${user.cognome}`.trim();
+    const confirmed = await secureConfirm({
+      title: 'Eliminare DEFINITIVAMENTE?',
+      message: (
+        <>
+          <p className="mb-3">Stai per eliminare in modo <strong>definitivo e irreversibile</strong> l'utenza <strong>{nome}</strong> ({user.email}) e tutte le sue appartenenze.</p>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+            ⚠️ Operazione <strong>IRREVERSIBILE</strong>: i dati non potranno più essere recuperati. Digita <strong>ELIMINA DEFINITIVAMENTE</strong> per confermare.
+          </div>
+        </>
+      ),
+      confirmationText: 'ELIMINA DEFINITIVAMENTE',
+      confirmText: 'Elimina definitivamente',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.permanentlyDeleteAdminUser(user.id);
+      success('Utenza eliminata definitivamente');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante l\'eliminazione definitiva');
+    }
+  };
+
+  // Rimuove una singola appartenenza (contesto) dall'identità.
+  const handleRemoveMembershipFromHub = async (membershipId: string, contextLabel: string) => {
+    const confirmed = await confirm({
+      title: 'Rimuovere appartenenza?',
+      message: `Vuoi togliere il contesto "${contextLabel}" da questa utenza? L'identità e gli altri contesti restano invariati.`,
+      confirmText: 'Rimuovi',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.removeMembership(membershipId);
+      success('Appartenenza rimossa');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante la rimozione');
+    }
+  };
+
+  const openAddMembership = (user: CheckupAdminUser) => {
+    setAddMembershipUser(user);
+    setAddStudioId('');
+    setAddRuolo('collaboratore');
+  };
+
+  const submitAddMembership = async () => {
+    if (!addMembershipUser || !addStudioId) return;
+    setAddMembershipBusy(true);
+    try {
+      await checkupAdminApi.addUserMembership(addMembershipUser.id, { studioId: addStudioId, ruolo: addRuolo });
+      success('Appartenenza aggiunta');
+      setAddMembershipUser(null);
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante l\'aggiunta');
+    } finally {
+      setAddMembershipBusy(false);
+    }
+  };
+
   const handleOpenResetPassword = (user: CheckupAdminUser) => {
     setSelectedUser(user);
     setResetPasswordValue('');
@@ -330,6 +400,16 @@ export default function AdminCheckupUsersPage() {
     return acc;
   }, {});
   const sublicensesById = new Map(sublicenses.map((s) => [s.id, s]));
+  // Hub globale: lookup nomi per espandere le appartenenze (contesti) di ogni identità.
+  const studiosById = new Map(studios.map((s) => [s.id, s]));
+  const clientsById = new Map(clients.map((c) => [c.id, c]));
+  const membershipContextLabel = (m: NonNullable<CheckupAdminUser['memberships']>[number]) => {
+    const role = roleBadges[m.ruolo]?.label ?? m.ruolo;
+    let ctx = '';
+    if (m.studioId) ctx = studiosById.get(m.studioId)?.nome ?? 'Studio';
+    else if (m.clientId) ctx = clientsById.get(m.clientId)?.ragioneSociale ?? clientsById.get(m.clientId)?.nome ?? 'Cliente';
+    return ctx ? `${role} · ${ctx}` : role;
+  };
   const sublicensesByStudio = sublicenses.filter(
     (s) => s.license?.studioId && s.license?.studioId === formData.studioId,
   );
@@ -399,12 +479,13 @@ export default function AdminCheckupUsersPage() {
     }
   });
   const submitLimitReached = selectedClientLimitReached;
-  const filteredUsers = clientUsers.filter((u) => {
+  const filteredUsers = users.filter((u) => {
     if (hideDeleted && u.deletedAt) return false;
     if (hideInactive && !u.attivo) return false;
     if (filterStudioId) {
-      const studioId = u.sublicenseId ? sublicensesById.get(u.sublicenseId)?.license?.studio?.id : undefined;
-      if (studioId !== filterStudioId) return false;
+      const inStudioViaMembership = (u.memberships ?? []).some((m) => m.attiva && m.studioId === filterStudioId);
+      const clienteStudio = u.sublicenseId ? sublicensesById.get(u.sublicenseId)?.license?.studio?.id : undefined;
+      if (!inStudioViaMembership && clienteStudio !== filterStudioId) return false;
     }
     const term = searchTerm.trim().toLowerCase();
     if (!term) return true;
@@ -428,8 +509,8 @@ export default function AdminCheckupUsersPage() {
       <div className="wow-card p-6 md:p-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <span className="wow-chip">Amministrazione</span>
-          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione utenti</h1>
-          <p className="text-sm text-slate-600 mt-1">Gestisci gli utenti cliente collegati agli studi checkup.</p>
+          <h1 className="display-font text-3xl font-semibold text-slate-900 mt-2">Gestione utenze</h1>
+          <p className="text-sm text-slate-600 mt-1">Tutte le identità e i loro contesti (appartenenze). Le utenze staff si creano/modificano nella pagina del licenziatario; qui gestisci password, stato ed eliminazione dell'identità.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -502,6 +583,7 @@ export default function AdminCheckupUsersPage() {
                   <th className="px-4 py-3 text-left">Utente</th>
                   <th className="px-4 py-3 text-left">Email</th>
                   <th className="px-4 py-3 text-left">Ruolo</th>
+                  <th className="px-4 py-3 text-left">Contesti / Appartenenze</th>
                   <th className="px-4 py-3 text-left">Cliente</th>
                   <th className="px-4 py-3 text-left">Sublicenza</th>
                   <th className="px-4 py-3 text-left">Stato</th>
@@ -522,6 +604,41 @@ export default function AdminCheckupUsersPage() {
                           Super-owner
                         </span>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-500">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {(u.memberships ?? [])
+                          .filter((m) => m.attiva)
+                          .map((m) => (
+                            <span
+                              key={m.id}
+                              title={m.isPrimary ? 'Contesto primario' : 'Contesto aggiuntivo'}
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${m.isPrimary ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}
+                            >
+                              {membershipContextLabel(m)}
+                              {!m.isPrimary && !u.deletedAt && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveMembershipFromHub(m.id, membershipContextLabel(m))}
+                                  className="text-slate-400 hover:text-rose-600"
+                                  title="Rimuovi da questo contesto"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              )}
+                            </span>
+                          ))}
+                        {!u.deletedAt && (
+                          <button
+                            type="button"
+                            onClick={() => openAddMembership(u)}
+                            className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2 py-0.5 text-[11px] text-slate-500 hover:border-indigo-400 hover:text-indigo-600"
+                            title="Aggiungi appartenenza (staff licenziatario)"
+                          >
+                            <Plus className="h-3 w-3" /> Aggiungi
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-500">
                       {u.client?.ragioneSociale || u.client?.nome || u.azienda || '—'}
@@ -548,22 +665,40 @@ export default function AdminCheckupUsersPage() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-3 text-xs font-semibold">
                         {u.deletedAt ? (
-                          <button
-                            onClick={() => handleRestoreUser(u)}
-                            className="text-emerald-600 hover:text-emerald-800"
-                            title="Ripristina"
-                          >
-                            <RotateCcw className="h-4 w-4" />
-                          </button>
-                        ) : (
                           <>
                             <button
-                              onClick={() => handleOpenEditUser(u)}
-                              className="text-blue-600 hover:text-blue-900"
-                              title="Modifica"
+                              onClick={() => handleRestoreUser(u)}
+                              className="text-emerald-600 hover:text-emerald-800"
+                              title="Ripristina"
                             >
-                              <Edit2 className="h-4 w-4" />
+                              <RotateCcw className="h-4 w-4" />
                             </button>
+                            <button
+                              onClick={() => handlePermanentDeleteUser(u)}
+                              className="text-rose-700 hover:text-rose-900"
+                              title="Elimina definitivamente"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {u.ruolo === 'cliente' ? (
+                              <button
+                                onClick={() => handleOpenEditUser(u)}
+                                className="text-blue-600 hover:text-blue-900"
+                                title="Modifica"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </button>
+                            ) : (
+                              <span
+                                className="text-slate-300"
+                                title="Le utenze staff si gestiscono nella pagina del licenziatario"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </span>
+                            )}
                             <button
                               onClick={() => handleOpenResetPassword(u)}
                               className="text-orange-600 hover:text-orange-900"
@@ -978,6 +1113,64 @@ export default function AdminCheckupUsersPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </BodyPortal>
+      )}
+
+      {addMembershipUser && (
+        <BodyPortal>
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                <h2 className="text-lg font-semibold text-slate-900">Aggiungi appartenenza</h2>
+                <button onClick={() => setAddMembershipUser(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="space-y-4 p-6">
+                <p className="text-sm text-slate-600">
+                  Assegna a <strong>{addMembershipUser.nome} {addMembershipUser.cognome}</strong> un ruolo staff in un licenziatario.
+                  Verrà creata l'appartenenza (stessa identità/credenziali) e la relativa anagrafica licenziatario.
+                </p>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Licenziatario</label>
+                  <div className="mt-1">
+                    <CustomSelect
+                      value={addStudioId}
+                      onChange={(val: string) => setAddStudioId(val)}
+                      options={[
+                        { value: '', label: '— Seleziona licenziatario —' },
+                        ...licenziatariStudios.map((s) => ({ value: s.id, label: s.ragioneSociale || s.nome })),
+                      ]}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Ruolo</label>
+                  <div className="mt-1">
+                    <CustomSelect
+                      value={addRuolo}
+                      onChange={(val: string) => setAddRuolo(val as 'admin_studio' | 'segreteria' | 'collaboratore')}
+                      options={[
+                        { value: 'collaboratore', label: 'Collaboratore' },
+                        { value: 'segreteria', label: 'Segreteria' },
+                        { value: 'admin_studio', label: 'Amministratore' },
+                      ]}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+                <button onClick={() => setAddMembershipUser(null)} className="wow-button-ghost">Annulla</button>
+                <button
+                  onClick={submitAddMembership}
+                  disabled={!addStudioId || addMembershipBusy}
+                  className="wow-button disabled:opacity-60"
+                >
+                  {addMembershipBusy ? 'Aggiunta…' : 'Aggiungi'}
+                </button>
+              </div>
             </div>
           </div>
         </BodyPortal>

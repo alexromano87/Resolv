@@ -547,6 +547,31 @@ export default function AdminCheckupStudiosPage() {
     }
   };
 
+  const handlePermanentDeleteStudio = async (studio: CheckupStudio) => {
+    const confirmed = await secureConfirm({
+      title: 'Eliminare DEFINITIVAMENTE?',
+      message: (
+        <>
+          <p className="mb-3">Stai per eliminare in modo <strong>definitivo e irreversibile</strong> lo studio <strong>{studio.nome}</strong> e i dati collegati (anagrafiche, appartenenze).</p>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+            ⚠️ Operazione <strong>IRREVERSIBILE</strong>: i dati non potranno più essere recuperati. Digita <strong>ELIMINA DEFINITIVAMENTE</strong> per confermare.
+          </div>
+        </>
+      ),
+      confirmationText: 'ELIMINA DEFINITIVAMENTE',
+      confirmText: 'Elimina definitivamente',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.permanentlyDeleteStudio(studio.id);
+      success('Studio eliminato definitivamente');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante l\'eliminazione definitiva');
+    }
+  };
+
   const handleCreateStaffUser = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!selectedStudio) return;
@@ -896,13 +921,22 @@ export default function AdminCheckupStudiosPage() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-3 text-xs font-semibold">
                         {studio.deletedAt ? (
-                          <button
-                            onClick={() => handleRestoreStudio(studio)}
-                            className="text-emerald-600 hover:text-emerald-800"
-                            title="Ripristina"
-                          >
-                            <RotateCcw className="h-4 w-4" />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleRestoreStudio(studio)}
+                              className="text-emerald-600 hover:text-emerald-800"
+                              title="Ripristina"
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handlePermanentDeleteStudio(studio)}
+                              className="text-rose-700 hover:text-rose-900"
+                              title="Elimina definitivamente"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </>
                         ) : (
                           <>
                             <button

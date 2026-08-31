@@ -143,6 +143,32 @@ export default function AdminCheckupAnagrafichePage() {
     }
   };
 
+  const handlePermanentDelete = async (item: CheckupAnagraficaLicenziatario) => {
+    const nome = `${item.nome} ${item.cognome}`.trim();
+    const confirmed = await secureConfirm({
+      title: 'Eliminare DEFINITIVAMENTE?',
+      message: (
+        <>
+          <p className="mb-3">Stai per eliminare in modo <strong>definitivo e irreversibile</strong> l'anagrafica <strong>{nome}</strong>.</p>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+            ⚠️ Operazione <strong>IRREVERSIBILE</strong>: i dati non potranno più essere recuperati. Digita <strong>ELIMINA DEFINITIVAMENTE</strong> per confermare.
+          </div>
+        </>
+      ),
+      confirmationText: 'ELIMINA DEFINITIVAMENTE',
+      confirmText: 'Elimina definitivamente',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await checkupAdminApi.permanentlyDeleteAnagraficaLicenziatario(item.id);
+      success('Anagrafica eliminata definitivamente');
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || 'Errore durante l\'eliminazione definitiva');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.studioId || !formData.nome.trim() || !formData.cognome.trim()) {
@@ -250,9 +276,14 @@ export default function AdminCheckupAnagrafichePage() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-2">
                       {item.deletedAt ? (
-                        <button onClick={() => handleRestore(item)} className="inline-flex rounded-full border border-emerald-200 p-2 text-emerald-600 hover:border-emerald-300" title="Ripristina">
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        </button>
+                        <>
+                          <button onClick={() => handleRestore(item)} className="inline-flex rounded-full border border-emerald-200 p-2 text-emerald-600 hover:border-emerald-300" title="Ripristina">
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => handlePermanentDelete(item)} className="inline-flex rounded-full border border-rose-300 p-2 text-rose-700 hover:border-rose-400" title="Elimina definitivamente">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>
                       ) : (
                         <>
                           <button onClick={() => openEdit(item)} className="inline-flex rounded-full border border-slate-200 p-2 text-slate-600 hover:border-slate-300" title="Modifica">

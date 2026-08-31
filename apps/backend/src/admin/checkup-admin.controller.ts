@@ -1,7 +1,7 @@
 import { Body, ConflictException, Controller, Get, NotFoundException, Post, UseGuards, Param, Put, Patch, Delete, Query, BadRequestException, UseInterceptors, UploadedFile, Req, Res, HttpCode } from '@nestjs/common';
 import type { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
+import { Repository, Not, In } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -28,6 +28,7 @@ import { PdfConfigDto } from '../checkup/dto/pdf-config.dto';
 import { DEFAULT_PDF_CONFIG } from '../checkup/pdf-config/checkup-pdf-config.service';
 import { CheckupPreassessmentRenderService } from '../checkup/preassessment/checkup-preassessment-render.service';
 import { CreateCheckupStudioDto } from './dto/create-checkup-studio.dto';
+import { AddUserMembershipDto } from './dto/add-user-membership.dto';
 import { CreateCheckupLicenseDto } from './dto/create-checkup-license.dto';
 import { CreateCheckupSublicenseDto } from './dto/create-checkup-sublicense.dto';
 import { RenewCheckupValidityDto } from './dto/renew-checkup-validity.dto';
@@ -614,6 +615,49 @@ export class CheckupAdminController {
     return { success: true };
   }
 
+  /** Aggiunge un'appartenenza staff a un'identità esistente in un licenziatario (+ anagrafica). */
+  @Post('users/:id/memberships')
+  async addUserMembership(
+    @Param('id') id: string,
+    @Body() dto: AddUserMembershipDto,
+  ): Promise<{ success: true }> {
+    const user = await this.userRepository.findOne({ where: { id } });
+    if (!user) {
+      throw new NotFoundException('Utente non trovato');
+    }
+    if (!user.attivo) {
+      throw new ConflictException('Utenza non attiva');
+    }
+    const studio = await this.studioRepository.findOne({ where: { id: dto.studioId } });
+    if (!studio || studio.tipo !== 'licenziatario') {
+      throw new NotFoundException('Licenziatario non trovato');
+    }
+    await this.ensureStudioCapacity(dto.studioId);
+    const anagrafica = await this.anagraficaRepository.save(
+      this.anagraficaRepository.create({
+        studioId: studio.id,
+        titolo: user.titolo ?? null,
+        nome: user.nome,
+        cognome: user.cognome,
+        email: user.email ?? null,
+        telefono: user.telefono ?? null,
+        attiva: true,
+      }),
+    );
+    try {
+      await this.membershipsService.createForUser(
+        user.id,
+        { ruolo: dto.ruolo, studioId: studio.id, anagraficaId: anagrafica.id, azienda: studio.ragioneSociale || studio.nome },
+        { isPrimary: false },
+      );
+    } catch (err) {
+      // Es. appartenenza già presente: rimuovi l'anagrafica creata a vuoto e rilancia.
+      await this.anagraficaRepository.delete(anagrafica.id);
+      throw err;
+    }
+    return { success: true };
+  }
+
   /** Utenze associate a un'entità (cliente/sublicenziatario o studio), per l'import in fase di creazione studio. */
   @Get('reusable-users')
   async listReusableUsers(
@@ -666,10 +710,14 @@ export class CheckupAdminController {
     if (dto.licenseId !== undefined) {
       const currentLicense = await this.licenseRepository.findOne({ where: { studioId: studio.id } });
       const nextLicenseId = dto.licenseId?.trim() || null;
-      const activeStudioUsers = await this.userRepository.find({
-        where: { studioId: studio.id, attivo: true },
-        order: { createdAt: 'ASC' },
+      // Staff attivi via appartenenze (include utenze riusate/associate).
+      const staffIds = await this.membershipsService.activeUserIdsForContext({
+        studioId: studio.id,
+        ruoli: ['admin_studio', 'segreteria', 'collaboratore'],
       });
+      const activeStudioUsers = staffIds.length
+        ? await this.userRepository.find({ where: { id: In(staffIds) }, order: { createdAt: 'ASC' } })
+        : [];
       const normalizedKeepUserIds: string[] = Array.from(
         new Set((dto.keepUserIds || []).map((userId) => userId.trim()).filter(Boolean)),
       );
@@ -759,6 +807,20 @@ export class CheckupAdminController {
     return { success: true };
   }
 
+  /** Eliminazione DEFINITIVA (irreversibile) di uno studio già eliminato (soft). */
+  @Delete('studios/:id/permanent')
+  async permanentlyDeleteStudio(@Param('id') id: string): Promise<{ success: true }> {
+    const studio = await this.studioRepository.findOne({ where: { id }, withDeleted: true });
+    if (!studio) {
+      throw new NotFoundException('Studio non trovato');
+    }
+    if (!studio.deletedAt) {
+      throw new ConflictException('Esegui prima l\'eliminazione dello studio, poi potrai rimuoverlo definitivamente.');
+    }
+    await this.studioRepository.delete(id);
+    return { success: true };
+  }
+
   private isExpired(dateValue?: string | null) {
     if (!dateValue) return false;
     const today = new Date().toISOString().slice(0, 10);
@@ -769,9 +831,10 @@ export class CheckupAdminController {
     const license = await this.licenseRepository.findOne({ where: { studioId } });
     if (!license) return;
     // Conteggio per appartenenze (seat): un'utenza riusata occupa un posto in ogni contesto.
-    const activeCount = excludeUserId
-      ? await this.userRepository.count({ where: { studioId, attivo: true, id: Not(excludeUserId) } })
-      : await this.membershipsService.countStudioSeats(studioId);
+    const activeCount = await this.membershipsService.countContextSeats(
+      { studioId, ruoli: ['admin_studio', 'segreteria', 'collaboratore'] },
+      excludeUserId,
+    );
     if (activeCount >= license.numeroUtenze) {
       throw new ConflictException('Limite utenti licenza raggiunto');
     }
@@ -830,9 +893,7 @@ export class CheckupAdminController {
       throw new ConflictException('La sublicenza è scaduta');
     }
 
-    const activeCount = excludeUserId
-      ? await this.userRepository.count({ where: { sublicenseId, attivo: true, id: Not(excludeUserId) } })
-      : await this.membershipsService.countClientSeats(sublicenseId);
+    const activeCount = await this.membershipsService.countContextSeats({ sublicenseId }, excludeUserId);
     if (activeCount >= sublicense.numeroUtenze) {
       throw new ConflictException('Limite utenti sublicenza raggiunto');
     }
@@ -886,7 +947,18 @@ export class CheckupAdminController {
       )`, { like });
     }
 
-    return qb.orderBy('a.cognome', 'ASC').addOrderBy('a.nome', 'ASC').getMany();
+    const list = await qb.orderBy('a.cognome', 'ASC').addOrderBy('a.nome', 'ASC').getMany();
+
+    // Flag `staffLinked`: l'anagrafica ha un'utenza staff attiva collegata, sia
+    // tramite la riga utente (a.users) sia tramite un'appartenenza (utenze importate/riusate).
+    const staffRoles = ['admin_studio', 'segreteria', 'collaboratore'];
+    const viaMembership = await this.membershipsService.anagraficaIdsWithActiveStaff(list.map((a) => a.id));
+    return list.map((a) => ({
+      ...a,
+      staffLinked:
+        viaMembership.has(a.id) ||
+        (a.users || []).some((u) => u.attivo && staffRoles.includes(u.ruolo)),
+    })) as CheckupAnagraficaLicenziatario[];
   }
 
   @Post('anagrafiche-licenziatario')
@@ -969,6 +1041,20 @@ export class CheckupAdminController {
   @Post('anagrafiche-licenziatario/:id/restore')
   async restoreAnagrafica(@Param('id') id: string): Promise<{ success: true }> {
     await this.anagraficaRepository.restore(id);
+    return { success: true };
+  }
+
+  /** Eliminazione DEFINITIVA (irreversibile) di un'anagrafica già eliminata (soft). */
+  @Delete('anagrafiche-licenziatario/:id/permanent')
+  async permanentlyDeleteAnagrafica(@Param('id') id: string): Promise<{ success: true }> {
+    const anagrafica = await this.anagraficaRepository.findOne({ where: { id }, withDeleted: true });
+    if (!anagrafica) {
+      throw new NotFoundException('Anagrafica non trovata');
+    }
+    if (!anagrafica.deletedAt) {
+      throw new ConflictException('Esegui prima l\'eliminazione dell\'anagrafica, poi potrai rimuoverla definitivamente.');
+    }
+    await this.anagraficaRepository.delete(id);
     return { success: true };
   }
 
@@ -1314,6 +1400,20 @@ export class CheckupAdminController {
     return { success: true };
   }
 
+  /** Eliminazione DEFINITIVA (irreversibile) di un'utenza già eliminata (soft). */
+  @Delete('users/:id/permanent')
+  async permanentlyDeleteUser(@Param('id') id: string): Promise<{ success: true }> {
+    const user = await this.userRepository.findOne({ where: { id }, withDeleted: true });
+    if (!user) {
+      throw new NotFoundException('Utente non trovato');
+    }
+    if (!user.deletedAt) {
+      throw new ConflictException('Esegui prima l\'eliminazione dell\'utenza, poi potrai rimuoverla definitivamente.');
+    }
+    await this.userRepository.delete(id);
+    return { success: true };
+  }
+
   @Put('users/:id/reset-password')
   async resetUserPassword(
     @Param('id') id: string,
@@ -1441,6 +1541,20 @@ export class CheckupAdminController {
   @Post('clients/:id/restore')
   async restoreClient(@Param('id') id: string): Promise<{ success: true }> {
     await this.clientRepository.restore(id);
+    return { success: true };
+  }
+
+  /** Eliminazione DEFINITIVA (irreversibile) di un cliente già eliminato (soft). */
+  @Delete('clients/:id/permanent')
+  async permanentlyDeleteClient(@Param('id') id: string): Promise<{ success: true }> {
+    const client = await this.clientRepository.findOne({ where: { id }, withDeleted: true });
+    if (!client) {
+      throw new NotFoundException('Cliente non trovato');
+    }
+    if (!client.deletedAt) {
+      throw new ConflictException('Esegui prima l\'eliminazione del cliente, poi potrai rimuoverlo definitivamente.');
+    }
+    await this.clientRepository.delete(id);
     return { success: true };
   }
 
@@ -1674,7 +1788,7 @@ export class CheckupAdminController {
     if (sublicense.clientId || sublicense.clienteStudioId) {
       throw new ConflictException('Non puoi eliminare una sublicenza già assegnata a un cliente');
     }
-    const activeUsers = await this.userRepository.count({ where: { sublicenseId: id, attivo: true } });
+    const activeUsers = await this.membershipsService.countClientSeats(id);
     if (activeUsers > 0) {
       throw new ConflictException('Non puoi eliminare una sublicenza con utenti attivi associati');
     }

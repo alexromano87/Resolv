@@ -5,6 +5,7 @@ import { Cron } from '@nestjs/schedule';
 import type Redis from 'ioredis';
 import { CheckupPreassessment } from './checkup-preassessment.entity';
 import { CheckupUser } from '../users/checkup-user.entity';
+import { CheckupMembershipsService } from '../memberships/checkup-memberships.service';
 import { CheckupPreassessmentTicket } from './checkup-preassessment-ticket.entity';
 import { CheckupPreassessmentTicketMessage } from './checkup-preassessment-ticket-message.entity';
 import { CheckupPreassessmentAlert } from './checkup-preassessment-alert.entity';
@@ -46,6 +47,7 @@ export class CheckupPreassessmentThreadsService {
     private readonly mailService: CheckupMailService,
     private readonly auditLogService: CheckupAuditLogService,
     private readonly notificationsService: CheckupNotificationsService,
+    private readonly membershipsService: CheckupMembershipsService,
     @Inject('CHECKUP_REDIS') private readonly redis: Redis,
   ) {}
 
@@ -104,11 +106,14 @@ export class CheckupPreassessmentThreadsService {
 
   // ─── Email helpers ─────────────────────────────────────────────────────────
 
-  /** Trova tutti gli admin_studio attivi di un dato studioId. */
+  /** Trova tutti gli admin_studio attivi di un dato studioId (via appartenenze). */
   private async findAdminsByStudio(studioId: string): Promise<CheckupUser[]> {
-    return this.userRepository.find({
-      where: { studioId, ruolo: 'admin_studio', attivo: true },
+    const ids = await this.membershipsService.activeUserIdsForContext({
+      studioId,
+      ruoli: ['admin_studio'],
     });
+    if (!ids.length) return [];
+    return this.userRepository.find({ where: { id: In(ids) } });
   }
 
   /** Trova gli admin_studio risalendo dal clientId del preassessment. */

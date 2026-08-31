@@ -637,9 +637,10 @@ export class CheckupUsersService {
       if (activating || movingClient || becomingClient || movingSublicense) {
         const maxUsers = nextSublicense.numeroUtenze;
         if (maxUsers !== null) {
-          const activeCount = await this.userRepository.count({
-            where: { sublicenseId: nextSublicense.id, attivo: true, id: Not(user.id) },
-          });
+          const activeCount = await this.membershipsService.countContextSeats(
+            { sublicenseId: nextSublicense.id },
+            user.id,
+          );
           if (activeCount >= maxUsers) {
             throw new ConflictException('Limite utenti raggiunto per questo cliente');
           }
@@ -665,9 +666,10 @@ export class CheckupUsersService {
       if (activating || becomingStaff) {
         const maxUsers = await this.getLicenseMaxUsers(targetStudioId);
         if (maxUsers !== null) {
-          const activeCount = await this.userRepository.count({
-            where: { studioId: targetStudioId, attivo: true, id: Not(user.id) },
-          });
+          const activeCount = await this.membershipsService.countContextSeats(
+            { studioId: targetStudioId, ruoli: ['admin_studio', 'segreteria', 'collaboratore'] },
+            user.id,
+          );
           if (activeCount >= maxUsers) {
             throw new ConflictException('Limite utenti raggiunto per questo studio');
           }

@@ -11,6 +11,9 @@ import { CreateDirectChatConversationDto } from './dto-create-direct-conversatio
 import { SendDirectChatMessageDto } from './dto-send-direct-message.dto';
 import { CacheService } from '../../common/cache.service';
 import { CheckupMailService } from '../mail/checkup-mail.service';
+import { CheckupMembershipsService } from '../memberships/checkup-memberships.service';
+
+const STAFF_ROLES = ['admin_studio', 'segreteria', 'collaboratore'] as const;
 
 const DIRECT_CHAT_ONLINE_PREFIX = 'checkup:direct-chat:online:';
 const DIRECT_CHAT_ONLINE_TTL_SECONDS = 90;
@@ -31,7 +34,22 @@ export class CheckupDirectChatService {
     private readonly sublicenseRepository: Repository<CheckupSublicense>,
     private readonly cacheService: CacheService,
     private readonly mailService: CheckupMailService,
+    private readonly membershipsService: CheckupMembershipsService,
   ) {}
+
+  /** Utenti staff di uno studio (via appartenenze, così include le utenze riusate/associate). */
+  private async findStudioStaff(studioId: string): Promise<CheckupUser[]> {
+    const ids = await this.membershipsService.activeUserIdsForContext({
+      studioId,
+      ruoli: [...STAFF_ROLES],
+    });
+    if (!ids.length) return [];
+    return this.userRepository.find({
+      where: { id: In(ids) },
+      relations: ['studio'],
+      order: { cognome: 'ASC', nome: 'ASC' },
+    });
+  }
 
   private normalizePair(userA: string, userB: string) {
     return [userA, userB].sort((a, b) => a.localeCompare(b)) as [string, string];
@@ -284,11 +302,7 @@ export class CheckupDirectChatService {
         throw new ForbiddenException('Non autorizzato');
       }
       const [studioUsers, colleagueUsers] = await Promise.all([
-        this.userRepository.find({
-          where: { studioId, attivo: true },
-          relations: ['studio'],
-          order: { cognome: 'ASC', nome: 'ASC' },
-        }),
+        this.findStudioStaff(studioId),
         user.clientId
           ? this.userRepository.find({
               where: { clientId: user.clientId, ruolo: 'cliente', attivo: true },
@@ -314,7 +328,7 @@ export class CheckupDirectChatService {
             return `${entry.nome} ${entry.cognome} ${entry.email} ${entry.azienda || ''}`.toLowerCase().includes(normalizedSearch);
           }),
         studioUsers: studioUsers
-          .filter((entry) => entry.id !== user.id && entry.ruolo !== 'cliente')
+          .filter((entry) => entry.id !== user.id)
           .map((entry) => ({
             id: entry.id,
             nome: entry.nome,
@@ -336,11 +350,7 @@ export class CheckupDirectChatService {
     }
     const clientIds = await this.getAccessibleClientIdsForStaff(user);
     const [studioUsers, clientUsers] = await Promise.all([
-      this.userRepository.find({
-        where: { studioId, attivo: true },
-        relations: ['studio'],
-        order: { cognome: 'ASC', nome: 'ASC' },
-      }),
+      this.findStudioStaff(studioId),
       clientIds.length
         ? this.userRepository.find({
             where: { clientId: In(clientIds), ruolo: 'cliente', attivo: true },
@@ -397,7 +407,7 @@ export class CheckupDirectChatService {
       clients,
       colleagueUsers: [],
       studioUsers: studioUsers
-        .filter((entry) => entry.id !== user.id && entry.ruolo !== 'cliente')
+        .filter((entry) => entry.id !== user.id)
         .map((entry) => ({
           id: entry.id,
           nome: entry.nome,

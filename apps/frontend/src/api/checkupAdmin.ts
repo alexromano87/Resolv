@@ -123,6 +123,8 @@ export interface CheckupAnagraficaLicenziatario {
   provincia?: string | null;
   attiva: boolean;
   deletedAt?: string | null;
+  /** True se l'anagrafica ha un'utenza staff attiva collegata (riga utente o appartenenza). */
+  staffLinked?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -405,6 +407,10 @@ export const checkupAdminApi = {
     return api.post<{ success: true }>(`/admin/checkup/studios/${id}/restore`);
   },
 
+  permanentlyDeleteStudio: async (id: string): Promise<{ success: true }> => {
+    return api.delete<{ success: true }>(`/admin/checkup/studios/${id}/permanent`);
+  },
+
   /** Utenze associate all'entità sorgente, per proporne l'import in creazione studio. */
   getReusableUsers: async (params: { sourceClientId?: string; sourceStudioId?: string }): Promise<ReusableUser[]> => {
     const q = new URLSearchParams();
@@ -433,6 +439,10 @@ export const checkupAdminApi = {
     return api.post<{ success: true }>(`/admin/checkup/users/${id}/restore`);
   },
 
+  permanentlyDeleteAdminUser: async (id: string): Promise<{ success: true }> => {
+    return api.delete<{ success: true }>(`/admin/checkup/users/${id}/permanent`);
+  },
+
   getMacroAreasByModel: async (modelId: string) => {
     return api.get<{ id: number; code: string; label: string; color: string; sortOrder: number }[]>(
       `/admin/checkup/questions/macro-areas?modelId=${encodeURIComponent(modelId)}`,
@@ -456,6 +466,14 @@ export const checkupAdminApi = {
     return api.delete<{ success: true }>(`/admin/checkup/memberships/${membershipId}`);
   },
 
+  /** Aggiunge un'appartenenza staff a un'identità in un licenziatario (+ anagrafica). */
+  addUserMembership: async (
+    userId: string,
+    body: { studioId: string; ruolo: 'admin_studio' | 'segreteria' | 'collaboratore' },
+  ): Promise<{ success: true }> => {
+    return api.post<{ success: true }>(`/admin/checkup/users/${userId}/memberships`, body);
+  },
+
   resetAdminPassword: async (id: string, newPassword: string): Promise<CheckupAdminUser> => {
     return api.put<CheckupAdminUser>(`/admin/checkup/users/${id}/reset-password`, { newPassword });
   },
@@ -475,6 +493,10 @@ export const checkupAdminApi = {
 
   restoreAnagraficaLicenziatario: async (id: string): Promise<{ success: true }> => {
     return api.post<{ success: true }>(`/admin/checkup/anagrafiche-licenziatario/${id}/restore`);
+  },
+
+  permanentlyDeleteAnagraficaLicenziatario: async (id: string): Promise<{ success: true }> => {
+    return api.delete<{ success: true }>(`/admin/checkup/anagrafiche-licenziatario/${id}/permanent`);
   },
 
   createAnagraficaLicenziatario: async (
@@ -500,6 +522,10 @@ export const checkupAdminApi = {
 
   restoreClient: async (id: string): Promise<{ success: true }> => {
     return api.post<{ success: true }>(`/admin/checkup/clients/${id}/restore`);
+  },
+
+  permanentlyDeleteClient: async (id: string): Promise<{ success: true }> => {
+    return api.delete<{ success: true }>(`/admin/checkup/clients/${id}/permanent`);
   },
 
   createClient: async (dto: CreateCheckupClientDto): Promise<CheckupClient> => {

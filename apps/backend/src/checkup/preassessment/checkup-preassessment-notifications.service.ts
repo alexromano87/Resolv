@@ -7,7 +7,8 @@ import { EmailService } from '../../notifications/email.service';
 import { CheckupAuditLogService } from '../audit/checkup-audit-log.service';
 import { CheckupCurrentUserData } from '../auth/checkup-current-user.decorator';
 import { CheckupClient } from '../clients/checkup-client.entity';
-import { CheckupUser } from '../users/checkup-user.entity';
+import { CheckupUser, CheckupUserRole } from '../users/checkup-user.entity';
+import { CheckupMembershipsService } from '../memberships/checkup-memberships.service';
 import { CheckupPreassessment } from './checkup-preassessment.entity';
 
 @Injectable()
@@ -20,7 +21,15 @@ export class CheckupPreassessmentNotificationsService {
     private readonly userRepository: Repository<CheckupUser>,
     private readonly emailService: EmailService,
     private readonly auditLogService: CheckupAuditLogService,
+    private readonly membershipsService: CheckupMembershipsService,
   ) {}
+
+  /** Staff dello studio via appartenenze (include utenze riusate/associate). */
+  private async findStudioStaff(studioId: string, ruoli: CheckupUserRole[]): Promise<CheckupUser[]> {
+    const ids = await this.membershipsService.activeUserIdsForContext({ studioId, ruoli });
+    if (!ids.length) return [];
+    return this.userRepository.find({ where: { id: In(ids) } });
+  }
 
   private getResolvLogoDataUri() {
     if (CheckupPreassessmentNotificationsService.resolvLogoDataUri) {
@@ -99,9 +108,7 @@ export class CheckupPreassessmentNotificationsService {
     studioId: string | null,
   ) {
     if (!studioId) return;
-    const admins = await this.userRepository.find({
-      where: { studioId, ruolo: 'admin_studio', attivo: true },
-    });
+    const admins = await this.findStudioStaff(studioId, ['admin_studio']);
     const requester = `${user.nome} ${user.cognome}`.trim() || user.email;
     const company = client.nome || client.ragioneSociale || 'Cliente';
     const completedAt = new Date().toLocaleDateString('it-IT', {
@@ -203,13 +210,7 @@ export class CheckupPreassessmentNotificationsService {
     actionUrl: string,
   ) {
     if (!studioId) return;
-    const staffUsers = await this.userRepository.find({
-      where: {
-        studioId,
-        ruolo: In(['admin_studio', 'segreteria', 'collaboratore']),
-        attivo: true,
-      },
-    });
+    const staffUsers = await this.findStudioStaff(studioId, ['admin_studio', 'segreteria', 'collaboratore']);
     if (!staffUsers.length) return;
 
     const actorName = `${user.nome} ${user.cognome}`.trim() || user.email;
@@ -242,9 +243,7 @@ export class CheckupPreassessmentNotificationsService {
     studioId: string | null,
   ) {
     if (!studioId) return;
-    const admins = await this.userRepository.find({
-      where: { studioId, ruolo: 'admin_studio', attivo: true },
-    });
+    const admins = await this.findStudioStaff(studioId, ['admin_studio']);
     if (!admins.length) return;
     const requester = `${user.nome} ${user.cognome}`.trim() || user.email;
     const company = client.ragioneSociale || client.nome || 'Cliente';

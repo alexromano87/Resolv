@@ -294,6 +294,63 @@ export class CheckupMembershipsService {
     return out;
   }
 
+  /**
+   * Fra gli anagraficaId dati, restituisce quelli collegati ad almeno un'utenza
+   * staff attiva tramite appartenenza (oltre al legame diretto user.anagraficaId).
+   * Serve a includere fra i "consulenti" anche le anagrafiche le cui utenze sono
+   * state importate/riusate (legame via membership, non sulla riga utente).
+   */
+  async anagraficaIdsWithActiveStaff(anagraficaIds: string[]): Promise<Set<string>> {
+    if (!anagraficaIds.length) return new Set();
+    const rows = await this.membershipRepo
+      .createQueryBuilder('m')
+      .innerJoin('m.user', 'user')
+      .select('m.anagraficaId', 'anagraficaId')
+      .where('m.anagraficaId IN (:...ids)', { ids: anagraficaIds })
+      .andWhere('m.attiva = :a', { a: true })
+      .andWhere('user.attivo = :ua', { ua: true })
+      .andWhere("m.ruolo IN ('admin_studio','segreteria','collaboratore')")
+      .getRawMany<{ anagraficaId: string }>();
+    return new Set(rows.map((r) => r.anagraficaId).filter(Boolean));
+  }
+
+  /**
+   * Fonte di verità unica per "chi appartiene a un contesto": restituisce gli
+   * userId con un'appartenenza attiva (utente attivo) nel contesto dato,
+   * includendo sia il contesto primario sia quelli riusati/associati.
+   * Sostituisce le enumerazioni basate sulle colonne primarie dell'utente.
+   */
+  async activeUserIdsForContext(target: {
+    studioId?: string | null;
+    clientId?: string | null;
+    sublicenseId?: string | null;
+    ruoli?: CheckupUserRole[];
+  }): Promise<string[]> {
+    if (!target.studioId && !target.clientId && !target.sublicenseId) return [];
+    const qb = this.membershipRepo
+      .createQueryBuilder('m')
+      .innerJoin('m.user', 'user')
+      .select('DISTINCT m.userId', 'userId')
+      .where('m.attiva = :a', { a: true })
+      .andWhere('user.attivo = :ua', { ua: true });
+    if (target.studioId) qb.andWhere('m.studioId = :sid', { sid: target.studioId });
+    if (target.clientId) qb.andWhere('m.clientId = :cid', { cid: target.clientId });
+    if (target.sublicenseId) qb.andWhere('m.sublicenseId = :subid', { subid: target.sublicenseId });
+    if (target.ruoli?.length) qb.andWhere('m.ruolo IN (:...ruoli)', { ruoli: target.ruoli });
+    const rows = await qb.getRawMany<{ userId: string }>();
+    return rows.map((r) => r.userId).filter(Boolean);
+  }
+
+  /** Come countStudioSeats/countClientSeats ma con esclusione di un utente (percorsi di update). */
+  async countContextSeats(
+    target: { studioId?: string | null; sublicenseId?: string | null; ruoli?: CheckupUserRole[] },
+    excludeUserId?: string,
+  ): Promise<number> {
+    const ids = await this.activeUserIdsForContext(target);
+    const filtered = excludeUserId ? ids.filter((id) => id !== excludeUserId) : ids;
+    return filtered.length;
+  }
+
   /** Posti occupati (appartenenze staff attive) in uno studio licenziatario. */
   async countStudioSeats(studioId: string): Promise<number> {
     return this.membershipRepo.count({
