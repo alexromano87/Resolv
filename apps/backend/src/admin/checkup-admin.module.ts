@@ -15,6 +15,7 @@ import { CheckupPdfConfig } from '../checkup/entities/checkup-pdf-config.entity'
 import { CheckupMembership } from '../checkup/memberships/checkup-membership.entity';
 import { CheckupAdminController } from './checkup-admin.controller';
 import { QuestionManagementService } from '../checkup/services/question-management.service';
+import { QuestionModelIoService } from '../checkup/services/question-model-io.service';
 import { CheckupMembershipsService } from '../checkup/memberships/checkup-memberships.service';
 import { CheckupPreassessmentRenderService } from '../checkup/preassessment/checkup-preassessment-render.service';
 
@@ -37,6 +38,6 @@ import { CheckupPreassessmentRenderService } from '../checkup/preassessment/chec
     ]),
   ],
   controllers: [CheckupAdminController],
-  providers: [QuestionManagementService, CheckupMembershipsService, CheckupPreassessmentRenderService],
+  providers: [QuestionManagementService, QuestionModelIoService, CheckupMembershipsService, CheckupPreassessmentRenderService],
 })
 export class CheckupAdminModule {}

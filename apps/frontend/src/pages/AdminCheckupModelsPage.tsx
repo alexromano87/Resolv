@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Search, Pencil, Trash2, Layers, FileText, CheckCircle2, X, Save, Eye, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Layers, FileText, CheckCircle2, X, Save, Eye, AlertTriangle, Download, Upload, FileUp, Info } from 'lucide-react';
 import { BodyPortal } from '../components/ui/BodyPortal';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { useToast } from '../components/ui/ToastProvider';
 import * as questionApi from '../api/checkupQuestions';
+import { exportModel, downloadImportTemplate, getImportSpec, importModel, type ModelIoFormat, type ImportSpec } from '../api/checkupModelIo';
 
 type StatusFilter = 'all' | 'active' | 'inactive';
+type CreateMode = 'manual' | 'file';
 
 export default function AdminCheckupModelsPage() {
   const { success, error: toastError } = useToast();
@@ -20,6 +22,13 @@ export default function AdminCheckupModelsPage() {
   const [detailsLoading, setDetailsLoading] = useState<Record<string, boolean>>({});
   const [deleteTarget, setDeleteTarget] = useState<questionApi.QuestionModel | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [exportBusy, setExportBusy] = useState<string | null>(null);
+  // Import da file
+  const [createMode, setCreateMode] = useState<CreateMode>('manual');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importSpec, setImportSpec] = useState<ImportSpec | null>(null);
+  const [showSpec, setShowSpec] = useState(false);
+  const [templateBusy, setTemplateBusy] = useState<ModelIoFormat | null>(null);
 
   const deleteConfirmationText = deleteTarget ? `Confermo ${deleteTarget.label.trim()}` : '';
   const canConfirmDelete = deleteConfirmation.trim() === deleteConfirmationText;
@@ -53,7 +62,73 @@ export default function AdminCheckupModelsPage() {
   }, [models, query, status]);
 
   const handleOpenCreate = () => {
+    setCreateMode('manual');
+    setImportFile(null);
     setEditingModel({ code: '', label: '', description: '', attivo: true, importFromModelId: '' });
+  };
+
+  const handleExport = async (model: questionApi.QuestionModel, format: ModelIoFormat) => {
+    const key = `${model.id}:${format}`;
+    setExportBusy(key);
+    try {
+      await exportModel(model.id, format);
+    } catch (err: any) {
+      toastError(err.message || "Errore durante l'esportazione");
+    } finally {
+      setExportBusy(null);
+    }
+  };
+
+  const handleDownloadTemplate = async (format: ModelIoFormat) => {
+    setTemplateBusy(format);
+    try {
+      await downloadImportTemplate(format);
+    } catch (err: any) {
+      toastError(err.message || 'Errore download template');
+    } finally {
+      setTemplateBusy(null);
+    }
+  };
+
+  const switchToFileMode = async () => {
+    setCreateMode('file');
+    if (!importSpec) {
+      try {
+        setImportSpec(await getImportSpec());
+      } catch {
+        /* requisiti non bloccanti */
+      }
+    }
+  };
+
+  const handleImport = async () => {
+    if (!editingModel) return;
+    if (!importFile) {
+      toastError('Seleziona un file da importare');
+      return;
+    }
+    if (!editingModel.code || !editingModel.label) {
+      toastError('Codice e nome modello sono obbligatori');
+      return;
+    }
+    try {
+      setLoading(true);
+      await importModel({
+        file: importFile,
+        code: editingModel.code.trim(),
+        label: editingModel.label.trim(),
+        description: editingModel.description?.trim(),
+      });
+      success('Modello importato con successo');
+      setEditingModel(null);
+      setImportFile(null);
+      setCreateMode('manual');
+      await loadModels();
+    } catch (err: any) {
+      toastError(err.message || "Errore durante l'import del modello");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleOpenEdit = (model: questionApi.QuestionModel) => {
@@ -269,6 +344,22 @@ export default function AdminCheckupModelsPage() {
                   </button>
                 )}
               </div>
+
+              <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  <Download className="h-3.5 w-3.5" /> Esporta
+                </span>
+                {(['xlsx', 'csv', 'json'] as ModelIoFormat[]).map((fmt) => (
+                  <button
+                    key={fmt}
+                    onClick={() => handleExport(model, fmt)}
+                    disabled={exportBusy === `${model.id}:${fmt}`}
+                    className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-600 hover:border-indigo-300 disabled:opacity-50"
+                  >
+                    {exportBusy === `${model.id}:${fmt}` ? '...' : fmt === 'xlsx' ? 'Excel' : fmt.toUpperCase()}
+                  </button>
+                ))}
+              </div>
             </div>
           );
         })}
@@ -290,7 +381,25 @@ export default function AdminCheckupModelsPage() {
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              <div className="space-y-4 p-6">
+              <div className="space-y-4 p-6 max-h-[75vh] overflow-y-auto">
+                {!editingModel.id && (
+                  <div className="flex gap-2 rounded-lg bg-slate-100 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setCreateMode('manual')}
+                      className={`flex-1 rounded-md px-3 py-1.5 text-sm font-semibold transition ${createMode === 'manual' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
+                    >
+                      Manuale
+                    </button>
+                    <button
+                      type="button"
+                      onClick={switchToFileMode}
+                      className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold transition ${createMode === 'file' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
+                    >
+                      <FileUp className="h-4 w-4" /> Importa da file
+                    </button>
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-slate-700">Codice</label>
                   <input
@@ -319,7 +428,7 @@ export default function AdminCheckupModelsPage() {
                     placeholder="Breve descrizione del questionario"
                   />
                 </div>
-                {!editingModel.id && (
+                {!editingModel.id && createMode === 'manual' && (
                   <div>
                     <label className="block text-sm font-medium text-slate-700">Importa struttura da</label>
                     <div className="mt-1">
@@ -343,22 +452,114 @@ export default function AdminCheckupModelsPage() {
                     </p>
                   </div>
                 )}
-                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={editingModel.attivo ?? true}
-                    onChange={(e) => setEditingModel({ ...editingModel, attivo: e.target.checked })}
-                  />
-                  Modello attivo
-                </label>
+
+                {!editingModel.id && createMode === 'file' && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700">File del modello</label>
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls,.csv,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json"
+                        onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-indigo-600"
+                      />
+                      <p className="mt-1 text-xs text-slate-500">Formati supportati: Excel (.xlsx), CSV (.csv), JSON (.json).</p>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-slate-600">Scarica un template già formattato</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(['xlsx', 'csv', 'json'] as ModelIoFormat[]).map((fmt) => (
+                          <button
+                            key={fmt}
+                            type="button"
+                            onClick={() => handleDownloadTemplate(fmt)}
+                            disabled={templateBusy === fmt}
+                            className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:border-slate-400 disabled:opacity-50"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            {templateBusy === fmt ? '...' : fmt === 'xlsx' ? 'Excel' : fmt.toUpperCase()}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-indigo-100 bg-indigo-50/50">
+                      <button
+                        type="button"
+                        onClick={() => setShowSpec((s) => !s)}
+                        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold text-indigo-700"
+                      >
+                        <span className="inline-flex items-center gap-1.5"><Info className="h-4 w-4" /> Requisiti e formato del file</span>
+                        <span>{showSpec ? '−' : '+'}</span>
+                      </button>
+                      {showSpec && (
+                        <div className="space-y-2 px-3 pb-3 text-[11px] text-slate-600">
+                          <p>
+                            Struttura gerarchica: <strong>Macro area → Sezione → Campo</strong>. Nei file tabellari (Excel/CSV)
+                            una riga per campo; righe con lo stesso <code>macro_code</code>/<code>section_code</code> appartengono
+                            alla stessa macro/sezione. L'ordine delle righe determina l'ordinamento. Nel JSON la struttura è annidata.
+                          </p>
+                          <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+                            <table className="w-full text-left">
+                              <thead className="bg-slate-100 text-slate-500">
+                                <tr><th className="px-2 py-1 font-semibold">Colonna</th><th className="px-2 py-1 font-semibold">Descrizione</th></tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {importSpec
+                                  ? Object.entries(importSpec.columns).map(([col, desc]) => (
+                                      <tr key={col}>
+                                        <td className="px-2 py-1 align-top font-mono text-indigo-600">{col}</td>
+                                        <td className="px-2 py-1 align-top">{desc}</td>
+                                      </tr>
+                                    ))
+                                  : (
+                                    <tr><td className="px-2 py-2 text-slate-400" colSpan={2}>Caricamento requisiti…</td></tr>
+                                  )}
+                              </tbody>
+                            </table>
+                          </div>
+                          {importSpec && (
+                            <p>
+                              Tipi di campo ammessi: <strong>{importSpec.supportedFieldTypes.join(', ')}</strong>.
+                              I tipi <strong>{importSpec.optionFieldTypes.join(', ')}</strong> richiedono le opzioni
+                              (nel formato tabellare separate da <code>|</code>, nel JSON come array).
+                            </p>
+                          )}
+                          <p className="text-slate-500">Codice e nome qui sopra identificano il nuovo modello; i codici interni di macro/sezioni/campi vengono resi univoci automaticamente.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {createMode === 'manual' && (
+                  <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={editingModel.attivo ?? true}
+                      onChange={(e) => setEditingModel({ ...editingModel, attivo: e.target.checked })}
+                    />
+                    Modello attivo
+                  </label>
+                )}
                 <div className="flex justify-end gap-3 pt-2">
                   <button onClick={() => setEditingModel(null)} className="wow-button-ghost">
                     Annulla
                   </button>
-                  <button onClick={handleSave} className="wow-button">
-                    <Save className="h-4 w-4" />
-                    Salva
-                  </button>
+                  {createMode === 'file' && !editingModel.id ? (
+                    <button onClick={handleImport} disabled={loading || !importFile} className="wow-button disabled:opacity-50">
+                      <Upload className="h-4 w-4" />
+                      {loading ? 'Importazione...' : 'Importa modello'}
+                    </button>
+                  ) : (
+                    <button onClick={handleSave} className="wow-button">
+                      <Save className="h-4 w-4" />
+                      Salva
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

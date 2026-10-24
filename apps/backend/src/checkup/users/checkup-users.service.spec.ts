@@ -166,6 +166,26 @@ describe('CheckupUsersService', () => {
     expect(userRepository.save).not.toHaveBeenCalled();
   });
 
+  it('allows owner areas when all macro areas are assigned (empty assignments = all)', async () => {
+    const result = await service.create({
+      email: 'cliente@example.com',
+      password: 'Password123!',
+      nome: 'Mario',
+      cognome: 'Rossi',
+      ruolo: 'cliente',
+      clientId: 'client-1',
+      sublicenseId: 'sub-1',
+      macroAreaAssignments: [],
+      macroAreaOwner: ['b'],
+    }, currentUser);
+
+    expect(userRepository.save).toHaveBeenCalledWith(expect.objectContaining({
+      macroAreaAssignments: [],
+      macroAreaOwner: ['b'],
+    }));
+    expect(result).toMatchObject({ macroAreaAssignments: [], macroAreaOwner: ['b'] });
+  });
+
   it('rejects duplicate owners on the same macro area for the same client', async () => {
     userRepository.find.mockResolvedValue([
       {

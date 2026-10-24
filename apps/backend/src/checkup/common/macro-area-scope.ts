@@ -56,6 +56,9 @@ export function ownersWithinAssignments(
   scope: MacroAreaScope,
 ): boolean {
   if (owners.length === 0) return true;
+  // Assegnazioni vuote = "tutte le macro aree assegnate" (nessun limite): ogni
+  // owner è quindi incluso. Coerente col gate cliente (assegnazioni vuote = tutte).
+  if (assignments.length === 0) return true;
   const assigned = leafSet(assignments, scope);
   return owners.every((o) => leafSectionsOf(o, scope).every((leaf) => assigned.has(leaf)));
 }

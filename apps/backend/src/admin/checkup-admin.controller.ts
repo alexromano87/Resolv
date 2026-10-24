@@ -22,6 +22,8 @@ import { QuestionSection } from '../checkup/entities/question-section.entity';
 import { QuestionField } from '../checkup/entities/question-field.entity';
 import { QuestionModel } from '../checkup/entities/question-model.entity';
 import { QuestionManagementService } from '../checkup/services/question-management.service';
+import { QuestionModelIoService, ModelIoFormat } from '../checkup/services/question-model-io.service';
+import { COLUMN_HELP, SUPPORTED_FIELD_TYPES, OPTION_FIELD_TYPES } from '../checkup/common/question-model-structure';
 import { CheckupPdfConfig } from '../checkup/entities/checkup-pdf-config.entity';
 import { CheckupMembershipsService, MembershipContext } from '../checkup/memberships/checkup-memberships.service';
 import { PdfConfigDto } from '../checkup/dto/pdf-config.dto';
@@ -78,6 +80,7 @@ export class CheckupAdminController {
     @InjectRepository(CheckupPdfConfig)
     private pdfConfigRepository: Repository<CheckupPdfConfig>,
     private questionManagementService: QuestionManagementService,
+    private modelIoService: QuestionModelIoService,
     private renderService: CheckupPreassessmentRenderService,
     private membershipsService: CheckupMembershipsService,
   ) {}
@@ -1919,6 +1922,71 @@ export class CheckupAdminController {
   async deleteModel(@Param('id') id: string) {
     await this.questionManagementService.deleteModel(id);
     return { success: true, message: 'Modello eliminato' };
+  }
+
+  // ===== Import / Export modelli (Excel, CSV, JSON) =====
+
+  private parseModelIoFormat(format?: string): ModelIoFormat {
+    const f = (format || 'xlsx').toLowerCase();
+    if (f === 'xlsx' || f === 'csv' || f === 'json') return f;
+    throw new BadRequestException('Formato non valido. Usa xlsx, csv o json.');
+  }
+
+  private sendModelFile(res: Response, result: { buffer: Buffer; filename: string; contentType: string }) {
+    res.set({
+      'Content-Type': result.contentType,
+      'Content-Disposition': `attachment; filename="${result.filename}"`,
+      'Content-Length': String(result.buffer.length),
+    });
+    res.end(result.buffer);
+  }
+
+  /** Esporta un modello in Excel, CSV o JSON. */
+  @Get('questions/models/:id/export')
+  async exportModel(
+    @Param('id') id: string,
+    @Query('format') format: string,
+    @Res() res: Response,
+  ) {
+    const result = await this.modelIoService.exportModel(id, this.parseModelIoFormat(format));
+    this.sendModelFile(res, result);
+  }
+
+  /** Scarica un template d'esempio già formattato per l'import. */
+  @Get('questions/import-template')
+  async importTemplate(@Query('format') format: string, @Res() res: Response) {
+    const result = await this.modelIoService.buildTemplate(this.parseModelIoFormat(format));
+    this.sendModelFile(res, result);
+  }
+
+  /** Requisiti del file di import (colonne, tipi ammessi) per la UI. */
+  @Get('questions/import-spec')
+  async importSpec() {
+    return {
+      columns: COLUMN_HELP,
+      supportedFieldTypes: SUPPORTED_FIELD_TYPES,
+      optionFieldTypes: OPTION_FIELD_TYPES,
+      formats: ['xlsx', 'csv', 'json'],
+    };
+  }
+
+  /** Importa un NUOVO modello da file (Excel, CSV o JSON). */
+  @Post('questions/import-model')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async importModelFromFile(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { code?: string; label?: string; description?: string },
+  ) {
+    if (!file) throw new BadRequestException('Nessun file caricato.');
+    return this.modelIoService.importModel(
+      { buffer: file.buffer, originalname: file.originalname, mimetype: file.mimetype },
+      { code: body?.code ?? '', label: body?.label ?? '', description: body?.description ?? null },
+    );
   }
 
   // Macro Areas CRUD

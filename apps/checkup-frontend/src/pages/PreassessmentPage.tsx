@@ -132,6 +132,9 @@ export default function PreassessmentPage() {
   const [sections, setSections] = useState<SectionSpec[]>(DEFAULT_SECTIONS);
   const assignedClientMacroAreas = useMemo(() => {
     if (!isClient) return null;
+    // Il super owner vede e valida SEMPRE tutte le aree, anche se è a sua volta
+    // owner/assegnatario di singole macro o sotto-aree: nessun filtro.
+    if (user?.superOwner) return null;
     const values = Array.from(
       new Set(
         (user?.macroAreaAssignments || [])
@@ -140,7 +143,7 @@ export default function PreassessmentPage() {
       ),
     );
     return values.length > 0 ? new Set(values) : null;
-  }, [isClient, user?.macroAreaAssignments]);
+  }, [isClient, user?.superOwner, user?.macroAreaAssignments]);
 
   const [clients, setClients] = useState<PreassessmentClientEntry[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);

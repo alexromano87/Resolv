@@ -15,6 +15,7 @@ import {
   CreateFieldDto,
   UpdateFieldDto,
 } from '../dto/question-management.dto';
+import { ImportMacroInput, DEFAULT_MACRO_COLORS } from '../common/question-model-structure';
 
 @Injectable()
 export class QuestionManagementService {
@@ -72,7 +73,8 @@ export class QuestionManagementService {
   ) {
     const sanitizedBase = this.sanitizeCode(baseCode) || 'section';
     const sanitizedModel = this.sanitizeCode(modelCode) || 'model';
-    const limit = 50;
+    // La colonna `code` di checkup_question_sections è varchar(20).
+    const limit = 20;
 
     const makeCandidate = (suffix?: string) => {
       if (!suffix) {
@@ -221,6 +223,79 @@ export class QuestionManagementService {
     }
 
     return this.modelRepo.findOne({ where: { id: savedModel.id } });
+  }
+
+  /**
+   * Crea un modello completo a partire da una struttura già validata
+   * (macro aree → sezioni → campi), tipicamente proveniente da un import file.
+   * Riusa i generatori di codici univoci: i codici nel file sono "logici"
+   * (es. a, a_1) e vengono resi globalmente univoci per questo modello.
+   */
+  async createModelFromStructure(
+    meta: { code: string; label: string; description?: string | null },
+    macroAreas: ImportMacroInput[],
+  ): Promise<QuestionModel> {
+    const existing = await this.modelRepo.findOne({ where: { code: meta.code } });
+    if (existing) {
+      throw new ConflictException(`Esiste gia un modello con codice "${meta.code}"`);
+    }
+
+    const savedModel = await this.modelRepo.save(
+      this.modelRepo.create({
+        code: meta.code,
+        label: meta.label,
+        description: meta.description ?? null,
+      }),
+    );
+
+    for (let mi = 0; mi < macroAreas.length; mi += 1) {
+      const macro = macroAreas[mi];
+      const macroCode = await this.generateUniqueMacroCode(macro.code, savedModel.code);
+      const savedMacro = await this.macroAreaRepo.save(
+        this.macroAreaRepo.create({
+          modelId: savedModel.id,
+          code: macroCode,
+          label: macro.label,
+          color: macro.color || DEFAULT_MACRO_COLORS[mi % DEFAULT_MACRO_COLORS.length],
+          sortOrder: mi,
+        }),
+      );
+
+      for (let si = 0; si < macro.sections.length; si += 1) {
+        const section = macro.sections[si];
+        const sectionCode = await this.generateUniqueSectionCode(section.code, savedModel.code);
+        const savedSection = await this.sectionRepo.save(
+          this.sectionRepo.create({
+            macroAreaId: savedMacro.id,
+            code: sectionCode,
+            title: section.title,
+            description: section.description ?? undefined,
+            sortOrder: si,
+          }),
+        );
+
+        for (let fi = 0; fi < section.fields.length; fi += 1) {
+          const field = section.fields[fi];
+          const fieldId = await this.generateUniqueFieldId(field.fieldId, savedModel.code);
+          await this.fieldRepo.save(
+            this.fieldRepo.create({
+              sectionId: savedSection.id,
+              fieldId,
+              label: field.label,
+              type: field.type,
+              options: field.options ?? undefined,
+              required: field.required ?? false,
+              help: field.help ?? undefined,
+              allowDocuments: field.allowDocuments ?? true,
+              weight: field.weight ?? 1,
+              sortOrder: fi,
+            }),
+          );
+        }
+      }
+    }
+
+    return (await this.modelRepo.findOne({ where: { id: savedModel.id } }))!;
   }
 
   async updateModel(id: string, dto: UpdateQuestionModelDto) {
