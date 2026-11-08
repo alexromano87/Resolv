@@ -550,8 +550,15 @@ export class CheckupAdminController {
   }
 
   @Get('studios')
-  async listStudios(@Query('includeDeleted') includeDeleted?: string): Promise<CheckupStudio[]> {
-    return this.studioRepository.find({ order: { nome: 'ASC' }, withDeleted: includeDeleted === 'true' });
+  async listStudios(
+    @Query('includeDeleted') includeDeleted?: string,
+    @Query('includeDemo') includeDemo?: string,
+  ): Promise<CheckupStudio[]> {
+    return this.studioRepository.find({
+      where: includeDemo === 'true' ? undefined : { isDemo: false },
+      order: { nome: 'ASC' },
+      withDeleted: includeDeleted === 'true',
+    });
   }
 
   @Post('studios')
@@ -928,8 +935,12 @@ export class CheckupAdminController {
   }
 
   @Get('users')
-  async listUsers(@Query('includeDeleted') includeDeleted?: string): Promise<CheckupUser[]> {
+  async listUsers(
+    @Query('includeDeleted') includeDeleted?: string,
+    @Query('includeDemo') includeDemo?: string,
+  ): Promise<CheckupUser[]> {
     return this.userRepository.find({
+      where: includeDemo === 'true' ? undefined : { isDemo: false },
       // `memberships` include le appartenenze aggiuntive (utenze riusate/associate),
       // così le liste per-studio possono mostrare anche gli utenti il cui contesto
       // primario è un'altra entità.
@@ -1455,8 +1466,15 @@ export class CheckupAdminController {
   }
 
   @Get('clients')
-  async listClients(@Query('includeDeleted') includeDeleted?: string): Promise<CheckupClient[]> {
-    return this.clientRepository.find({ order: { createdAt: 'DESC' }, withDeleted: includeDeleted === 'true' });
+  async listClients(
+    @Query('includeDeleted') includeDeleted?: string,
+    @Query('includeDemo') includeDemo?: string,
+  ): Promise<CheckupClient[]> {
+    return this.clientRepository.find({
+      where: includeDemo === 'true' ? undefined : { isDemo: false },
+      order: { createdAt: 'DESC' },
+      withDeleted: includeDeleted === 'true',
+    });
   }
 
   @Post('clients')
@@ -1585,11 +1603,11 @@ export class CheckupAdminController {
   }
 
   @Get('licenses')
-  async listLicenses(): Promise<CheckupLicense[]> {
-    const licenses = await this.licenseRepository.find({
+  async listLicenses(@Query('includeDemo') includeDemo?: string): Promise<CheckupLicense[]> {
+    const licenses = (await this.licenseRepository.find({
       relations: ['studio', 'sublicenses', 'sublicenses.model', 'sublicenses.clienteStudio', 'sublicenses.client'],
       order: { updatedAt: 'DESC' },
-    });
+    })).filter((license) => includeDemo === 'true' || !license.studio?.isDemo);
     return licenses.map((license) => {
       license.numeroSottolicenze = license.sublicenses?.filter((s) => s.attiva).length ?? 0;
       return Object.assign(license, {
@@ -1601,11 +1619,12 @@ export class CheckupAdminController {
   }
 
   @Get('sublicenses')
-  async listSublicenses(): Promise<CheckupSublicense[]> {
-    return this.sublicenseRepository.find({
+  async listSublicenses(@Query('includeDemo') includeDemo?: string): Promise<CheckupSublicense[]> {
+    const sublicenses = await this.sublicenseRepository.find({
       relations: ['license', 'license.studio', 'clienteStudio', 'client', 'consultantAnagrafica', 'consultantAnagrafica.users'],
       order: { updatedAt: 'DESC' },
     });
+    return sublicenses.filter((s) => includeDemo === 'true' || !s.license?.studio?.isDemo);
   }
 
   @Post('licenses')

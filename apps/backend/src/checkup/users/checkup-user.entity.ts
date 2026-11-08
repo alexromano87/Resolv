@@ -74,6 +74,10 @@ export class CheckupUser {
   @Column({ default: true })
   attivo: boolean;
 
+  /** Utenza dimostrativa: visibile solo nel proprio ambiente demo, nascosta dagli elenchi superadmin. */
+  @Column({ type: 'boolean', default: false })
+  isDemo: boolean;
+
   @Column({ default: true })
   mustChangePassword: boolean;
 

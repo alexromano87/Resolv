@@ -6,6 +6,17 @@ COMPOSE_FILE="$ROOT_DIR/docker-compose.prod.yml"
 ENV_FILE="$ROOT_DIR/.env.production"
 EXPECTED_COMMIT=""
 FOLLOW_LOGS="false"
+SEED_DEMO="true"
+
+# Legge un valore da .env.production senza fare il source dell'intero file.
+read_env_value() {
+  local line
+  line=$(grep -E "^$1=" "$ENV_FILE" | tail -n 1 || true)
+  local value="${line#*=}"
+  value="${value%\"}"; value="${value#\"}"
+  value="${value%\'}"; value="${value#\'}"
+  printf '%s' "$value"
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -15,6 +26,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --follow)
       FOLLOW_LOGS="true"
+      shift
+      ;;
+    --skip-demo-seed)
+      SEED_DEMO="false"
       shift
       ;;
     *)
@@ -63,6 +78,38 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate 
 
 echo "==> Reloading nginx (pick up new frontend builds)"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec nginx nginx -s reload 2>/dev/null || true
+
+if [[ "$SEED_DEMO" == "true" ]]; then
+  DEMO_STUDIO_PASSWORD=$(read_env_value DEMO_STUDIO_PASSWORD)
+  DEMO_CLIENT_PASSWORD=$(read_env_value DEMO_CLIENT_PASSWORD)
+
+  if [[ -z "$DEMO_STUDIO_PASSWORD" || -z "$DEMO_CLIENT_PASSWORD" ]]; then
+    echo "==> Demo seed saltato: imposta DEMO_STUDIO_PASSWORD e DEMO_CLIENT_PASSWORD in .env.production"
+  else
+    echo "==> Waiting for backend to be healthy (migrations included)"
+    BACKEND_ID=$(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps -q backend)
+    BACKEND_STATUS="unknown"
+    for _ in $(seq 1 60); do
+      BACKEND_STATUS=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$BACKEND_ID" 2>/dev/null || echo "unknown")
+      [[ "$BACKEND_STATUS" == "healthy" ]] && break
+      sleep 5
+    done
+
+    if [[ "$BACKEND_STATUS" != "healthy" ]]; then
+      echo "WARNING: backend non healthy (stato: $BACKEND_STATUS), demo seed non eseguito"
+    else
+      echo "==> Demo environment (seed only if missing)"
+      if docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T \
+        -e DEMO_STUDIO_PASSWORD="$DEMO_STUDIO_PASSWORD" \
+        -e DEMO_CLIENT_PASSWORD="$DEMO_CLIENT_PASSWORD" \
+        backend node dist/src/seed-demo.js --if-missing; then
+        echo "==> Demo environment OK"
+      else
+        echo "WARNING: demo seed fallito (il deploy resta valido); rilancialo a mano per vedere l'errore"
+      fi
+    fi
+  fi
+fi
 
 echo "==> Container status"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps

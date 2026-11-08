@@ -77,6 +77,10 @@ export class CheckupStudio {
   @Column({ default: true })
   attivo: boolean;
 
+  /** Record dimostrativo: visibile solo alle utenze demo, nascosto dagli elenchi superadmin. */
+  @Column({ type: 'boolean', default: false })
+  isDemo: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 
