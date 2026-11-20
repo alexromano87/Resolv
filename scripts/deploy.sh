@@ -64,6 +64,24 @@ if [[ -n "$EXPECTED_COMMIT" ]]; then
   echo "==> Expected commit is present"
 fi
 
+# Spazio libero: il build con --no-cache accumula cache e immagini a ogni deploy.
+# Sotto soglia pulisce la cache di build; se non basta si ferma prima di toccare i servizi.
+MIN_FREE_GB=10
+DOCKER_ROOT=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo "/")
+free_gb() { df -BG --output=avail "$DOCKER_ROOT" 2>/dev/null | tail -n 1 | tr -dc '0-9'; }
+FREE_GB=$(free_gb)
+if [[ -n "$FREE_GB" && "$FREE_GB" -lt "$MIN_FREE_GB" ]]; then
+  echo "==> Spazio libero basso (${FREE_GB}G < ${MIN_FREE_GB}G): pulisco la cache di build"
+  docker builder prune -af
+  docker image prune -f
+  FREE_GB=$(free_gb)
+  if [[ -n "$FREE_GB" && "$FREE_GB" -lt "$MIN_FREE_GB" ]]; then
+    echo "ERROR: spazio libero ancora insufficiente (${FREE_GB}G). Libera spazio (es. docker image prune -af) e rilancia. Deploy interrotto, i servizi non sono stati toccati."
+    exit 1
+  fi
+  echo "==> Spazio libero ora: ${FREE_GB}G"
+fi
+
 echo "==> Building backend image"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache backend
 
@@ -113,6 +131,12 @@ fi
 
 echo "==> Container status"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
+
+# Pulizia dopo il deploy: con --no-cache la cache di build non viene mai riutilizzata.
+# Rimuove solo cache e immagini senza tag; non tocca volumi né immagini in uso.
+echo "==> Cleaning build cache and dangling images"
+docker builder prune -af >/dev/null 2>&1 || true
+docker image prune -f >/dev/null 2>&1 || true
 
 if [[ "$FOLLOW_LOGS" == "true" ]]; then
   echo "==> Following logs (Ctrl+C to stop)"
