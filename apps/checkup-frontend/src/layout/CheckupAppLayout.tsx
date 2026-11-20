@@ -1090,10 +1090,12 @@ export function CheckupAppLayout({ children }: CheckupAppLayoutProps) {
                                   return next;
                                 })
                               }
-                              className="flex w-full items-center justify-between px-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400"
+                              className="flex w-full items-center justify-between gap-2 px-2 text-left text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-400"
                             >
-                              {`${getMacroReference(g.id)} - ${stripMacroPrefix(g.label)}`}
-                              <ChevronDown className={`h-3 w-3 text-slate-500 transition ${collapsed[g.id] ? '-rotate-90' : ''}`} />
+                              <span className="min-w-0 flex-1 text-left">
+                                {`${getMacroReference(g.id)} - ${stripMacroPrefix(g.label)}`}
+                              </span>
+                              <ChevronDown className={`h-3 w-3 flex-shrink-0 text-slate-500 transition ${collapsed[g.id] ? '-rotate-90' : ''}`} />
                             </button>
                             {!collapsed[g.id] && visibleSections.map((s) => {
                               const sIdx = g.sections.indexOf(s);
